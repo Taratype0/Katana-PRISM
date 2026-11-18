@@ -1,0 +1,43 @@
+name: Katana-PRISM CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-packages-and-nextflow-dsl2:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install all 6 standalone Katana-PRISM 1.0.0 packages
+        run: |
+          python -m pip install --upgrade pip pytest umap-learn numba
+          python -m pip install -e ./packages/splicemanifold
+          python -m pip install -e ./packages/splicenet
+          python -m pip install -e ./packages/splicetrace
+          python -m pip install -e ./packages/scsplicenet
+          python -m pip install -e ./packages/scsplicetrace
+          python -m pip install -e ./packages/katana_studio
+
+      - name: Verify standalone CLI entrypoints
+        run: |
+          splicemanifold --version
+          splicenet --version
+          splicetrace --version
+          scsplicenet --version
+          scsplicetrace --version
+          katana-report --version
+          katana-studio --version
+
+      - name: Run full Nextflow DSL2, package & hygiene verification suite
+        run: pytest tests/test_katana_prism_1_0.py -v

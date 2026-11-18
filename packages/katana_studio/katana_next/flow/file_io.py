@@ -1,0 +1,194 @@
+"""Avoid re-reading unchanged files and copying immutable task products twice."""
+from __future__ import annotations
+
+from collections import OrderedDict
+import hashlib
+import os
+from pathlib import Path
+import shutil
+import time
+import json
+import sqlite3
+from threading import RLock
+
+_digests = OrderedDict()
+_lock = RLock()
+
+
+def _persistent(path, stamp, value=None):
+    root = os.environ.get('KATANA_DIGEST_CACHE')
+    if not root or not stamp[1] or not metadata_cache_ready(stamp):
+        return None
+    # One small database, not one sidecar per scientific file. Rollback journal
+    # (not WAL) and a bounded lock wait work with shared-filesystem locking;
+    # unsupported or busy caches simply fall back to reading the source.
+    key = json.dumps([str(Path(path).resolve()), *stamp])
+    try:
+        Path(root).mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(str(Path(root) / 'digests.sqlite3'), timeout=0.2) as db:
+            db.execute('CREATE TABLE IF NOT EXISTS hashes (identity TEXT PRIMARY KEY, sha TEXT NOT NULL)')
+            if value is not None:
+                db.execute('INSERT OR IGNORE INTO hashes VALUES (?, ?)', (key, value))
+                return value
+            row = db.execute('SELECT sha FROM hashes WHERE identity=?', (key,)).fetchone()
+            return row[0] if row else None
+    except (OSError, sqlite3.Error):
+        return None
+
+
+def remember(path, value, stamp=None):
+    """Record a digest computed from these bytes, not an unverified declaration."""
+    current = identity(path)
+    if stamp is not None and current != stamp:
+        raise ValueError('File changed while recording checksum: ' + str(path))
+    if not metadata_cache_ready(current):
+        return
+    key = (("inode" if current[1] else str(Path(path).resolve())), *current)
+    with _lock:
+        _digests[key] = value
+        while len(_digests) > 8192:
+            _digests.popitem(last=False)
+    _persistent(path, current, value)
+
+
+def metadata_cache_ready(stamp):
+    if os.name != 'nt':
+        return True
+    # NTFS ChangeTime can coalesce rapid writes within a clock tick. Avoid
+    # trusting a just-written identity until that window has passed. Stable
+    # large inputs retain the existing metadata cache; no delay is introduced.
+    changed_unix_ns = stamp[4] * 100 - 11644473600 * 1_000_000_000
+    return time.time_ns() - changed_unix_ns > 2_000_000_000
+
+
+def identity(path):
+    stat = Path(path).stat()
+    changed = stat.st_ctime_ns
+    if os.name == 'nt':
+        # Python's Windows st_ctime is creation time, not metadata change time.
+        # FILE_BASIC_INFO.ChangeTime catches same-size writes even if a caller
+        # restores LastWriteTime (mtime) afterwards.
+        import ctypes
+        import msvcrt
+        class BasicInfo(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_longlong) for name in
+                        ('creation', 'access', 'write', 'change')] + [('attributes', ctypes.c_uint32)]
+        info = BasicInfo()
+        api = ctypes.windll.kernel32.GetFileInformationByHandleEx
+        api.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        api.restype = ctypes.c_int
+        with Path(path).open('rb') as handle:
+            if not api(msvcrt.get_osfhandle(handle.fileno()), 0, ctypes.byref(info), ctypes.sizeof(info)):
+                raise OSError('Cannot read file change identity: ' + str(path))
+        changed = info.change
+    return [stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, changed]
+
+
+def digest(path):
+    path = Path(path).resolve(strict=True)
+    before = identity(path)
+    key = (("inode" if before[1] else str(path)), *before)
+    with _lock:
+        cached = _digests.get(key)
+        if cached is not None and metadata_cache_ready(before) and os.environ.get("KATANA_VERIFY_CONTENT") != "1":
+            _digests.move_to_end(key)
+            return cached
+    if os.environ.get('KATANA_VERIFY_CONTENT') != '1':
+        checksum = _persistent(path, before)
+        if (isinstance(checksum, str) and len(checksum) == 64 and
+                all(c in '0123456789abcdef' for c in checksum) and identity(path) == before):
+            with _lock:
+                _digests[key] = checksum
+            return checksum
+    with path.open('rb') as handle:
+        value = hashlib.file_digest(handle, 'sha256').hexdigest()
+    after = identity(path)
+    if after != before:
+        # Link/permission changes and delayed filesystem timestamps do not by
+        # themselves establish changed bytes. Recheck only this exceptional
+        # case, with a stable identity and identical content required.
+        if before[:3] != after[:3]:
+            raise ValueError(f'File changed during content verification: {path}')
+        with path.open('rb') as handle:
+            confirmed = hashlib.file_digest(handle, 'sha256').hexdigest()
+        if identity(path) != after or confirmed != value:
+            raise ValueError(f'File changed during content verification: {path}')
+    remember(path, value, after)
+    return value
+
+
+def copy_verified(source, destination, *, expected=None):
+    """Independent copy and SHA256 in one source pass; never rescan the copy.
+
+    Explicit full verification remains available through KATANA_VERIFY_CONTENT.
+    Atomic replacement is deliberately not used: callers own a new destination.
+    """
+    source, destination = Path(source), Path(destination)
+    before = identity(source)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    checksum = hashlib.sha256()
+    try:
+        with source.open('rb') as reader, destination.open('xb') as writer:
+            for block in iter(lambda: reader.read(8 * 1024 * 1024), b''):
+                checksum.update(block)
+                writer.write(block)
+        value = checksum.hexdigest()
+        if identity(source) != before or destination.stat().st_size != before[2]:
+            raise ValueError('Source changed during copying: ' + str(source))
+        if expected is not None and value != expected:
+            raise ValueError('Source checksum changed during copying: ' + str(source))
+        shutil.copystat(source, destination)
+        remember(source, value, before)
+        remember(destination, value)
+        if os.environ.get('KATANA_VERIFY_CONTENT') == '1' and digest(destination) != value:
+            raise ValueError('Destination checksum mismatch: ' + str(destination))
+        return value
+    except Exception:
+        # A partial destination stays visible for diagnosis, never accepted.
+        raise
+
+
+def retain_owned_file(source, destination):
+    """Retain a completed, owned immutable product; never use for user inputs.
+
+    A hard link survives removal of work. Across filesystems use an ordinary
+    copy. Neither route leaves a symbolic link back to the execution directory.
+    """
+    source, destination = Path(source), Path(destination)
+    if source.is_symlink() or not source.is_file():
+        raise ValueError(f'Expected a regular completed product: {source}')
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(destination)
+    try:
+        os.link(source, destination)
+    except OSError:
+        # copy2 overwrites by default; this destination belongs to a newly
+        # created private tree and is checked above.
+        shutil.copy2(source, destination)
+    return str(destination)
+
+
+def write_verified(path, content):
+    """Write a new owned byte payload and return its checksum without rereading.
+
+    Used for importer-generated format projections, never borrowed inputs.
+    A failed or short write leaves diagnostic bytes but returns no checksum.
+    """
+    path = Path(path)
+    checksum = hashlib.sha256()
+    with path.open('xb') as handle:
+        view = memoryview(content)
+        for start in range(0, len(view), 8 * 1024 * 1024):
+            block = view[start:start + 8 * 1024 * 1024]
+            if handle.write(block) != len(block):
+                raise OSError('Incomplete generated-file write: ' + str(path))
+            checksum.update(block)
+        handle.flush()
+        os.fsync(handle.fileno())
+        written = os.fstat(handle.fileno())
+    current = path.stat()
+    if (current.st_dev, current.st_ino, current.st_size) != (written.st_dev, written.st_ino, len(view)):
+        raise ValueError('Generated file changed during writing: ' + str(path))
+    value = checksum.hexdigest()
+    remember(path, value)
+    return value

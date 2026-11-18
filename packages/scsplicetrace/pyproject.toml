@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scsplicetrace"
+version = "1.0.0"
+description = "scSpliceTrace: Single-cell Smart-seq3 donor-stratified cis-regulatory RBP discovery and isoform protein consequence engine"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+]
+
+[project.scripts]
+scsplicetrace = "scsplicetrace.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["scsplicetrace*"]
+
+[tool.setuptools.package-data]
+scsplicetrace = ["data/*.gz", "data/*.json", "data/*.tsv"]

@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "splicetrace"
+version = "1.0.0"
+description = "SpliceTrace: Bulk cis-regulatory 170-RBP PWM splicing map, module bridge, 50-nt EJC NMD and UniProt domain consequence engine"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+]
+
+[project.scripts]
+splicetrace = "splicetrace.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["splicetrace*"]
+
+[tool.setuptools.package-data]
+splicetrace = ["data/*.gz", "data/*.json", "data/*.tsv"]

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Katana Pipeline Parameters (1.0.0)",
+  "description": "End-to-end alternative splicing, isoform usage, co-splicing topology, and cis-regulatory RBP consequence pipeline.",
+  "type": "object",
+  "properties": {
+    "mode": {
+      "type": "string",
+      "default": "complete",
+      "enum": [
+        "complete",
+        "upstream-only",
+        "downstream-only",
+        "single-cell"
+      ]
+    },
+    "input": {
+      "type": "string",
+      "description": "Input samplesheet CSV (FASTQ or coordinate/unsorted BAM)."
+    },
+    "contrasts": {
+      "type": "string",
+      "description": "Contrast definition CSV (contrast, treatment, control)."
+    },
+    "fasta": {
+      "type": "string",
+      "description": "Reference genome FASTA."
+    },
+    "gtf": {
+      "type": "string",
+      "description": "Reference gene annotation GTF."
+    },
+    "bundle": {
+      "type": "string",
+      "description": "Completed katana_bundle path for --mode downstream-only."
+    },
+    "outdir": {
+      "type": "string",
+      "default": "results"
+    },
+    "species": {
+      "type": "string",
+      "default": "mouse",
+      "enum": [
+        "human",
+        "mouse",
+        "auto"
+      ]
+    },
+    "rmats_mode": {
+      "type": "string",
+      "default": "JCEC",
+      "enum": [
+        "JCEC",
+        "JC"
+      ]
+    },
+    "das_fdr": {
+      "type": "number",
+      "default": 0.05
+    },
+    "das_dpsi": {
+      "type": "number",
+      "default": 0.1
+    }
+  }
+}

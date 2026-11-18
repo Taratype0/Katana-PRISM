@@ -1,0 +1,27 @@
+name: katana-prism
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python>=3.11,<3.14
+  - numpy>=1.24
+  - scipy>=1.10
+  - pandas>=2.0
+  - pyarrow>=14.0
+  - scikit-learn>=1.3
+  - matplotlib-base>=3.7
+  - numba>=0.59
+  - umap-learn>=0.5.5
+  - pydantic>=2.5
+  - fastapi>=0.109
+  - uvicorn>=0.27
+  - samtools>=1.19
+  - multiqc>=1.21
+  - pip
+  - pip:
+      - ./packages/splicemanifold
+      - ./packages/splicenet
+      - ./packages/splicetrace
+      - ./packages/scsplicenet
+      - ./packages/scsplicetrace
+      - ./packages/katana_studio

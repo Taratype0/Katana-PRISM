@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "katana-studio"
+version = "1.0.0"
+description = "Katana Studio & Katana Report: Self-contained SHA256-verified splicing synthesis report generator and interactive local workbench"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    "scikit-learn>=1.3",
+    "matplotlib>=3.7",
+    "pydantic>=2.5",
+    "fastapi>=0.109",
+    "uvicorn>=0.27",
+]
+
+[project.scripts]
+katana-studio = "katana_studio.cli:studio_main"
+katana-report = "katana_studio.cli:report_main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["katana_studio*", "katana_next*"]
+
+[tool.setuptools.package-data]
+katana_next = [
+    "_web/**/*",
+    "_net_core/**/*",
+    "_motif_core/**/*",
+    "reports/assets/*",
+    "resources/*",
+    "vendor/**/*",
+]
