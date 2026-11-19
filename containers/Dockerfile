@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="Katana-PRISM" \
-      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.version="1.0.1" \
       org.opencontainers.image.description="Standalone & nf-core downstream runtime for SpliceManifold, SpliceNet, SpliceTrace, scSpliceNet, scSpliceTrace, and Katana Studio"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

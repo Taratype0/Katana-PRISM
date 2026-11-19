@@ -352,7 +352,7 @@ class BlockFamilyV2:
                     "raw_P": p_2d[m_idx],
                 })
                 for k, v in meta_m.items():
-                    df_m[k] = v
+                    df_m[k] = ";".join(str(x) for x in v) if isinstance(v, (list, tuple, set)) else v
                 row_frames.append(df_m)
 
             if width == 0 and good_m.any():

@@ -1,4 +1,4 @@
-"""SpliceTrace 1.0.0 — High-speed bulk AS RBP discovery, mature-mRNA motif, Module-RBP bridge & GTF/UniProt ORF/NMD engine."""
+"""SpliceTrace 1.0.1 — High-speed bulk AS RBP discovery, mature-mRNA motif, Module-RBP bridge & GTF/UniProt ORF/NMD engine."""
 from splicetrace.continuous_rescue import SpliceTraceRescueResult, run_bulk_continuous_rescue
 from splicetrace.extensible_db import (
     export_katana_motif_pack,
@@ -69,4 +69,4 @@ try:
 except ImportError:
     pass
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"

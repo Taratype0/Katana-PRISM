@@ -62,7 +62,7 @@ def extract_sc_event_sequences(
         feature_only=False, compute_sha256=False,
     )
 
-    # Compute per-event affected_sequence length & GC + deduplicated regulatory flank GC
+    # Compute per-event affected_sequence length & GC + separated proximal/distal flank GC + CpG rate
     aff = rna_df[rna_df["layer"].eq("affected_sequence")]
     exon_gc_map: dict[str, float] = {}
     aff_len_map: dict[str, float] = {}
@@ -72,18 +72,60 @@ def extract_sc_event_sequences(
         exon_gc_map[str(eid)] = gc_val
         aff_len_map[str(eid)] = float(len(joined))
 
-    flank_gc_ser = compute_flank_gc_from_rna(rna_df)
+    ev_ids_arr = ev["event_id"].astype(str).to_numpy()
+    ev_i = {str(e): i for i, e in enumerate(ev_ids_arr)}
+    n_e = len(ev_ids_arr)
+    prox_num = np.zeros(n_e, dtype=float)
+    prox_den = np.zeros(n_e, dtype=float)
+    dist_num = np.zeros(n_e, dtype=float)
+    dist_den = np.zeros(n_e, dtype=float)
+    cpg_num = np.zeros(n_e, dtype=float)
+    cpg_den = np.zeros(n_e, dtype=float)
+    seen_blks: set[tuple[int, str]] = set()
+    has_blks = "blocks_json" in rna_df.columns
+    r_cols = ["event_id", "layer", "region", "sequence", "blocks_json"] if has_blks else ["event_id", "layer", "region", "sequence"]
+    for rec in rna_df[r_cols].itertuples(index=False):
+        idx = ev_i.get(str(rec.event_id))
+        if idx is None:
+            continue
+        s = str(rec.sequence).upper().replace("U", "T")
+        cpg_num[idx] += s.count("CG")
+        cpg_den[idx] += max(len(s) - 1, 1)
+        if str(rec.layer) == "regulatory_pre_mRNA" and s:
+            b_key = str(rec.blocks_json) if has_blks else str(rec.region)
+            if (idx, b_key) in seen_blks:
+                continue
+            seen_blks.add((idx, b_key))
+            tot_nt = s.count("A") + s.count("C") + s.count("G") + s.count("T")
+            if tot_nt > 0:
+                gc_cnt = s.count("G") + s.count("C")
+                if str(rec.region).endswith("_distal"):
+                    dist_num[idx] += gc_cnt
+                    dist_den[idx] += tot_nt
+                else:
+                    prox_num[idx] += gc_cnt
+                    prox_den[idx] += tot_nt
+
+    flank_gc_arr = np.divide(prox_num, prox_den, out=np.full(n_e, np.nan), where=prox_den > 0)
+    if np.isnan(flank_gc_arr).all():
+        flank_gc_ser = compute_flank_gc_from_rna(rna_df)
+        flank_gc_arr = np.array([float(flank_gc_ser.get(str(x), 0.5)) for x in ev_ids_arr], dtype=float)
+    med_fgc = float(np.nanmedian(flank_gc_arr)) if np.isfinite(flank_gc_arr).any() else 0.5
+    flank_gc_arr = np.where(np.isfinite(flank_gc_arr), flank_gc_arr, med_fgc)
+    dist_gc_arr = np.divide(dist_num, dist_den, out=flank_gc_arr.copy(), where=dist_den > 0)
+    cpg_rate_arr = cpg_num / np.maximum(cpg_den, 1.0)
 
     cov_df = pd.DataFrame({
-        "event_id": ev["event_id"].astype(str).to_numpy(),
+        "event_id": ev_ids_arr,
         "gene_id": ev["gene_id"].astype(str).to_numpy(),
         "event_type": ev["event_type"].astype(str).to_numpy(),
-        "exon_GC": [exon_gc_map.get(str(x), 0.5) for x in ev["event_id"]],
-        "flank_GC": [float(flank_gc_ser.get(str(x), 0.5)) for x in ev["event_id"]],
-        "log_length": [float(np.log1p(aff_len_map.get(str(x), 100.0))) for x in ev["event_id"]],
+        "exon_GC": [exon_gc_map.get(str(x), 0.5) for x in ev_ids_arr],
+        "flank_GC": flank_gc_arr,
+        "dist_GC": dist_gc_arr,
+        "cpg_rate": cpg_rate_arr,
+        "log_length": [float(np.log1p(aff_len_map.get(str(x), 100.0))) for x in ev_ids_arr],
     })
     cov_df["exon_GC"] = cov_df["exon_GC"].fillna(cov_df["exon_GC"].median() if cov_df["exon_GC"].notna().any() else 0.5)
-    cov_df["flank_GC"] = cov_df["flank_GC"].fillna(cov_df["flank_GC"].median() if cov_df["flank_GC"].notna().any() else 0.5)
     return rna_df, cov_df
 
 
@@ -97,7 +139,7 @@ def build_sc_directional_motif_tensor(
     library: CuratedMotifLibrary | None = None,
     *,
     include_exonic_boundaries: bool = True,
-    include_distal_flanks: bool = False,
+    include_distal_flanks: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
     """Build signed directional x positional RBP motif tensor (E x R_regions x N_RBPs) combining:
       0. `mature_consequence_delta`: log2(1+odds_inclusion) - log2(1+odds_exclusion) on mature mRNA (`mature_local_form`)
@@ -139,7 +181,7 @@ def build_sc_directional_motif_tensor(
         ])
     distal_offset = len(region_names)
     if include_distal_flanks:
-        region_names.extend(["upstream_intron_distal", "downstream_intron_distal"])
+        region_names.extend(["upstream_intron_200_500", "downstream_intron_200_500"])
 
     model_tensor = np.zeros((n_ev, len(region_names), len(m_ids)), dtype=float)
 

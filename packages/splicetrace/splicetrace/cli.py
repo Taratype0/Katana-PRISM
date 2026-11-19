@@ -1,4 +1,4 @@
-"""Standalone CLI for splicetrace (1.0.0) — Package & nf-core unified interface."""
+"""Standalone CLI for splicetrace (1.0.1) — Package & nf-core unified interface."""
 from __future__ import annotations
 
 import argparse
@@ -11,13 +11,13 @@ import pandas as pd
 from splicetrace.continuous_rescue import run_bulk_continuous_rescue
 from splicetrace.fast_accel import configure_server_threads, fast_score_mean_log_odds
 from splicetrace.matching import match_events
-from splicetrace.module_bridge import bridge_splicenet_modules_to_rbps
+from splicetrace.module_bridge import annotate_rbp_expression_disambiguation, bridge_splicenet_modules_to_rbps
 from splicetrace.protein_consequences import trace_protein_and_nmd_consequences
 from splicetrace.rmats_io import load_rmats_measurable_events
 from splicetrace.rna_forms import IndexedFasta, compute_flank_gc_fast, extract_event_rna, trace_motif_instances
 from splicetrace.scanner import run_splicetrace_scan
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 
 def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SPLICETRACE") -> None:
@@ -159,7 +159,7 @@ def _run_gtf_and_5plots(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="splicetrace",
-        description="SpliceTrace 1.0.0: Bulk AS RBP discovery, mature-mRNA motif, SpliceNet bridge & GTF/UniProt ORF/NMD suite.",
+        description="SpliceTrace 1.0.1: Bulk AS RBP discovery, mature-mRNA motif, SpliceNet bridge & GTF/UniProt ORF/NMD suite.",
     )
     parser.add_argument("--version", action="version", version=f"splicetrace {__version__}")
     parser.add_argument("--rmats", type=Path, default=None, help="rMATS directory, .tar.gz archive, or measurable events table")
@@ -169,6 +169,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fasta", type=Path, required=False, help="Indexed reference genome FASTA (.fa with .fa.fai)")
     parser.add_argument("--gtf", type=Path, default=None, help="Optional annotation GTF (.gtf[.gz]) for ORF, frameshift, 50-nt EJC NMD & UniProt consequences + 5 plots")
     parser.add_argument("--splicenet-modules", type=Path, default=None, help="Optional SpliceNet module_assignments.tsv for Cross-Module RBP motif bridge")
+    parser.add_argument("--splicenet-scores", type=Path, default=None, help="Optional SpliceNet module_scores.tsv for eigengene x RBP expression correlation")
+    parser.add_argument("--rbp-expression", type=Path, default=None, help="Optional cohort gene expression table/matrix for paralog expression disambiguation")
+    parser.add_argument("--min-rbp-expr", type=float, default=1.0, help="Minimum mean expression (TPM/CPM) to mark an RBP as expressed (default: 1.0)")
     parser.add_argument("--threads", type=int, default=0, help="CPU threads for Numba acceleration (0 = auto-detect SLURM_CPUS_PER_TASK / all cores)")
     parser.add_argument("-o", "--output-dir", "--out", dest="output_dir", type=Path, required=False, help="Output directory")
     parser.add_argument("--mode", choices=["auto", "discrete", "rescue"], default="auto")
@@ -176,6 +179,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--assignments-tsv", type=Path, default=None)
     parser.add_argument("--flank-gc-caliper", type=float, default=0.08)
     parser.add_argument("--acceptor-core-nt", type=int, default=3)
+    parser.add_argument("--distal-intron-nt", type=int, default=500, help="Distal intronic cis-regulatory window outer bound in nt (default: 500; 0 for proximal 200-nt only)")
     parser.add_argument("--permutations", type=int, default=999)
     parser.add_argument("--seed", type=int, default=20261117)
     parser.add_argument("--emit-versions-yml", type=Path, default=None)
@@ -198,6 +202,8 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     bridge_pool_df: pd.DataFrame | None = None
+    rbp_expr_df = _read_table(args.rbp_expression) if args.rbp_expression is not None else None
+    mod_scores_df = _read_table(args.splicenet_scores) if args.splicenet_scores is not None else None
 
     if args.rmats is not None and (args.mode in {"auto", "rescue"} and args.foreground is None):
         meas_df = load_rmats_measurable_events(args.rmats, args.fasta)
@@ -212,7 +218,17 @@ def main(argv: list[str] | None = None) -> int:
                 write_nfcore_versions_yml(args.emit_versions_yml, args.process_name)
             print(json.dumps(receipt))
             return 0
-        rescue_res = run_bulk_continuous_rescue(meas_df, args.fasta, lib, n_permutations=args.permutations, seed=args.seed, threads=active_threads)
+        rescue_res = run_bulk_continuous_rescue(
+            meas_df,
+            args.fasta,
+            lib,
+            distal_intron_nt=args.distal_intron_nt,
+            rbp_expr_df=rbp_expr_df,
+            min_rbp_expr=args.min_rbp_expr,
+            n_permutations=args.permutations,
+            seed=args.seed,
+            threads=active_threads,
+        )
         rescue_res.rbp_ranking.to_csv(out_dir / "rbp_ranking.tsv", sep="\t", index=False)
         rescue_res.region_tests.to_csv(out_dir / "region_tests.tsv", sep="\t", index=False)
         rescue_res.event_contrasts.to_csv(out_dir / "evaluated_events.tsv", sep="\t", index=False)
@@ -240,7 +256,17 @@ def main(argv: list[str] | None = None) -> int:
         m_ok = matched[matched["status"].eq("matched")]
         conseq_fg = pd.DataFrame()
         if args.mode == "auto" and len(m_ok) < 250:
-            rescue_res = run_bulk_continuous_rescue(comb_all, args.fasta, lib, n_permutations=args.permutations, seed=args.seed, threads=active_threads)
+            rescue_res = run_bulk_continuous_rescue(
+                comb_all,
+                args.fasta,
+                lib,
+                distal_intron_nt=args.distal_intron_nt,
+                rbp_expr_df=rbp_expr_df,
+                min_rbp_expr=args.min_rbp_expr,
+                n_permutations=args.permutations,
+                seed=args.seed,
+                threads=active_threads,
+            )
             rescue_res.rbp_ranking.to_csv(out_dir / "rbp_ranking.tsv", sep="\t", index=False)
             rescue_res.region_tests.to_csv(out_dir / "region_tests.tsv", sep="\t", index=False)
             conseq_fg = rescue_res.mature_consequences
@@ -249,12 +275,28 @@ def main(argv: list[str] | None = None) -> int:
             matched.to_csv(out_dir / "matched_events.tsv", sep="\t", index=False)
             needed = set(m_ok["foreground_event"].astype(str)) | set(m_ok["background_event"].astype(str))
             comb_ev = pd.concat([fg[fg["event_id"].isin(needed)], bg[bg["event_id"].isin(needed)]], ignore_index=True)
-            rna_df = extract_event_rna(comb_ev, args.fasta, acceptor_core_nt=args.acceptor_core_nt)
+            rna_df = extract_event_rna(
+                comb_ev,
+                args.fasta,
+                intron_nt=200,
+                distal_intron_nt=args.distal_intron_nt,
+                acceptor_core_nt=args.acceptor_core_nt,
+            )
             res = run_splicetrace_scan(matched, rna_df, lib, permutations=args.permutations, seed=args.seed)
             res["whole_regions"].to_csv(out_dir / "region_tests.tsv", sep="\t", index=False)
             res["clusters"].to_csv(out_dir / "motif_clusters.tsv", sep="\t", index=False)
-            res["rbp_ranking_all"].to_csv(out_dir / "rbp_ranking.tsv", sep="\t", index=False)
-            receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "mode": "discrete_matched", "active_threads": int(active_threads), "matched_events": int(len(m_ok)), "significant_rbps_fwer05": int((res["rbp_ranking_all"]["rbp_P_FWER"] <= 0.05).sum())}
+            rank_all = res["rbp_ranking_all"]
+            if rbp_expr_df is not None and not rank_all.empty:
+                z_col_disc = "rbp_pivotal_Z" if "rbp_pivotal_Z" in rank_all.columns else rank_all.columns[1]
+                rank_all = annotate_rbp_expression_disambiguation(
+                    rank_all,
+                    rbp_expr_df,
+                    fwer_col="rbp_P_FWER",
+                    z_col=z_col_disc,
+                    min_rbp_expr=args.min_rbp_expr,
+                )
+            rank_all.to_csv(out_dir / "rbp_ranking.tsv", sep="\t", index=False)
+            receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "mode": "discrete_matched", "active_threads": int(active_threads), "matched_events": int(len(m_ok)), "significant_rbps_fwer05": int((rank_all["rbp_P_FWER"] <= 0.05).sum())}
         if args.gtf is not None:
             if "dpsi" not in fg.columns:
                 fg["dpsi"] = 0.0
@@ -278,6 +320,10 @@ def main(argv: list[str] | None = None) -> int:
             br_df = bridge_splicenet_modules_to_rbps(
                 mod_in, ev_bridge, args.fasta, lib,
                 extract_rna_fn=extract_event_rna, score_odds_fn=fast_score_mean_log_odds,
+                distal_intron_nt=args.distal_intron_nt,
+                rbp_expr_df=rbp_expr_df,
+                module_scores_df=mod_scores_df,
+                min_rbp_expr=args.min_rbp_expr,
                 n_permutations=args.permutations, seed=args.seed,
             )
             br_df.to_csv(out_dir / "module_rbp_bridge.tsv", sep="\t", index=False)

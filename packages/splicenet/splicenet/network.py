@@ -17,17 +17,23 @@ def compute_tukey_bicor_matrix(
     *,
     max_p_outliers: float = 0.10,
 ) -> np.ndarray:
-    """Vectorized Langfelder & Horvath (2012) Tukey biweight midcorrelation (`bicor`) with `maxPOutliers`."""
+    """Vectorized Langfelder & Horvath (2012) subgroup-safe Tukey biweight midcorrelation (`bicor`).
+
+    Protects genuine biological replicate subgroups (`>=2` replicates in `N>=12` cohorts) by anchoring
+    the tail reference quantile at `u_ref = 0.65`, while single-sample technical spikes (`|u| >= 1`)
+    receive zero weight.
+    """
     X = np.asarray(data_events_by_samples, dtype=float)
     n_ev, n_samp = X.shape
     med = np.median(X, axis=1, keepdims=True)
     diff = X - med
     mad = np.median(np.abs(diff), axis=1, keepdims=True)
-    q_lo = np.quantile(X, max_p_outliers / 2.0, axis=1, keepdims=True)
-    q_hi = np.quantile(X, 1.0 - max_p_outliers / 2.0, axis=1, keepdims=True)
+    p_tail = min(0.25, max(max_p_outliers / 2.0, 1.25 / max(n_samp, 4)))
+    q_lo = np.quantile(X, p_tail, axis=1, keepdims=True)
+    q_hi = np.quantile(X, 1.0 - p_tail, axis=1, keepdims=True)
 
-    scale_neg = np.maximum(9.0 * mad, (med - q_lo) / 0.9999)
-    scale_pos = np.maximum(9.0 * mad, (q_hi - med) / 0.9999)
+    scale_neg = np.maximum(9.0 * mad, (med - q_lo) / 0.65)
+    scale_pos = np.maximum(9.0 * mad, (q_hi - med) / 0.65)
     denom = np.where(diff < 0.0, scale_neg, scale_pos)
     u = np.divide(diff, denom, out=np.zeros_like(diff), where=denom > 1e-12)
     w = np.where(np.abs(u) < 1.0, (1.0 - u * u) ** 2, 0.0)

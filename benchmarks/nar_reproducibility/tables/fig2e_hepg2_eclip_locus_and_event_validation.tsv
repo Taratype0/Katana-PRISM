@@ -1,0 +1,5 @@
+knockdown_RBP	eCLIP_assay	is_cognate_eCLIP	fg_motif_events	fg_locus_bound	fg_locus_bound_pct	bg_motif_events	bg_locus_bound	bg_locus_bound_pct	locus_odds_ratio	locus_ci95_low	locus_ci95_high	locus_fisher_P_greater	locus_fisher_P_twosided	whole_event_fg_bound	whole_event_fg_bound_pct	whole_event_bg_events	whole_event_bg_bound	whole_event_bg_bound_pct	whole_event_odds_ratio	whole_event_ci95_low	whole_event_ci95_high	whole_event_fisher_P_greater	whole_event_fisher_P_twosided
+RBFOX2	RBFOX2_HepG2_eCLIP	True	26	4	15.38	629	28	4.45	3.888	0.913	12.586	0.032837043253171036	0.032837043253171036	5	19.23	1500	80	5.33	4.219	1.211	11.901	0.012388959737904161	0.012388959737904161
+RBFOX2	PTBP1_HepG2_eCLIP	False	26	0	0.0	629	0	0.0		0.0	99.0	1.0	1.0	0	0.0	1500	30	2.0	0.0	0.0	7.913	1.0	1.0
+PTBP1	RBFOX2_HepG2_eCLIP	False	106	10	9.43	1499	28	1.87	5.461	2.297	12.005	0.00010240115389007898	0.00010240115389007898	15	14.15	1500	62	4.13	3.818	1.939	7.121	8.291446327833337e-05	8.291446327833337e-05
+PTBP1	PTBP1_HepG2_eCLIP	True	106	4	3.77	1499	15	1.0	3.874	0.919	12.459	0.032228607486796026	0.032228607486796026	7	6.6	1500	29	1.93	3.582	1.292	8.63	0.007577807821576031	0.007577807821576031

@@ -1,4 +1,4 @@
-# SpliceManifold (`1.0.0`)
+# SpliceManifold (`1.0.1`)
 
 **SpliceManifold** is an independent Python package for **PS-DAS** (*Precision-Supported Differential Alternative Splicing*) qualification and depth-stabilized splicing manifold geometry across bulk RNA-seq (`rMATS`) and full-length single-cell RNA-seq (`Smart-seq3`).
 

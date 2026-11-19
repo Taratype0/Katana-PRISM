@@ -10,8 +10,8 @@ import pandas as pd
 from scipy.stats import norm
 
 from splicetrace.library import CuratedMotifLibrary, load_bundled_human_rbp_library
+from splicetrace.module_bridge import annotate_rbp_expression_disambiguation
 from splicetrace.rna_forms import (
-    compute_flank_gc_from_rna,
     compute_sequence_gc,
     event_forms,
     extract_event_rna,
@@ -33,6 +33,13 @@ def _score_mean_log_odds(sequences: list[str], models: dict[str, dict]) -> np.nd
     return fast_score_mean_log_odds(sequences, models)
 
 
+def _pwm_ic_weight(matrix_obj: object) -> float:
+    mat = np.clip(np.asarray(matrix_obj, dtype=float), 1e-6, 1.0)
+    mat = mat / mat.sum(axis=1, keepdims=True)
+    ic_per_pos = 2.0 + np.sum(mat * np.log2(mat), axis=1)
+    return float(max(0.25, np.sum(np.maximum(ic_per_pos, 0.0)) ** 1.5))
+
+
 def build_directional_11channel_tensor(
     events_df: pd.DataFrame,
     rna_df: pd.DataFrame,
@@ -41,6 +48,7 @@ def build_directional_11channel_tensor(
     models = library.models
     m_ids = list(models.keys())
     mid_to_idx = {mid: idx for idx, mid in enumerate(m_ids)}
+    ic_weights = np.array([_pwm_ic_weight(models[m]["matrix"]) for m in m_ids], dtype=float)
     rbps = sorted(library.rbp_to_models.keys())
     rbp_to_mcols = {r: [mid_to_idx[m] for m in library.rbp_to_models[r] if m in mid_to_idx] for r in rbps}
 
@@ -52,9 +60,11 @@ def build_directional_11channel_tensor(
         "upstream_intron_0_35",
         "upstream_intron_35_85",
         "upstream_intron_85_200",
+        "upstream_intron_200_500",
         "downstream_intron_0_35",
         "downstream_intron_35_85",
         "downstream_intron_85_200",
+        "downstream_intron_200_500",
         "upstream_exon_3p_50",
         "alt_exon_5p_50",
         "alt_exon_3p_50",
@@ -79,17 +89,17 @@ def build_directional_11channel_tensor(
                 if len(joins) >= 2:
                     j1, j2 = int(joins[0]), int(joins[-1])
                     for piece, sl_i in (
-                        (seq_inc[max(0, j1 - 50) : j1], 7),
-                        (seq_inc[j1 : min(j2, j1 + 50)], 8),
-                        (seq_inc[max(j1, j2 - 50) : j2], 9),
-                        (seq_inc[j2 : min(len(seq_inc), j2 + 50)], 10),
+                        (seq_inc[max(0, j1 - 50) : j1], 9),
+                        (seq_inc[j1 : min(j2, j1 + 50)], 10),
+                        (seq_inc[max(j1, j2 - 50) : j2], 11),
+                        (seq_inc[j2 : min(len(seq_inc), j2 + 50)], 12),
                     ):
                         if len(piece) >= 6:
                             ex_seqs.append(piece)
                             ex_targets.append((ei, sl_i))
                 elif len(joins) == 1:
                     j1 = int(joins[0])
-                    for piece, sl_i in ((seq_inc[max(0, j1 - 50) : j1], 7), (seq_inc[j1 : min(len(seq_inc), j1 + 50)], 10)):
+                    for piece, sl_i in ((seq_inc[max(0, j1 - 50) : j1], 9), (seq_inc[j1 : min(len(seq_inc), j1 + 50)], 12)):
                         if len(piece) >= 6:
                             ex_seqs.append(piece)
                             ex_targets.append((ei, sl_i))
@@ -111,52 +121,59 @@ def build_directional_11channel_tensor(
                 continue
             base_r = str(rec.region)
             seq = str(rec.sequence)
-            if not seq or base_r.endswith("_distal"):
+            if not seq:
                 continue
+            is_distal = base_r.endswith("_distal")
+            stem_r = base_r[:-7] if is_distal else base_r
             kind = etype_map.get(str(rec.event_id), "SE")
             route = None
             if kind == "SE":
-                if base_r == "inclusion_junction_1_acceptor_intron":
+                if stem_r == "inclusion_junction_1_acceptor_intron":
                     route = (True, 1.0)
-                elif base_r == "inclusion_junction_2_donor_intron":
+                elif stem_r == "inclusion_junction_2_donor_intron":
                     route = (False, 1.0)
             elif kind == "RI":
-                if base_r == "exclusion_junction_1_acceptor_intron":
+                if stem_r == "exclusion_junction_1_acceptor_intron":
                     route = (True, 1.0)
-                elif base_r == "exclusion_junction_1_donor_intron":
+                elif stem_r == "exclusion_junction_1_donor_intron":
                     route = (False, 1.0)
             elif kind == "A3SS":
-                if base_r == "inclusion_junction_1_acceptor_intron":
+                if stem_r == "inclusion_junction_1_acceptor_intron":
                     route = (True, 1.0)
-                elif base_r == "exclusion_junction_1_acceptor_intron":
+                elif stem_r == "exclusion_junction_1_acceptor_intron":
                     route = (True, -1.0)
-                elif base_r == "inclusion_junction_1_donor_intron":
+                elif stem_r == "inclusion_junction_1_donor_intron":
                     route = (False, 1.0)
             elif kind == "A5SS":
-                if base_r == "inclusion_junction_1_donor_intron":
+                if stem_r == "inclusion_junction_1_donor_intron":
                     route = (False, 1.0)
-                elif base_r == "exclusion_junction_1_donor_intron":
+                elif stem_r == "exclusion_junction_1_donor_intron":
                     route = (False, -1.0)
-                elif base_r == "inclusion_junction_1_acceptor_intron":
+                elif stem_r == "inclusion_junction_1_acceptor_intron":
                     route = (True, 1.0)
             elif kind == "MXE":
-                if base_r == "inclusion_junction_1_acceptor_intron":
+                if stem_r == "inclusion_junction_1_acceptor_intron":
                     route = (True, 1.0)
-                elif base_r == "exclusion_junction_1_acceptor_intron":
+                elif stem_r == "exclusion_junction_1_acceptor_intron":
                     route = (True, -1.0)
-                elif base_r == "inclusion_junction_2_donor_intron":
+                elif stem_r == "inclusion_junction_2_donor_intron":
                     route = (False, 1.0)
-                elif base_r == "exclusion_junction_2_donor_intron":
+                elif stem_r == "exclusion_junction_2_donor_intron":
                     route = (False, -1.0)
             if route is None:
                 continue
             is_up, sgn = route
-            L = len(seq)
-            for b_i, (d0, d1) in enumerate(((0, 35), (35, 85), (85, 200))):
-                piece = seq[max(0, L - d1) : max(0, L - d0)] if is_up else seq[min(L, d0) : min(L, d1)]
-                if len(piece) >= 6:
-                    sub_seqs.append(piece)
-                    sub_targets.append((ei, (1 if is_up else 4) + b_i, sgn))
+            if is_distal:
+                if len(seq) >= 12:
+                    sub_seqs.append(seq)
+                    sub_targets.append((ei, 4 if is_up else 8, sgn))
+            else:
+                L = len(seq)
+                for b_i, (d0, d1) in enumerate(((0, 35), (35, 85), (85, 200))):
+                    piece = seq[max(0, L - d1) : max(0, L - d0)] if is_up else seq[min(L, d0) : min(L, d1)]
+                    if len(piece) >= 6:
+                        sub_seqs.append(piece)
+                        sub_targets.append((ei, (1 if is_up else 5) + b_i, sgn))
         if sub_seqs:
             b_scores = _score_mean_log_odds(sub_seqs, models)
             for idx_s, (ei, slot, sgn) in enumerate(sub_targets):
@@ -168,7 +185,9 @@ def build_directional_11channel_tensor(
     for r_i, r_name in enumerate(rbps):
         cols = rbp_to_mcols[r_name]
         if cols:
-            rbp_tensor[:, :, r_i] = np.mean(norm_m[:, :, cols], axis=2)
+            w_ic = ic_weights[cols]
+            w_ic = w_ic / w_ic.sum()
+            rbp_tensor[:, :, r_i] = np.tensordot(norm_m[:, :, cols], w_ic, axes=([2], [0]))
     return rbp_tensor, np.asarray(rbps, dtype=str), region_names
 
 
@@ -187,6 +206,10 @@ def run_bulk_continuous_rescue(
     fasta_path: Path | str,
     library: CuratedMotifLibrary | None = None,
     *,
+    distal_intron_nt: int = 500,
+    include_exon_gc: bool = False,
+    rbp_expr_df: pd.DataFrame | None = None,
+    min_rbp_expr: float = 1.0,
     max_events_blind_depth: int = 3500,
     n_permutations: int = 1999,
     seed: int = 20261117,
@@ -248,7 +271,15 @@ def run_bulk_continuous_rescue(
             valid_mask.append(False)
     cont_df = panel_raw.loc[valid_mask].reset_index(drop=True)
 
-    rna_df = extract_event_rna(cont_df, Path(fasta_path), intron_nt=200, acceptor_core_nt=3, feature_only=False, compute_sha256=False)
+    rna_df = extract_event_rna(
+        cont_df,
+        Path(fasta_path),
+        intron_nt=200,
+        distal_intron_nt=int(distal_intron_nt),
+        acceptor_core_nt=3,
+        feature_only=False,
+        compute_sha256=False,
+    )
     rbp_tensor, rbps, region_names = build_directional_11channel_tensor(cont_df, rna_df, lib)
 
     aff = rna_df[rna_df["layer"].eq("affected_sequence")]
@@ -257,32 +288,57 @@ def run_bulk_continuous_rescue(
         joined = "".join(grp["sequence"].astype(str))
         exon_gc_map[str(eid)] = compute_sequence_gc(joined)[0]
         aff_len_map[str(eid)] = float(len(joined))
-    flank_gc_ser = compute_flank_gc_from_rna(rna_df)
 
     ev_i = {str(e): i for i, e in enumerate(cont_df["event_id"])}
-    cpg_num = np.zeros(len(cont_df), dtype=float)
-    cpg_den = np.zeros(len(cont_df), dtype=float)
-    for rec in rna_df[["event_id", "sequence"]].itertuples(index=False):
+    n_c = len(cont_df)
+    cpg_num = np.zeros(n_c, dtype=float)
+    cpg_den = np.zeros(n_c, dtype=float)
+    prox_gc_num = np.zeros(n_c, dtype=float)
+    prox_gc_den = np.zeros(n_c, dtype=float)
+    dist_gc_num = np.zeros(n_c, dtype=float)
+    dist_gc_den = np.zeros(n_c, dtype=float)
+    seen_reg_blks: set[tuple[int, str]] = set()
+    has_blks = "blocks_json" in rna_df.columns
+    r_cols = ["event_id", "layer", "region", "sequence", "blocks_json"] if has_blks else ["event_id", "layer", "region", "sequence"]
+    for rec in rna_df[r_cols].itertuples(index=False):
         idx = ev_i.get(str(rec.event_id))
-        if idx is not None:
-            s = str(rec.sequence)
-            cpg_num[idx] += s.count("CG")
-            cpg_den[idx] += max(len(s) - 1, 1)
+        if idx is None:
+            continue
+        s = str(rec.sequence).upper().replace("U", "T")
+        cpg_num[idx] += s.count("CG")
+        cpg_den[idx] += max(len(s) - 1, 1)
+        if str(rec.layer) == "regulatory_pre_mRNA" and s:
+            b_key = str(rec.blocks_json) if has_blks else str(rec.region)
+            if (idx, b_key) in seen_reg_blks:
+                continue
+            seen_reg_blks.add((idx, b_key))
+            tot_nt = s.count("A") + s.count("C") + s.count("G") + s.count("T")
+            if tot_nt > 0:
+                gc_cnt = s.count("G") + s.count("C")
+                if str(rec.region).endswith("_distal"):
+                    dist_gc_num[idx] += gc_cnt
+                    dist_gc_den[idx] += tot_nt
+                else:
+                    prox_gc_num[idx] += gc_cnt
+                    prox_gc_den[idx] += tot_nt
     cpg_rate = cpg_num / np.maximum(cpg_den, 1.0)
 
     exon_gc = np.array([exon_gc_map.get(str(x), 0.5) for x in cont_df["event_id"]], dtype=float)
-    flank_gc = np.array([float(flank_gc_ser.get(str(x), 0.5)) for x in cont_df["event_id"]], dtype=float)
     exon_gc = np.where(np.isfinite(exon_gc), exon_gc, 0.5)
-    flank_gc = np.where(np.isfinite(flank_gc), flank_gc, 0.5)
+    flank_gc = np.divide(prox_gc_num, prox_gc_den, out=np.full(n_c, 0.5), where=prox_gc_den > 0)
+    dist_gc = np.divide(dist_gc_num, dist_gc_den, out=flank_gc, where=dist_gc_den > 0)
     log_len = np.array([float(np.log1p(aff_len_map.get(str(x), 100.0))) for x in cont_df["event_id"]], dtype=float)
     b_psi = np.clip(cont_df["baseline_PSI"].to_numpy(dtype=float), 0.02, 0.98)
     etypes = cont_df["event_type"].astype(str).to_numpy()
     uniq_et = sorted(set(etypes))
 
-    X_nuis = np.column_stack([
-        np.ones(len(cont_df), dtype=float),
-        exon_gc,
-        flank_gc,
+    nuis_cols = [np.ones(n_c, dtype=float)]
+    if include_exon_gc:
+        nuis_cols.append(exon_gc)
+    nuis_cols.append(flank_gc)
+    if np.std(dist_gc - flank_gc) > 1e-6:
+        nuis_cols.append(dist_gc)
+    nuis_cols.extend([
         cpg_rate,
         log_len,
         b_psi,
@@ -290,6 +346,7 @@ def run_bulk_continuous_rescue(
         cont_df["log_depth"].to_numpy(dtype=float),
         *[(etypes == et).astype(float) for et in uniq_et[1:]],
     ])
+    X_nuis = np.column_stack(nuis_cols)
 
     dpsi_c = cont_df["dpsi"].to_numpy(dtype=float)
     pv_c = np.clip(pd.to_numeric(cont_df.get("PValue", cont_df.get("fdr", 1.0)), errors="coerce").fillna(1.0).to_numpy(dtype=float), 1e-12, 1.0)
@@ -351,6 +408,14 @@ def run_bulk_continuous_rescue(
         by=["rbp_P_FWER", "sequence_evidence_score", "RBP"], ascending=[True, False, True], kind="mergesort"
     ).reset_index(drop=True)
     rbp_df["sequence_rank"] = np.arange(1, len(rbp_df) + 1, dtype=int)
+    if rbp_expr_df is not None:
+        rbp_df = annotate_rbp_expression_disambiguation(
+            rbp_df,
+            rbp_expr_df,
+            fwer_col="rbp_P_FWER",
+            z_col="stat_Z",
+            min_rbp_expr=min_rbp_expr,
+        )
 
     sig_rbps = rbp_df.loc[rbp_df["rbp_P_FWER"] <= 0.05, "RBP"].tolist()[:10]
     if not sig_rbps:

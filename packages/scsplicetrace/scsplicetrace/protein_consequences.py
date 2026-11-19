@@ -285,13 +285,16 @@ def _rank_host_transcripts(candidates: list[HostTranscriptModel], rec: dict) -> 
             exact_topo = (junc_matches >= 2) and (len(extra_mid) == 0) and (len(mid_ex) <= 1)
         frame_safe_mid = (sum(extra_mid) % 3 == 0)
         clean_coding = len(m.cds_blocks) > 0 and m.biotype == "protein_coding" and not m.is_incomplete
+        has_complete_orf = (m.start_codon_5p is not None) and (m.stop_codon_3p is not None) and not m.is_incomplete
         has_sc = m.start_codon_5p is not None and not m.is_incomplete
         return (
-            overlaps and clean_coding,
+            overlaps and clean_coding and has_complete_orf and exact_topo,
             overlaps and clean_coding and exact_topo,
+            overlaps and clean_coding and has_complete_orf and (junc_matches >= 2) and frame_safe_mid,
             overlaps and clean_coding and (junc_matches >= 2) and frame_safe_mid,
             overlaps and clean_coding and (junc_matches >= 2),
             overlaps and clean_coding and (junc_matches >= 1),
+            has_complete_orf,
             has_sc,
             m.is_canonical,
             sum(b - a for a, b in m.cds_blocks),
@@ -503,24 +506,32 @@ def _map_uniprot_domains_to_isoforms(
     if entry is not None and entry["features"]:
         uniprot_acc = entry["uniprot_acc"]
         u_len = max(entry["uniprot_len"], 1)
-        scale = ref_len / float(u_len)
-        # Only transfer coordinates if isoform length is reasonably compatible (within 0.45x..1.8x of canonical Swiss-Prot)
+        canon_is_inc = abs(len_inc - u_len) <= abs(len_exc - u_len)
+        canon_len = max(len_inc if canon_is_inc else len_exc, 1)
+        scale = canon_len / float(u_len)
+        # Anchor coordinates onto whichever isoform matches the canonical Swiss-Prot reference length
+        c_alt_start = pre + 1
+        c_alt_end = canon_len - suf
+
         if 0.40 <= scale <= 1.85:
             for feat in entry["features"]:
-                # Anchor N-terminal domains directly; smoothly scale C-terminal coordinates when isoform differs slightly
-                s_map = max(1, min(ref_len, int(round(feat["start"] * scale)) if abs(ref_len - u_len) > 25 else feat["start"]))
-                e_map = max(s_map, min(ref_len, int(round(feat["end"] * scale)) if abs(ref_len - u_len) > 25 else feat["end"]))
-                # Check overlap with the spliced/truncated region [alt_start_aa, alt_end_aa]
-                ov = max(0, min(e_map, alt_end_aa) - max(s_map, alt_start_aa) + 1)
+                s_map = max(1, min(canon_len, int(round(feat["start"] * scale)) if abs(canon_len - u_len) > 25 else feat["start"]))
+                e_map = max(s_map, min(canon_len, int(round(feat["end"] * scale)) if abs(canon_len - u_len) > 25 else feat["end"]))
+                ov = max(0, min(e_map, c_alt_end) - max(s_map, c_alt_start) + 1) if c_alt_end >= c_alt_start else 0
                 dom_span = max(1, e_map - s_map + 1)
                 if prot_inc != prot_exc and ov >= 1:
                     if (nmd_inc or nmd_exc) and s_map > min_l:
                         state = "lost_by_PTC_truncation"
+                    elif canon_is_inc and len_inc > len_exc and suf > 0:
+                        state = "inserted_by_inclusion"
+                    elif (not canon_is_inc) and suf == 0:
+                        state = "canonical_C_tail_replaced_by_inclusion"
                     else:
                         state = "spliced_indel_overlap"
                     pct = min(100, int(round(100.0 * ov / dom_span)))
+                    tag_dir = "replaced_C_tail" if state == "canonical_C_tail_replaced_by_inclusion" else f"{pct}%"
                     if feat["kind"] != "REGION" or "Disordered" not in feat["label"]:
-                        disrupted_labels.append(f"{feat['label']} [{s_map}-{e_map} aa, {pct}%]")
+                        disrupted_labels.append(f"{feat['label']} [{s_map}-{e_map} aa, {tag_dir}]")
                     elif len(disrupted_labels) == 0:
                         disrupted_labels.append(f"{feat['label']} [{s_map}-{e_map} aa]")
                 else:
@@ -600,10 +611,12 @@ def trace_protein_and_nmd_consequences(
                 })
                 continue
 
-            # Evaluate top candidate protein_coding backbones so multi-promoter / multi-isoform genes (e.g. Macf1)
-            # bind to the actual coding backbone compatible with the local splice junctions rather than a chimeric frame!
             coding_pool = [m for m in ranked_hosts if m.cds_blocks][:6]
+            # Gene-wide furthest 3' coding/UTR boundary to heal clipped 3'-terminal exon annotations (e.g. ENST00000538290 vs ENST00000302035)
+            gene_3p_min = min(m.exons[0][0] for m in coding_pool)
+            gene_3p_max = max(m.exons[-1][1] for m in coding_pool)
             chosen_bundle = None
+            best_bundle_rank = (-1, -1)
             for cand_m in coding_pool:
                 try:
                     c_inc_ex, c_exc_ex = _build_full_isoform_exons(cand_m.exons, rec)
@@ -617,7 +630,6 @@ def trace_protein_and_nmd_consequences(
                 c_st_inc = _genomic_pos_to_tx_offset(c_inc_ex, strand, c_start_gpos)
                 c_st_exc = _genomic_pos_to_tx_offset(c_exc_ex, strand, c_start_gpos)
 
-                # Native host baseline stop-to-last-EJC distance (protects canonical genes with natural 3'-UTR introns)
                 host_ord = cand_m.exons if strand == "+" else cand_m.exons[::-1]
                 host_ejcs = list(np.cumsum([b - a for a, b in host_ord])[:-1]) if len(host_ord) >= 2 else []
                 host_last_ejc = int(host_ejcs[-1]) if host_ejcs else 0
@@ -639,12 +651,41 @@ def trace_protein_and_nmd_consequences(
                     c_dna_exc, [b - a for a, b in c_ord_exc], c_st_exc,
                     phase_offset=c_phase_off, canonical_stop_tx_end=can_end_exc, host_baseline_ptc_dist=host_base_ptc,
                 )
-                cand_bundle = (cand_m, c_inc_ex, c_exc_ex, c_ord_inc, c_ord_exc, c_dna_inc, c_dna_exc, ct_inc, ct_exc)
-                if chosen_bundle is None:
-                    chosen_bundle = cand_bundle
-                # Accept immediately once at least one splice isoform is productive (not artificial dual-NMD)
-                if not (ct_inc["nmd_sensitive"] and ct_exc["nmd_sensitive"]):
-                    chosen_bundle = cand_bundle
+
+                # If an alternative C-terminal reading frame ran off a clipped 3'-UTR end while sibling isoforms extend further 3', heal terminal exon
+                if (ct_inc["stop_tx_nt"] is None or ct_exc["stop_tx_nt"] is None):
+                    ext_inc, ext_exc = list(c_inc_ex), list(c_exc_ex)
+                    healed = False
+                    if strand == "+" and gene_3p_max > ext_inc[-1][1] and (gene_3p_max - ext_inc[-1][1]) <= 2500:
+                        ext_inc[-1] = (ext_inc[-1][0], gene_3p_max)
+                        ext_exc[-1] = (ext_exc[-1][0], max(ext_exc[-1][1], gene_3p_max))
+                        healed = True
+                    elif strand == "-" and gene_3p_min < ext_inc[0][0] and (ext_inc[0][0] - gene_3p_min) <= 2500:
+                        ext_inc[0] = (gene_3p_min, ext_inc[0][1])
+                        ext_exc[0] = (min(ext_exc[0][0], gene_3p_min), ext_exc[0][1])
+                        healed = True
+                    if healed:
+                        try:
+                            o_i = ext_inc if strand == "+" else ext_inc[::-1]
+                            o_e = ext_exc if strand == "+" else ext_exc[::-1]
+                            d_i = reader.fetch_blocks(stream, cand_m.chrom, strand, o_i)
+                            d_e = reader.fetch_blocks(stream, cand_m.chrom, strand, o_e)
+                            s_i = _genomic_pos_to_tx_offset(ext_inc, strand, c_start_gpos)
+                            s_e = _genomic_pos_to_tx_offset(ext_exc, strand, c_start_gpos)
+                            t_i2 = _translate_and_evaluate_nmd(d_i, [b - a for a, b in o_i], s_i, phase_offset=c_phase_off, canonical_stop_tx_end=can_end_inc, host_baseline_ptc_dist=host_base_ptc)
+                            t_e2 = _translate_and_evaluate_nmd(d_e, [b - a for a, b in o_e], s_e, phase_offset=c_phase_off, canonical_stop_tx_end=can_end_exc, host_baseline_ptc_dist=host_base_ptc)
+                            if (t_i2["stop_tx_nt"] is not None) and (t_e2["stop_tx_nt"] is not None):
+                                c_inc_ex, c_exc_ex, c_ord_inc, c_ord_exc, c_dna_inc, c_dna_exc, ct_inc, ct_exc = ext_inc, ext_exc, o_i, o_e, d_i, d_e, t_i2, t_e2
+                        except Exception:
+                            pass
+
+                both_closed = int((ct_inc["stop_tx_nt"] is not None) and (ct_exc["stop_tx_nt"] is not None))
+                not_dual_nmd = int(not (ct_inc["nmd_sensitive"] and ct_exc["nmd_sensitive"]))
+                b_rank = (both_closed, not_dual_nmd)
+                if b_rank > best_bundle_rank:
+                    best_bundle_rank = b_rank
+                    chosen_bundle = (cand_m, c_inc_ex, c_exc_ex, c_ord_inc, c_ord_exc, c_dna_inc, c_dna_exc, ct_inc, ct_exc)
+                if b_rank == (1, 1):
                     break
 
             if chosen_bundle is None:
@@ -675,7 +716,10 @@ def trace_protein_and_nmd_consequences(
             else:
                 f_status = "frameshift"
 
-            if t_inc["nmd_sensitive"] and not t_exc["nmd_sensitive"]:
+            if t_inc["stop_tx_nt"] is None or t_exc["stop_tx_nt"] is None:
+                nmd_cls = "incomplete_3prime_CDS_or_nonstop"
+                ptc_dist = 0
+            elif t_inc["nmd_sensitive"] and not t_exc["nmd_sensitive"]:
                 nmd_cls = "inclusion_triggers_NMD_poison_exon"
                 ptc_dist = t_inc["ptc_to_last_ejc_nt"]
             elif t_exc["nmd_sensitive"] and not t_inc["nmd_sensitive"]:
@@ -721,11 +765,17 @@ def trace_protein_and_nmd_consequences(
                 fav = "Triggers NMD decay" if dpsi < 0 else "Maintains full-length ORF"
                 dom_lost = f" (truncates {feat_str})" if feat_str != "none" else ""
                 summary = f"Predicted NMD-inducing skipping ({f_status}): exclusion PTC {ptc_dist} nt upstream of last EJC -> {fav}{dom_lost}"
+            elif nmd_cls == "incomplete_3prime_CDS_or_nonstop":
+                summary = f"Unresolved 3'-end / potential non-stop transcript ({t_inc['aa_len']} vs {t_exc['aa_len']} aa)"
             elif f_status == "utr_cis_regulatory_only":
                 summary = f"ORF intact ({t_inc['aa_len']} aa); remodels {loc} ({delta_nt:+d} nt)"
             else:
-                dom_note = f"; overlaps {feat_str}" if feat_str != "none" else ""
-                summary = f"Productive {f_status}: {t_inc['aa_len']} vs {t_exc['aa_len']} aa ({delta_aa:+d} aa){dom_note}"
+                has_c_repl = any(d["state"] == "canonical_C_tail_replaced_by_inclusion" for d in arch_list)
+                if has_c_repl and feat_str != "none":
+                    summary = f"Productive alternative C-tail ({f_status}): {t_inc['aa_len']} vs {t_exc['aa_len']} aa ({delta_aa:+d} aa); inclusion replaces canonical {feat_str}"
+                else:
+                    dom_note = f"; remodels {feat_str}" if feat_str != "none" else ""
+                    summary = f"Productive {f_status}: {t_inc['aa_len']} vs {t_exc['aa_len']} aa ({delta_aa:+d} aa){dom_note}"
 
             rows.append({
                 "event_id": eid,

@@ -1,4 +1,4 @@
-"""Standalone CLI for scsplicetrace (1.0.0) with Extensible Motif Library, Module Bridge & GTF/UniProt Proteome Viz."""
+"""Standalone CLI for scsplicetrace (1.0.1) with Extensible Motif Library, Module Bridge & GTF/UniProt Proteome Viz."""
 from __future__ import annotations
 
 import argparse
@@ -14,7 +14,7 @@ from scsplicetrace.contrast_discovery import (
     discover_sc_rbp_programs,
 )
 from scsplicetrace.fast_accel import configure_server_threads, fast_score_mean_log_odds
-from scsplicetrace.module_bridge import bridge_splicenet_modules_to_rbps
+from scsplicetrace.module_bridge import annotate_rbp_expression_disambiguation, bridge_splicenet_modules_to_rbps
 from scsplicetrace.protein_consequences import trace_protein_and_nmd_consequences
 from scsplicetrace.rna_forms import IndexedFasta, extract_event_rna
 from scsplicetrace.sequence_and_consequence import (
@@ -24,13 +24,13 @@ from scsplicetrace.sequence_and_consequence import (
 )
 from scsplicetrace.target_and_psi_models import rank_rbp_target_events
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 
 def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SCSPLICETRACE") -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(f'"{process_name}":\n    scsplicetrace: "1.0.0"\n    python: "{platform.python_version()}"\n', encoding="utf-8")
+    p.write_text(f'"{process_name}":\n    scsplicetrace: "1.0.1"\n    python: "{platform.python_version()}"\n', encoding="utf-8")
 
 
 def add_extensible_library_args(parser: argparse.ArgumentParser) -> None:
@@ -114,7 +114,7 @@ def handle_library_management_commands(args: argparse.Namespace) -> tuple[bool, 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="scsplicetrace",
-        description="scSpliceTrace 1.0.0: Smart-seq3 RBP discovery, mature-mRNA motif, Module Bridge & GTF/UniProt Proteome Consequences.",
+        description="scSpliceTrace 1.0.1: Smart-seq3 RBP discovery, mature-mRNA motif, Module Bridge & GTF/UniProt Proteome Consequences.",
     )
     p.add_argument("--version", action="version", version=f"scsplicetrace {__version__}")
     p.add_argument("--events", type=Path, required=False)
@@ -123,6 +123,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--fasta", type=Path, required=False)
     p.add_argument("--gtf", type=Path, default=None, help="Optional GTF/GTF.gz for automated single-cell ORF/NMD/UniProt consequences & 5-style figures")
     p.add_argument("--splicenet-modules", type=Path, default=None, help="Optional scsplicenet_modules.tsv to bridge SC-SpliceNet modules -> RBP motifs")
+    p.add_argument("--expression", "--rbp-expression", dest="expression", type=Path, default=None, help="Optional single-cell/cohort expression matrix or summary table for RBP paralog disambiguation")
+    p.add_argument("--min-rbp-expr", type=float, default=1.0, help="Minimum mean expression to flag an RBP as expressed (default: 1.0)")
+    p.add_argument("--distal-intron-nt", type=int, default=500, help="Distal intronic cis-regulatory window outer bound in nt (default: 500; 0 for proximal 200-nt only)")
     p.add_argument("--threads", type=int, default=0, help="CPU threads for Numba acceleration (0 = auto)")
     p.add_argument("--support", type=Path, default=None)
     p.add_argument("--transpose-psi", action="store_true")
@@ -156,8 +159,15 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     events_df = pd.read_csv(args.events, sep="\t")
-    rna_df, cov_df = extract_sc_event_sequences(events_df, Path(args.fasta))
-    rbp_tensor, ev_ids, rbps, region_names = build_sc_directional_motif_tensor(events_df, rna_df, lib)
+    rna_df, cov_df = extract_sc_event_sequences(events_df, Path(args.fasta), distal_intron_nt=args.distal_intron_nt)
+    rbp_tensor, ev_ids, rbps, region_names = build_sc_directional_motif_tensor(
+        events_df,
+        rna_df,
+        lib,
+        include_distal_flanks=(args.distal_intron_nt > 200),
+    )
+
+    rbp_expr_df = pd.read_csv(args.expression, sep="\t" if not str(args.expression).lower().endswith(".csv") else ",") if args.expression is not None else None
 
     summary: dict = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "n_models": lib.n_models, "active_threads": int(active_threads), "status": "complete"}
     contrast_df = None
@@ -201,7 +211,16 @@ def main(argv: list[str] | None = None) -> int:
             donor_delta_df=donor_deltas, mature_consequences_df=conseq_df,
             n_permutations=args.permutations, seed=args.seed,
         )
-        res.rbp_ranking.to_csv(out / "scsplicetrace_rbp_ranking.tsv", sep="\t", index=False)
+        rank_out = res.rbp_ranking
+        if rbp_expr_df is not None and not rank_out.empty:
+            rank_out = annotate_rbp_expression_disambiguation(
+                rank_out,
+                rbp_expr_df,
+                fwer_col="rbp_P_FWER",
+                z_col="stat_Z",
+                min_rbp_expr=args.min_rbp_expr,
+            )
+        rank_out.to_csv(out / "scsplicetrace_rbp_ranking.tsv", sep="\t", index=False)
         res.region_tests.to_csv(out / "scsplicetrace_region_tests.tsv", sep="\t", index=False)
         res.event_contrasts.to_csv(out / "scsplicetrace_event_contrasts.tsv", sep="\t", index=False)
         res.mature_consequences.to_csv(out / "scsplicetrace_mature_consequences.tsv", sep="\t", index=False)
@@ -212,6 +231,9 @@ def main(argv: list[str] | None = None) -> int:
         br_df = bridge_splicenet_modules_to_rbps(
             mod_in, events_df, args.fasta, lib,
             extract_rna_fn=extract_event_rna, score_odds_fn=fast_score_mean_log_odds,
+            distal_intron_nt=args.distal_intron_nt,
+            rbp_expr_df=rbp_expr_df,
+            min_rbp_expr=args.min_rbp_expr,
             n_permutations=min(args.permutations, 999), seed=args.seed,
         )
         br_df.to_csv(out / "sc_module_rbp_bridge.tsv", sep="\t", index=False)

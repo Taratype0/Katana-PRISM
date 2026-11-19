@@ -1,0 +1,4 @@
+cohort	method	retained_events	permanova_r2	permanova_p	activation_silhouette	donor_lisi	mean_modality_divergence
+GSE270928_SmartSeq3_192_TCells	Katana-PRISM (SpliceManifold-SC)	1000	0.0464	0.002	0.0394	1.471	0.9618
+GSE270928_SmartSeq3_192_TCells	MARVEL (Mean-Imputed PSI)	1000	0.0099	0.0033	0.0051	1.301	
+GSE270928_SmartSeq3_192_TCells	Jutils (Complete-Case dropna)	327	0.0292	0.0033	0.0257	1.142	

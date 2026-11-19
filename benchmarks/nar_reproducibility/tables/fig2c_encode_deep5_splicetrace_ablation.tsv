@@ -1,0 +1,13 @@
+case	variant	matched_events	target_detected_fwer05	target_min_whole_P_FWER	target_min_cluster_P_FWER	target_min_rbp_P_FWER	target_rbp_rank	target_rbp_percentile	target_affected_rank	target_rbp_pivotal_Z	top1_discovered_RBP	top1_RBP_P_FWER	sig_whole_tracks_fwer05	sig_clusters_fwer05	sig_rbps_fwer05
+GSE206660_NegA	MotifTrace_v2_1_prox200_dist500	856	False	1.0	1.0	1.0	114.0	22.6	27.0	-0.997	SRSF9	0.651	0	0	0
+GSE206660_NegA	MotifTrace_v2_1_proximal200	856	False	1.0	0.988	1.0	110.0	25.34	27.0	-0.772	G3BP2	0.974	0	0	0
+GSE206660_PTBP2	MotifTrace_v2_1_prox200_dist500	2397	True	0.001	0.001	0.001	1.0	100.0	1.0	24.23	PTBP1	0.001	102	343	43
+GSE206660_PTBP2	MotifTrace_v2_1_proximal200	2397	True	0.001	0.001	0.001	1.0	100.0	1.0	24.934	PTBP1	0.001	102	391	44
+HNRNPA1	MotifTrace_v2_1_prox200_dist500	608	True	0.09	0.002	0.012	11.0	93.15	116.0	6.332	HNRNPA0	0.003	1	36	23
+HNRNPA1	MotifTrace_v2_1_proximal200	608	False	1.0	0.621	1.0	127.0	13.7	116.0	-0.908	EIF4B	0.815	0	0	0
+HNRNPF	MotifTrace_v2_1_prox200_dist500	650	False	0.997	0.995	1.0	47.0	68.49	26.0	0.355	DHX9	0.02	1	1	4
+HNRNPF	MotifTrace_v2_1_proximal200	650	False	0.974	0.892	1.0	38.0	74.66	26.0	0.819	DHX9	0.01	1	2	4
+PTBP1	MotifTrace_v2_1_prox200_dist500	1276	True	0.001	0.001	0.001	1.0	100.0	1.0	16.665	PTBP2	0.001	36	185	16
+PTBP1	MotifTrace_v2_1_proximal200	1276	True	0.001	0.001	0.001	1.0	100.0	1.0	18.314	PTBP1	0.001	45	230	32
+SRSF1	MotifTrace_v2_1_prox200_dist500	2731	True	0.001	0.007	0.001	4.0	97.95	4.0	12.494	HNRNPA1	0.001	25	1	21
+SRSF1	MotifTrace_v2_1_proximal200	2731	True	0.001	0.002	0.001	4.0	97.95	4.0	12.949	HNRNPA1	0.001	31	4	23

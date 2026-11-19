@@ -1,4 +1,4 @@
-# Katana Studio & Katana Report (`1.0.0`)
+# Katana Studio & Katana Report (`1.0.1`)
 
 **`katana-studio`** provides two CLI entrypoints:
 1. **`katana-report`**: Synthesizes upstream `Katana` Nextflow bundles or standalone `SpliceManifold` / `SpliceNet` / `SpliceTrace` outputs into a self-contained, SHA256-audited `REPORT.html` and portable `REPORT.zip` archive.

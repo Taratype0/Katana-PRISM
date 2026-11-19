@@ -4,7 +4,7 @@ nextflow.enable.dsl = 2
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     Katana (nf-core style Alternative Splicing, Isoform & Cis-Regulatory Pipeline)
-    Repository: Katana-PRISM | Version: 1.0.0
+    Repository: Katana-PRISM | Version: 1.0.1
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     Two decoupled yet convergent execution paradigms:
       1. End-to-End Scheduled Execution via Nextflow (`main.nf`):

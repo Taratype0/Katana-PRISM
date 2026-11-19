@@ -291,7 +291,7 @@ def test_all_six_standalone_packages_end_to_end(tmp_path: Path) -> None:
     assert (sm_bulk_out / "ps_das_events.tsv").is_file()
     assert (sm_bulk_out / "figures" / "psi_clustermap.png").is_file()
     assert (sm_bulk_out / "figures" / "psi_pca.png").is_file()
-    assert 'splicemanifold: "1.0.0"' in (sm_bulk_out / "versions.yml").read_text(encoding="utf-8")
+    assert 'splicemanifold: "1.0.1"' in (sm_bulk_out / "versions.yml").read_text(encoding="utf-8")
 
     sm_sc_out = tmp_path / "out_splicemanifold_sc"
     rc = sm_main([
@@ -321,7 +321,7 @@ def test_all_six_standalone_packages_end_to_end(tmp_path: Path) -> None:
     assert rc == 0
     assert (sn_out / "module_assignments.tsv").is_file()
     assert (sn_out / "module_scores.tsv").is_file()
-    assert 'splicenet: "1.0.0"' in (sn_out / "versions.yml").read_text(encoding="utf-8")
+    assert 'splicenet: "1.0.1"' in (sn_out / "versions.yml").read_text(encoding="utf-8")
 
     # 3. SpliceTrace (Bulk: 170-RBP map + SpliceNet bridge + 50-nt EJC NMD & UniProt consequences)
     from splicetrace.cli import main as st_main
@@ -342,7 +342,7 @@ def test_all_six_standalone_packages_end_to_end(tmp_path: Path) -> None:
     assert (st_out / "protein_and_nmd_consequences.tsv").is_file()
     assert (st_out / "module_rbp_bridge.tsv").is_file()
     assert len(pd.read_csv(st_out / "module_rbp_bridge.tsv", sep="\t")) > 0
-    assert 'splicetrace: "1.0.0"' in (st_out / "versions.yml").read_text(encoding="utf-8")
+    assert 'splicetrace: "1.0.1"' in (st_out / "versions.yml").read_text(encoding="utf-8")
 
     # 4. scSpliceNet (Single-Cell)
     from scsplicenet.cli import main as scsn_main
@@ -410,6 +410,39 @@ def test_all_six_standalone_packages_end_to_end(tmp_path: Path) -> None:
     # Verify Katana Studio FastAPI app initializes and locates bundled _web UI
     app = create_app(PlatformRuntime(application_root=PACKAGES_DIR / "katana_studio"))
     assert app is not None
+
+
+def test_v1_0_1_distal_bridge_and_expression_disambiguation(tmp_path: Path) -> None:
+    """Regression suite for v1.0.1 multi-paralog discrete scan, distal=500 FWL bridge, and RBP expression disambiguation."""
+    from splicetrace.module_bridge import annotate_rbp_expression_disambiguation, parse_rbp_expression_reference
+    from splicetrace.continuous_rescue import run_bulk_continuous_rescue
+    from splicetrace.library import load_bundled_human_rbp_library
+
+    expr_df = pd.DataFrame({"gene_symbol": ["PTBP1", "PTBP2", "SRSF1"], "TPM": [48.5, 0.2, 62.0]})
+    mean_map, _, _ = parse_rbp_expression_reference(expr_df)
+    assert mean_map["PTBP1"] > 40.0 and mean_map["PTBP2"] < 1.0
+
+    mock_rank = pd.DataFrame([
+        {"RBP": "PTBP2", "stat_Z": 4.2, "P_FWER": 0.004},
+        {"RBP": "PTBP1", "stat_Z": 4.2, "P_FWER": 0.004},
+    ])
+    disamb = annotate_rbp_expression_disambiguation(mock_rank, expr_df, fwer_col="P_FWER", min_rbp_expr=1.0)
+    assert bool(disamb.loc[disamb["RBP"] == "PTBP1", "rbp_expressed"].iloc[0]) is True
+    assert bool(disamb.loc[disamb["RBP"] == "PTBP2", "rbp_expressed"].iloc[0]) is False
+
+    fx = _create_synthetic_study(tmp_path)
+    lib = load_bundled_human_rbp_library(species="mouse")
+    se_df = pd.read_csv(fx["rmats"] / "SE.MATS.JCEC.txt", sep="\t")
+    from splicetrace.rmats_io import _standardize_rmats_df
+    std_df = _standardize_rmats_df(se_df, "SE", {"chr1"}, "synth")
+    res_obj = run_bulk_continuous_rescue(
+        std_df, fx["fasta"], lib,
+        distal_intron_nt=500,
+        n_permutations=19,
+        seed=42,
+    )
+    assert not res_obj.rbp_ranking.empty
+    assert {"RBP", "rbp_P_FWER", "best_region"}.issubset(res_obj.rbp_ranking.columns)
 
 
 # ---------------------------------------------------------------------------

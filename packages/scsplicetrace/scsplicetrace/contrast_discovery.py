@@ -188,17 +188,28 @@ def _build_nuisance_design(
     baseline_psi: np.ndarray,
     eligible: np.ndarray,
 ) -> np.ndarray:
-    """Build 5-covariate Freedman-Lane nuisance design [1, exon_GC, flank_GC, log_length, baseline_PSI, psi*(1-psi), event_type]."""
+    """Build Freedman-Lane nuisance design [1, exon_GC, flank_GC, (dist_GC), (cpg_rate), log_length, baseline_PSI, psi*(1-psi), event_type]."""
     sub = cov_df.loc[eligible]
     b_psi = np.nan_to_num(baseline_psi[eligible], nan=0.5)
+    fgc = sub["flank_GC"].to_numpy(dtype=float)
     cols = [
         np.ones(len(sub), dtype=float),
         sub["exon_GC"].to_numpy(dtype=float),
-        sub["flank_GC"].to_numpy(dtype=float),
+        fgc,
+    ]
+    if "dist_GC" in sub.columns:
+        dgc = sub["dist_GC"].to_numpy(dtype=float)
+        if np.isfinite(dgc).all() and np.std(dgc - fgc) > 1e-6:
+            cols.append(dgc)
+    if "cpg_rate" in sub.columns:
+        cpg = sub["cpg_rate"].to_numpy(dtype=float)
+        if np.isfinite(cpg).all() and np.std(cpg) > 1e-8:
+            cols.append(cpg)
+    cols.extend([
         sub["log_length"].to_numpy(dtype=float),
         b_psi,
         b_psi * (1.0 - b_psi),
-    ]
+    ])
     etypes = sub["event_type"].astype(str).to_numpy()
     uniq_et = sorted(set(etypes))
     for et in uniq_et[1:]:

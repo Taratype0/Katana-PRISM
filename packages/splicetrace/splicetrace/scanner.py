@@ -175,7 +175,12 @@ def run_splicetrace_scan(
                             n_common = min(a_mat.shape[1], b_mat.shape[1], span)
                             if n_common > 0:
                                 diff_3d[:, pair_i, :n_common] = a_mat[:, :n_common] - b_mat[:, :n_common]
-                        rbp_labels = [library.models[mid].get("RBPs", "") for mid in mids]
+                        rbp_labels = [
+                            ";".join(str(x) for x in library.models[mid].get("RBPs", ()))
+                            if isinstance(library.models[mid].get("RBPs"), (list, tuple, set))
+                            else str(library.models[mid].get("RBPs", ""))
+                            for mid in mids
+                        ]
                         base_meta = {
                             "event_type": kind,
                             "direction": direction,

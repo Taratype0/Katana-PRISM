@@ -24,12 +24,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Katana-PRISM 1.0.0 image
+      - name: Build and push Katana-PRISM 1.0.1 image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./containers/Dockerfile
           push: true
           tags: |
+            ghcr.io/taratype0/katana-prism:1.0.1
             ghcr.io/taratype0/katana-prism:1.0.0
             ghcr.io/taratype0/katana-prism:latest
