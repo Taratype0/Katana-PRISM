@@ -138,8 +138,11 @@ def verify_bundled_tables(tables_path: Path) -> None:
     f2c = pd.read_csv(tables_path / "fig2c_splicetrace_exact_and_ablations.tsv", sep="\t")
     nulls = f2c[f2c["role"].isin(["negative_control", "mitochondrial_negative_control"])]
     assert len(nulls) == 3 and int(nulls["cont_sig_rbps_fwer05"].sum()) == 0 and int(nulls["disc_sig_rbps_fwer05"].sum()) == 0
+    assert nulls["disc_exact_rbp_P_FWER"].isna().all() and nulls["cont_exact_P_FWER"].isna().all()
     hb = f2c[f2c["role"].eq("high_block_positive")]
     assert len(hb) == 5 and int((hb["disc_exact_rbp_P_FWER"] <= 0.05).sum()) == 4 and int((hb["cont_exact_P_FWER"] <= 0.05).sum()) == 4
+    lb = f2c[f2c["role"].eq("low_block_positive")]
+    assert len(lb) == 10 and lb["disc_exact_rbp_P_FWER"].notna().all() and lb["disc_exact_rank"].notna().all()
 
     b_df = pd.read_csv(tables_path / "fig4a_encode_module_rbp_bridge_distal500.tsv", sep="\t")
     sig_mods = sorted(b_df.loc[b_df["module_P_FWER"] <= 0.05, "module"].unique().tolist())
@@ -150,8 +153,20 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert int((flows["bridge_tier"] == "FWER<=0.05_Bridged").sum()) == 286
     assert int((flows["bridge_tier"] == "Exploratory_Orphan_Module").sum()) == 325
 
+    f4d = pd.read_csv(tables_path / "fig4d_deconvolution_vs_competitors.tsv", sep="\t").set_index("method")
+    prism_4d = f4d.loc["Katana-PRISM (SpliceNet -> SpliceTrace Bridge)"]
+    assert abs(float(prism_4d["exact_all_called_f1_score"]) - 0.4000) < 1e-4
+    assert abs(float(prism_4d["paralog_adj_f1_score"]) - 0.4444) < 1e-4
+
     f5a = pd.read_csv(tables_path / "fig5a_sc_manifold_vs_marvel_jutils.tsv", sep="\t").set_index("method")
     assert abs(float(f5a.loc["MARVEL (Mean-Imputed, Same 1,000 HVEs)", "permanova_r2"]) - 0.0119) < 1e-3
+
+    f5b = pd.read_csv(tables_path / "fig5b_gse270928_sc_proteome_consequences.tsv", sep="\t")
+    f5b_cod = f5b[f5b["frame_status"].isin(["frameshift", "in_frame_indel", "translation_start_altered"])]
+    assert len(f5b_cod) == 167
+    assert int(f5b_cod["contributing_donors"].eq(1).sum()) == 89 and int(f5b_cod["contributing_donors"].ge(2).sum()) == 78
+    slam_b = f5b_cod[f5b_cod["gene_symbol"].eq("SLAMF1")].iloc[0]
+    assert abs(float(slam_b["raw_dpsi"]) - 0.095456) < 1e-4 and abs(float(slam_b["eb_shrunk_dpsi"]) - 0.077136) < 1e-4
 
     slam = pd.read_csv(tables_path / "fig5c_gse270928_slamf1_per_cell_event_psi.tsv", sep="\t")
     assert int(slam["event_psi"].notna().sum()) == 76
