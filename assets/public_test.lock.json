@@ -1,0 +1,116 @@
+{
+  "schema_version": "1.0",
+  "fixture": "nf-core-rnasplice-chrX",
+  "purpose": "engine_smoke",
+  "repository": "https://github.com/nf-core/test-datasets",
+  "revision": "b5db2bc35419c7fb65d88bda6837a50fe84b3ed7",
+  "biological_validity": "not_established_for_this_smoke",
+  "samples": [
+    {
+      "sample": "ERR188383",
+      "condition": "GBR",
+      "strandedness": "unstranded",
+      "fastq_1": "testdata/ERR188383_chrX_1.fastq.gz",
+      "fastq_2": "testdata/ERR188383_chrX_2.fastq.gz"
+    },
+    {
+      "sample": "ERR188428",
+      "condition": "GBR",
+      "strandedness": "unstranded",
+      "fastq_1": "testdata/ERR188428_chrX_1.fastq.gz",
+      "fastq_2": "testdata/ERR188428_chrX_2.fastq.gz"
+    },
+    {
+      "sample": "ERR188454",
+      "condition": "YRI",
+      "strandedness": "unstranded",
+      "fastq_1": "testdata/ERR188454_chrX_1.fastq.gz",
+      "fastq_2": "testdata/ERR188454_chrX_2.fastq.gz"
+    },
+    {
+      "sample": "ERR204916",
+      "condition": "YRI",
+      "strandedness": "unstranded",
+      "fastq_1": "testdata/ERR204916_chrX_1.fastq.gz",
+      "fastq_2": "testdata/ERR204916_chrX_2.fastq.gz"
+    }
+  ],
+  "contrasts": [
+    {
+      "contrast": "GBR-YRI",
+      "treatment": "GBR",
+      "control": "YRI"
+    },
+    {
+      "contrast": "YRI-GBR",
+      "treatment": "YRI",
+      "control": "GBR"
+    }
+  ],
+  "references": {
+    "fasta": "reference/X.fa.gz",
+    "gtf": "reference/genes_chrX.gtf"
+  },
+  "files": [
+    {
+      "path": "testdata/ERR188383_chrX_1.fastq.gz",
+      "url": "https://raw.githubusercontent.com/nf-core/test-datasets/b5db2bc35419c7fb65d88bda6837a50fe84b3ed7/testdata/ERR188383_chrX_1.fastq.gz",
+      "bytes": 3699258,
+      "sha256": "85fe69f7eeb1914bd3a824666843006110f1b3de5a85dd80964865c119811dd8"
+    },
+    {
+      "path": "testdata/ERR188383_chrX_2.fastq.gz",
+      "url": "https://raw.githubusercontent.com/nf-core/test-datasets/b5db2bc35419c7fb65d88bda6837a50fe84b3ed7/testdata/ERR188383_chrX_2.fastq.gz",
+      "bytes": 3661126,
+      "sha256": "e7a8d67da9efedfe7bf9507c7dedbea85b34d9cc11ccf30229e259ca2492bde6"
+    },
+    {
+      "path": "testdata/ERR188428_chrX_1.fastq.gz",
+      "url": "https://raw.githubusercontent.com/nf-core/test-datasets/b5db2bc35419c7fb65d88bda6837a50fe84b3ed7/testdata/ERR188428_chrX_1.fastq.gz",
+      "bytes": 3713405,
+      "sha256": "04893bfc3c4e5e83d73a550e12a206684a1990e3eb007ef56d2c6074d8b2f6ef"
+    },
+    {
+      "path": "testdata/ERR188428_chrX_2.fastq.gz",
+      "url": "https://raw.githubusercontent.com/nf-core/test-datasets/b5db2bc35419c7fb65d88bda6837a50fe84b3ed7/testdata/ERR188428_chrX_2.fastq.gz",
+      "bytes": 3707727,
+      "sha256": "de8bebe391e2c0a2e69660008969b7d3a3c5efb978536fb9d99e8ce420311d0f"
+    },
+    {
+      "path": "testdata/ERR188454_chrX_1.fastq.gz",
+      "url": "https://raw.githubusercontent.com/nf-core/test-datasets/b5db2bc35419c7fb65d88bda6837a50fe84b3ed7/testdata/ERR188454_chrX_1.fastq.gz",
+      "bytes": 3794825,
+      "sha256": "037f23bf8e6f6a1c429965a8e7fc1a08f933046b8c43688960fef258cda5b738"
+    },
+    {
+      "path": "testdata/ERR188454_chrX_2.fastq.gz",
+      "url": "https://raw.githubusercontent.com/nf-core/test-datasets/b5db2bc35419c7fb65d88bda6837a50fe84b3ed7/testdata/ERR188454_chrX_2.fastq.gz",
+      "bytes": 3765435,
+      "sha256": "5fdf6ff4a77c7188ca5518873d955af3823af8ea4e2d8e76dce311e890e48ff9"
+    },
+    {
+      "path": "testdata/ERR204916_chrX_1.fastq.gz",
+      "url": "https://raw.githubusercontent.com/nf-core/test-datasets/b5db2bc35419c7fb65d88bda6837a50fe84b3ed7/testdata/ERR204916_chrX_1.fastq.gz",
+      "bytes": 3824398,
+      "sha256": "da398747defd3481c2f255e34663f0671c2db584cd0212415aae7da225bca2fa"
+    },
+    {
+      "path": "testdata/ERR204916_chrX_2.fastq.gz",
+      "url": "https://raw.githubusercontent.com/nf-core/test-datasets/b5db2bc35419c7fb65d88bda6837a50fe84b3ed7/testdata/ERR204916_chrX_2.fastq.gz",
+      "bytes": 3831588,
+      "sha256": "da44565b7daff50887b8782e43ea1ed756d545dc5bde586e93017c0e3b518072"
+    },
+    {
+      "path": "reference/X.fa.gz",
+      "url": "https://raw.githubusercontent.com/nf-core/test-datasets/b5db2bc35419c7fb65d88bda6837a50fe84b3ed7/reference/X.fa.gz",
+      "bytes": 45816680,
+      "sha256": "4bfc2f72be3c338db412d6ece405e1189102bd25c88d6bdf5ab991223366e4a9"
+    },
+    {
+      "path": "reference/genes_chrX.gtf",
+      "url": "https://raw.githubusercontent.com/nf-core/test-datasets/b5db2bc35419c7fb65d88bda6837a50fe84b3ed7/reference/genes_chrX.gtf",
+      "bytes": 25734901,
+      "sha256": "5e0a93a0ffbf4662abbb5b7b078a1e4fd8b483664201fced5d7bcc8f97093b41"
+    }
+  ]
+}
