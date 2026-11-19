@@ -164,7 +164,8 @@ def _top10(record, output):
     if full:
         full = Path(full)
         full = full.relative_to(output).as_posix() if full.is_absolute() and full.is_relative_to(output) else full.as_posix()
-    headers = ''.join(f'<th{" class=\"num\"" if k in num_cols else ""}>{esc(k)}</th>' for k in visible)
+    num_attr = ' class="num"'
+    headers = ''.join(f'<th{num_attr if k in num_cols else ""}>{esc(k)}</th>' for k in visible)
     return (
         '<article class="exhibit top10 wide" id="' + esc(record['id']) + '"' + _scope(record) + '>'
         '<div class="exhibit-head"><span class="exhibit-no">EXECUTIVE TOP 10</span>'

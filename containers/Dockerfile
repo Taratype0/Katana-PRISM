@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="Katana-PRISM" \
       org.opencontainers.image.version="1.0.0" \
