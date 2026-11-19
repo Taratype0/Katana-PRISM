@@ -308,17 +308,26 @@ def load_rmats_study(
 
     if bundle_dir is not None:
         bdir = Path(bundle_dir)
-        s_path = bdir / "inputs" / "samplesheet.csv"
-        c_path = bdir / "inputs" / "contrastsheet.csv"
-        if not s_path.is_file():
-            raise FileNotFoundError(f"Missing samplesheet in bundle: {s_path}")
+        s_path = next((p for p in (
+            bdir / "pipeline_info" / "samplesheet.valid.csv",
+            bdir / "inputs" / "samplesheet.csv",
+            bdir / "samplesheet.csv",
+            bdir / "provenance" / "strandedness" / "samplesheet.requested.csv",
+        ) if p.is_file()), None)
+        c_path = next((p for p in (
+            bdir / "pipeline_info" / "contrastsheet.valid.csv",
+            bdir / "inputs" / "contrastsheet.csv",
+            bdir / "contrastsheet.csv",
+        ) if p.is_file()), None)
+        if s_path is None:
+            raise FileNotFoundError(f"Missing samplesheet in bundle: {bdir}")
         s_df = _read_delimited(s_path)
         for _, r in s_df.iterrows():
             sid = str(r.get("sample") or r.get("sample_id")).strip()
             cond = str(r.get("condition") or r.get("group") or "Group").strip()
             if sid and not any(x["sample_id"] == sid for x in sample_meta):
                 sample_meta.append({"sample_id": sid, "biological_sample_id": sid, "condition": cond})
-        if c_path.is_file():
+        if c_path is not None and c_path.is_file():
             c_df = _read_delimited(c_path)
             for _, r in c_df.iterrows():
                 cid = str(r.get("contrast") or r.get("contrast_id")).strip()

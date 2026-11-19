@@ -91,13 +91,25 @@ def extract_matrices_from_bundle_or_rmats(
 
     if bundle_dir is not None:
         bdir = Path(bundle_dir)
-        s_df = pd.read_csv(bdir / "inputs" / "samplesheet.csv")
+        s_path = next((p for p in (
+            bdir / "pipeline_info" / "samplesheet.valid.csv",
+            bdir / "inputs" / "samplesheet.csv",
+            bdir / "samplesheet.csv",
+        ) if p.is_file()), None)
+        c_path = next((p for p in (
+            bdir / "pipeline_info" / "contrastsheet.valid.csv",
+            bdir / "inputs" / "contrastsheet.csv",
+            bdir / "contrastsheet.csv",
+        ) if p.is_file()), None)
+        if s_path is None or c_path is None:
+            raise FileNotFoundError(f"Missing samplesheet/contrastsheet in bundle: {bdir}")
+        s_df = pd.read_csv(s_path)
         for _, r in s_df.iterrows():
             sid = str(r.get("sample") or r.get("sample_id")).strip()
             cond = str(r.get("condition") or "Group").strip()
             if sid and not any(x["sample_id"] == sid for x in sample_rows):
                 sample_rows.append({"sample_id": sid, "biological_sample_id": sid, "condition": cond})
-        c_df = pd.read_csv(bdir / "inputs" / "contrastsheet.csv")
+        c_df = pd.read_csv(c_path)
         for _, r in c_df.iterrows():
             cid = str(r.get("contrast") or r.get("contrast_id")).strip()
             num_c = str(r.get("treatment") or r.get("numerator")).strip()

@@ -77,8 +77,32 @@ def main(argv: list[str] | None = None) -> int:
     selected, sel_audit = select_events(masked, audit, feature_cap=args.feature_cap, ranking_metric=args.ranking_metric)
     sel_audit.to_csv(out_dir / "event_selection_audit.tsv.gz", sep="\t", index_label="event_key")
 
+    if len(selected) < 4:
+        assignments = pd.DataFrame(columns=["event_key", "module", "block", "kME"])
+        assignments.to_csv(out_dir / "module_assignments.tsv", sep="\t", index=False)
+        pd.DataFrame(index=meta["sample_id"]).to_csv(out_dir / "module_scores.tsv", sep="\t", index_label="sample_id")
+        pd.DataFrame(columns=["module", "size"]).to_csv(out_dir / "module_summary.tsv", sep="\t", index=False)
+        pd.DataFrame(columns=["event_key", "module", "loading"]).to_csv(out_dir / "module_pc1_basis.tsv", sep="\t", index=False)
+        receipt = {
+            "version": __version__,
+            "status": "insufficient_events_for_network",
+            "backend": args.backend,
+            "input_events": int(len(usage)),
+            "qc_eligible_events": int(audit["eligible"].sum()) if not audit.empty else 0,
+            "selected_events": int(len(selected)),
+            "non_grey_modules": 0,
+            "assigned_events": 0,
+            "elapsed_seconds": round(time.monotonic() - t0, 2),
+        }
+        (out_dir / "run_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+        if args.emit_versions_yml is not None:
+            write_nfcore_versions_yml(args.emit_versions_yml, args.process_name)
+        print(json.dumps(receipt))
+        return 0
+
+    eff_min_mod = min(args.min_module_size, max(4, len(selected) // 3))
     assignments = fit_splicenet(
-        selected, out_dir / "wgcna_fit", power=args.power, min_module_size=args.min_module_size, backend=args.backend
+        selected, out_dir / "wgcna_fit", power=args.power, min_module_size=eff_min_mod, backend=args.backend
     )
     stability_metrics: dict[str, float] = {}
     if args.subsamples > 0:

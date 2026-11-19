@@ -202,6 +202,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.rmats is not None and (args.mode in {"auto", "rescue"} and args.foreground is None):
         meas_df = load_rmats_measurable_events(args.rmats, args.fasta)
         bridge_pool_df = meas_df
+        if len(meas_df) < 10:
+            pd.DataFrame(columns=["RBP", "best_channel", "stat_Z", "rbp_P_FWER"]).to_csv(out_dir / "rbp_ranking.tsv", sep="\t", index=False)
+            pd.DataFrame(columns=["RBP", "region", "stat_Z", "P_FWER"]).to_csv(out_dir / "region_tests.tsv", sep="\t", index=False)
+            meas_df.to_csv(out_dir / "evaluated_events.tsv", sep="\t", index=False)
+            receipt = {"version": __version__, "library": lib.name, "status": "insufficient_events_for_rescue", "evaluated_events": int(len(meas_df)), "active_threads": int(active_threads), "elapsed_seconds": round(time.monotonic() - t0, 2)}
+            (out_dir / "run_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+            if args.emit_versions_yml is not None:
+                write_nfcore_versions_yml(args.emit_versions_yml, args.process_name)
+            print(json.dumps(receipt))
+            return 0
         rescue_res = run_bulk_continuous_rescue(meas_df, args.fasta, lib, n_permutations=args.permutations, seed=args.seed, threads=active_threads)
         rescue_res.rbp_ranking.to_csv(out_dir / "rbp_ranking.tsv", sep="\t", index=False)
         rescue_res.region_tests.to_csv(out_dir / "region_tests.tsv", sep="\t", index=False)

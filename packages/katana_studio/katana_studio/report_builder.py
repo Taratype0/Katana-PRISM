@@ -215,8 +215,12 @@ def _discover_rmats_contrasts(rmats_arg: str | Path | dict[str, Path], declared_
         return {cid: base}
     out = {}
     for sub in sorted(base.iterdir()):
-        if sub.is_dir() and any((sub / f"{et}.MATS.JC.txt").is_file() for et in EVENTS):
+        if not sub.is_dir():
+            continue
+        if any((sub / f"{et}.MATS.JC.txt").is_file() for et in EVENTS):
             out[sub.name] = sub
+        elif (sub / "rmats_post").is_dir() and any((sub / "rmats_post" / f"{et}.MATS.JC.txt").is_file() for et in EVENTS):
+            out[sub.name] = sub / "rmats_post"
     if not out:
         raise FileNotFoundError(f"No *.MATS.JC.txt files found under {base}")
     return out
@@ -227,11 +231,11 @@ def _resolve_bundle_inputs(bundle_dir: Path) -> dict[str, Any]:
     bundle = Path(bundle_dir).resolve()
     if not bundle.is_dir():
         raise FileNotFoundError(f"Bundle directory not found: {bundle}")
-    samples_f = next((p for p in (bundle / "samplesheet.csv", bundle / "samples.csv", bundle / "provenance/strandedness/samplesheet.requested.csv") if p.is_file()), None)
-    contrasts_f = next((p for p in (bundle / "contrasts.csv", bundle / "contrastsheet.csv") if p.is_file()), None)
+    samples_f = next((p for p in (bundle / "pipeline_info/samplesheet.valid.csv", bundle / "inputs/samplesheet.csv", bundle / "samplesheet.csv", bundle / "samples.csv", bundle / "provenance/strandedness/samplesheet.requested.csv") if p.is_file()), None)
+    contrasts_f = next((p for p in (bundle / "pipeline_info/contrastsheet.valid.csv", bundle / "inputs/contrastsheet.csv", bundle / "contrasts.csv", bundle / "contrastsheet.csv") if p.is_file()), None)
     rmats_dir = next((p for p in (bundle / "rmats", bundle / "splicing/rmats") if p.is_dir()), None)
     deg_dir = next((p for p in (bundle / "DEG", bundle / "deseq2") if p.is_dir()), None)
-    multiqc_dir = next((p for p in (bundle / "qc", bundle / "multiqc") if p.is_dir()), None)
+    multiqc_dir = next((p for p in (bundle / "qc/multiqc", bundle / "qc", bundle / "multiqc") if p.is_dir()), None)
     fasta_f = next((p for p in (bundle / "refs/genome.fasta", bundle / "refs/genome.fa") if p.is_file()), None)
     gtf_f = next((p for p in (bundle / "refs/annotation.gtf", bundle / "refs/genes.gtf") if p.is_file()), None)
     bam_dir = bundle / "bam" if (bundle / "bam").is_dir() else None
