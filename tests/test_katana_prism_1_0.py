@@ -445,6 +445,61 @@ def test_v1_0_1_distal_bridge_and_expression_disambiguation(tmp_path: Path) -> N
     assert {"RBP", "rbp_P_FWER", "best_region"}.issubset(res_obj.rbp_ranking.columns)
 
 
+def test_sc_build_splice_matrices_from_starsolo_sj(tmp_path: Path) -> None:
+    """Verify one-step STARsolo SJ/raw + GTF -> canonical single-cell splicing matrices builder."""
+    gtf_p = tmp_path / "test_sc.gtf"
+    gtf_p.write_text(
+        'chr1\tsynth\texon\t101\t200\t.\t+\t.\tgene_id "G1"; transcript_id "T_inc"; gene_name "GeneA";\n'
+        'chr1\tsynth\texon\t301\t380\t.\t+\t.\tgene_id "G1"; transcript_id "T_inc"; gene_name "GeneA";\n'
+        'chr1\tsynth\texon\t501\t600\t.\t+\t.\tgene_id "G1"; transcript_id "T_inc"; gene_name "GeneA";\n'
+        'chr1\tsynth\texon\t101\t200\t.\t+\t.\tgene_id "G1"; transcript_id "T_exc"; gene_name "GeneA";\n'
+        'chr1\tsynth\texon\t501\t600\t.\t+\t.\tgene_id "G1"; transcript_id "T_exc"; gene_name "GeneA";\n',
+        encoding="utf-8",
+    )
+    sj_raw = tmp_path / "Solo.out" / "SJ" / "raw"
+    sj_raw.mkdir(parents=True)
+    # 0-based exons: [100,200), [300,380), [500,600) -> 1-based STAR introns: (201,300), (381,500), skip (201,500)
+    (sj_raw / "features.tsv").write_text("chr1\t201\t300\t1\nchr1\t381\t500\t1\nchr1\t201\t500\t1\n", encoding="utf-8")
+    cells = [f"Cell_{i}" for i in range(1, 9)]
+    (sj_raw / "barcodes.tsv").write_text("\n".join(cells) + "\n", encoding="utf-8")
+    mtx_lines = ["%%MatrixMarket matrix coordinate integer general", "3 8 24"]
+    for c_idx in range(1, 9):
+        inc = 16 if c_idx <= 4 else 2
+        exc = 2 if c_idx <= 4 else 14
+        mtx_lines.extend([f"1 {c_idx} {inc}", f"2 {c_idx} {inc}", f"3 {c_idx} {exc}"])
+    (sj_raw / "matrix.mtx").write_text("\n".join(mtx_lines) + "\n", encoding="utf-8")
+
+    meta_p = tmp_path / "cell_meta.tsv"
+    meta_rows = ["cell_id\tcell_type\tdonor_id"] + [
+        f"Cell_{i}\t{'TypeA' if i <= 4 else 'TypeB'}\t{'D1' if i % 2 == 1 else 'D2'}" for i in range(1, 9)
+    ]
+    meta_p.write_text("\n".join(meta_rows) + "\n", encoding="utf-8")
+
+    out_m = tmp_path / "sc_matrices"
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "bin" / "katana_sc_build_splice_matrices.py"),
+            "--gtf", str(gtf_p),
+            "--sj-dirs", str(sj_raw),
+            "--metadata", str(meta_p),
+            "--group-col", "cell_type",
+            "--numerator", "TypeA",
+            "--denominator", "TypeB",
+            "--min-cells", "4",
+            "--min-cell-support", "3",
+            "--outdir", str(out_m),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0, res.stderr
+    ev_out = pd.read_csv(out_m / "sc_events.tsv", sep="\t")
+    psi_out = pd.read_csv(out_m / "sc_psi.tsv.gz", sep="\t", index_col=0)
+    assert len(ev_out) == 1 and float(ev_out.iloc[0]["dpsi"]) > 0.60
+    assert psi_out.shape == (8, 1)
+
+
 # ---------------------------------------------------------------------------
 # 4. Repository-Wide Confidentiality, Brand & Naming Hygiene Audit
 # ---------------------------------------------------------------------------
@@ -460,7 +515,7 @@ def test_zero_confidential_brand_or_typo_leaks() -> None:
         "E:/" + "Project",
     ]
     forbidden = re.compile("(" + "|".join(toks) + ")", re.I)
-    text_exts = {".py", ".nf", ".config", ".R", ".md", ".toml", ".json", ".ts", ".tsx", ".css", ".html"}
+    text_exts = {".py", ".nf", ".config", ".R", ".md", ".toml", ".json", ".ts", ".tsx", ".css", ".html", ".sbatch"}
     violations: list[str] = []
     for f in REPO_ROOT.rglob("*"):
         if not f.is_file() or f.suffix not in text_exts:

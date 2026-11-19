@@ -225,6 +225,7 @@ process SCSPLICETRACE {
     path psi_matrix
     path support_matrix
     path cell_metadata
+    path host_expression
     path fasta
     path gtf
     val  species
@@ -237,9 +238,10 @@ process SCSPLICETRACE {
     path "versions.yml"     , emit: versions
 
     script:
-    def sup_arg = support_matrix.name != 'NO_SUPPORT' ? "--support ${support_matrix}" : ''
-    def net_arg = scsplicenet_dir.name != 'NO_SCSPLICENET' ? "--splicenet-modules ${scsplicenet_dir}/scsplicenet_modules.tsv" : ''
-    def sp_val  = (species in ['human', 'mouse']) ? species : 'human'
+    def sup_arg  = support_matrix.name != 'NO_SUPPORT' ? "--support ${support_matrix}" : ''
+    def expr_arg = host_expression.name != 'NO_EXPRESSION' ? "--expression ${host_expression}" : ''
+    def net_arg  = scsplicenet_dir.name != 'NO_SCSPLICENET' ? "--splicenet-modules ${scsplicenet_dir}/scsplicenet_modules.tsv" : ''
+    def sp_val   = (species in ['human', 'mouse']) ? species : 'human'
     """
     fasta_ref="${fasta}"
     if [[ "\$fasta_ref" == *.gz ]]; then gzip -dc "\$fasta_ref" > genome_unpacked.fa; fasta_ref="genome_unpacked.fa"; fi
@@ -256,11 +258,175 @@ process SCSPLICETRACE {
         --numerator "${numerator}" \
         --denominator "${denominator}" \
         ${sup_arg} \
+        ${expr_arg} \
         ${net_arg} \
         --threads ${task.cpus} \
         --out scsplicetrace_out \
         --emit-versions-yml versions.yml \
         --process-name "${task.process}"
+    """
+}
+
+process SC_STARSOLO_SMARTSEQ {
+    tag "${study_name}"
+    label 'process_high'
+
+    conda "bioconda::star=2.7.10a bioconda::samtools=1.16.1 conda-forge::gawk=5.1.0"
+    container "${ workflow.containerEngine in ['singularity', 'apptainer'] && !task.ext.singularity_pull_docker_container ?
+        'https://depot.galaxyproject.org/singularity/mulled-v2-1fa26d1ce03c295fe2fdcf85831a92fbcbd7e8c2:1df389393721fc66f3fd8778ad938ac711951107-0' :
+        'quay.io/biocontainers/mulled-v2-1fa26d1ce03c295fe2fdcf85831a92fbcbd7e8c2:1df389393721fc66f3fd8778ad938ac711951107-0' }"
+
+    input:
+    val  study_name
+    val  manifest_rows
+    path staged_r1, stageAs: 'fq_r1/*'
+    path staged_r2, stageAs: 'fq_r2/*'
+    path star_index
+    path gtf
+
+    output:
+    path "Solo.out/SJ/raw", emit: sj_raw
+    path "versions.yml"   , emit: versions
+
+    script:
+    def r1_list = [staged_r1].flatten()
+    def r2_list = staged_r2.name == 'NO_R2' ? [] : [staged_r2].flatten()
+    def is_gz   = r1_list[0].name.endsWith('.gz') ? '--readFilesCommand zcat' : ''
+    def lines   = []
+    manifest_rows.eachWithIndex { row, idx ->
+        def f1 = r1_list[idx]
+        def f2 = r2_list ? r2_list[idx] : '-'
+        lines << "${f1}\t${f2}\t${row.cell_id}"
+    }
+    def manifest_body = lines.join('\n')
+    """
+    cat << 'EOF_MANIFEST' > starsolo_manifest.tsv
+${manifest_body}
+EOF_MANIFEST
+
+    STAR \
+        --genomeDir "${star_index}" \
+        --sjdbGTFfile "${gtf}" \
+        --runThreadN ${task.cpus} \
+        --soloType SmartSeq \
+        --readFilesManifest starsolo_manifest.tsv \
+        ${is_gz} \
+        --soloUMIdedup NoDedup \
+        --soloStrand Unstranded \
+        --soloFeatures SJ \
+        --outSAMtype None
+
+    cat <<-END_VERSIONS > versions.yml
+    "${task.process}":
+        star: \$(STAR --version | sed -e "s/STAR_//g")
+    END_VERSIONS
+    """
+}
+
+process SC_STARSOLO_DROPLET {
+    tag "${sample_id}"
+    label 'process_high'
+
+    conda "bioconda::star=2.7.10a bioconda::samtools=1.16.1 conda-forge::gawk=5.1.0"
+    container "${ workflow.containerEngine in ['singularity', 'apptainer'] && !task.ext.singularity_pull_docker_container ?
+        'https://depot.galaxyproject.org/singularity/mulled-v2-1fa26d1ce03c295fe2fdcf85831a92fbcbd7e8c2:1df389393721fc66f3fd8778ad938ac711951107-0' :
+        'quay.io/biocontainers/mulled-v2-1fa26d1ce03c295fe2fdcf85831a92fbcbd7e8c2:1df389393721fc66f3fd8778ad938ac711951107-0' }"
+
+    input:
+    tuple val(sample_id), path(fastq_r1, stageAs: 'r1/*'), path(fastq_r2, stageAs: 'r2/*')
+    path cb_whitelist
+    path star_index
+    path gtf
+    val  cb_len
+    val  umi_len
+
+    output:
+    tuple val(sample_id), path("${sample_id}_SJ_raw"), emit: sj_raw
+    path "versions.yml"                              , emit: versions
+
+    script:
+    def is_gz = fastq_r2.name.endsWith('.gz') ? '--readFilesCommand zcat' : ''
+    def wl_arg = cb_whitelist.name != 'NO_WHITELIST' ? "${cb_whitelist}" : 'None'
+    """
+    wl_file="${wl_arg}"
+    if [[ "\$wl_file" == *.gz ]]; then gzip -dc "\$wl_file" > whitelist_unpacked.txt; wl_file="whitelist_unpacked.txt"; fi
+
+    STAR \
+        --genomeDir "${star_index}" \
+        --sjdbGTFfile "${gtf}" \
+        --runThreadN ${task.cpus} \
+        --soloType CB_UMI_Simple \
+        --readFilesIn "${fastq_r2}" "${fastq_r1}" \
+        ${is_gz} \
+        --soloCBwhitelist "\${wl_file}" \
+        --soloCBlen ${cb_len} \
+        --soloUMIstart ${cb_len + 1} \
+        --soloUMIlen ${umi_len} \
+        --soloFeatures SJ \
+        --outSAMtype None
+
+    cp -r Solo.out/SJ/raw "${sample_id}_SJ_raw"
+
+    cat <<-END_VERSIONS > versions.yml
+    "${task.process}":
+        star: \$(STAR --version | sed -e "s/STAR_//g")
+    END_VERSIONS
+    """
+}
+
+process SC_BUILD_SPLICE_MATRICES {
+    tag "${study_name}"
+    label 'process_medium'
+
+    input:
+    val  study_name
+    val  sample_prefixes
+    path sj_dirs, stageAs: 'sj_in_*'
+    path cell_metadata
+    path gtf
+    val  group_col
+    val  numerator
+    val  denominator
+    val  min_cells
+    val  min_cell_support
+    val  pseudobulk_by
+
+    output:
+    path "sc_matrices/sc_events.tsv"     , emit: events
+    path "sc_matrices/sc_event_genes.tsv", emit: event_genes
+    path "sc_matrices/sc_psi.tsv.gz"     , emit: psi
+    path "sc_matrices/sc_support.tsv.gz" , emit: support
+    path "sc_matrices/sc_cells.tsv"      , emit: metadata
+    path "versions.yml"                  , emit: versions
+
+    script:
+    def dir_list = [sj_dirs].flatten()
+    def specs = []
+    dir_list.eachWithIndex { d, i ->
+        def pref = (sample_prefixes && sample_prefixes[i]) ? "${sample_prefixes[i]}::" : ''
+        specs << "${pref}${d}"
+    }
+    def sj_arg  = specs.collect { "\"${it}\"" }.join(' ')
+    def num_arg = numerator ? "--numerator \"${numerator}\"" : ''
+    def den_arg = denominator ? "--denominator \"${denominator}\"" : ''
+    def pb_arg  = pseudobulk_by ? "--pseudobulk-by \"${pseudobulk_by}\"" : ''
+    """
+    katana_sc_build_splice_matrices.py \
+        --gtf "${gtf}" \
+        --sj-dirs ${sj_arg} \
+        --metadata "${cell_metadata}" \
+        --group-col "${group_col}" \
+        ${num_arg} \
+        ${den_arg} \
+        --min-cells ${min_cells} \
+        --min-cell-support ${min_cell_support} \
+        ${pb_arg} \
+        --outdir sc_matrices
+
+    cat <<-END_VERSIONS > versions.yml
+    "${task.process}":
+        python: \$(python3 --version | sed 's/Python //')
+    END_VERSIONS
     """
 }
 

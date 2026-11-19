@@ -20,7 +20,7 @@ nextflow.enable.dsl = 2
 
 include { KATANA_PIPELINE }           from './workflows/katana_core'
 include { KATANA_MODULAR_DOWNSTREAM } from './workflows/katana_modular_downstream'
-include { KATANA_SINGLE_CELL }        from './workflows/katana_singlecell'
+include { KATANA_SINGLE_CELL; KATANA_SINGLE_CELL_FROM_FASTQ } from './workflows/katana_singlecell'
 
 def requireParameters(names) {
     names.each { name -> if (!params[name]) error("Required parameter missing: --${name}") }
@@ -36,17 +36,26 @@ def validateStrandednessParameters() {
 }
 
 workflow SINGLE_CELL {
-    requireParameters(['sc_events', 'sc_psi', 'sc_metadata', 'sc_event_genes', 'fasta', 'gtf'])
-    ch_events = Channel.value(file(params.sc_events, checkIfExists: true))
-    ch_psi    = Channel.value(file(params.sc_psi, checkIfExists: true))
-    ch_sup    = params.sc_support ? Channel.value(file(params.sc_support, checkIfExists: true)) : Channel.value(file('NO_SUPPORT'))
-    ch_meta   = Channel.value(file(params.sc_metadata, checkIfExists: true))
-    ch_eg     = Channel.value(file(params.sc_event_genes, checkIfExists: true))
-    ch_expr   = params.sc_expression ? Channel.value(file(params.sc_expression, checkIfExists: true)) : Channel.value(file('NO_EXPRESSION'))
-    ch_fasta  = Channel.value(file(params.fasta, checkIfExists: true))
-    ch_gtf    = Channel.value(file(params.gtf, checkIfExists: true))
+    if (params.sc_fastq_manifest || params.sc_10x_fastq_sheet) {
+        requireParameters(['sc_metadata', 'fasta', 'gtf'])
+        ch_meta  = Channel.value(file(params.sc_metadata, checkIfExists: true))
+        ch_expr  = params.sc_expression ? Channel.value(file(params.sc_expression, checkIfExists: true)) : Channel.value(file('NO_EXPRESSION'))
+        ch_fasta = Channel.value(file(params.fasta, checkIfExists: true))
+        ch_gtf   = Channel.value(file(params.gtf, checkIfExists: true))
+        KATANA_SINGLE_CELL_FROM_FASTQ(ch_meta, ch_expr, ch_fasta, ch_gtf)
+    } else {
+        requireParameters(['sc_events', 'sc_psi', 'sc_metadata', 'sc_event_genes', 'fasta', 'gtf'])
+        ch_events = Channel.value(file(params.sc_events, checkIfExists: true))
+        ch_psi    = Channel.value(file(params.sc_psi, checkIfExists: true))
+        ch_sup    = params.sc_support ? Channel.value(file(params.sc_support, checkIfExists: true)) : Channel.value(file('NO_SUPPORT'))
+        ch_meta   = Channel.value(file(params.sc_metadata, checkIfExists: true))
+        ch_eg     = Channel.value(file(params.sc_event_genes, checkIfExists: true))
+        ch_expr   = params.sc_expression ? Channel.value(file(params.sc_expression, checkIfExists: true)) : Channel.value(file('NO_EXPRESSION'))
+        ch_fasta  = Channel.value(file(params.fasta, checkIfExists: true))
+        ch_gtf    = Channel.value(file(params.gtf, checkIfExists: true))
 
-    KATANA_SINGLE_CELL(ch_events, ch_psi, ch_sup, ch_meta, ch_eg, ch_expr, ch_fasta, ch_gtf)
+        KATANA_SINGLE_CELL(ch_events, ch_psi, ch_sup, ch_meta, ch_eg, ch_expr, ch_fasta, ch_gtf)
+    }
 }
 
 workflow {
