@@ -1,0 +1,19 @@
+case	role	knockdown_RBP	discrete_matched_fg_events	cont_evaluated_events	cont_fg_events	cont_exact_P_FWER	cont_exact_rank	cont_exact_Z	cont_cognate_min_P_FWER	cont_cognate_best_rank	cont_cognate_best_RBP	cont_top1_RBP	cont_top1_P_FWER	cont_sig_rbps_fwer05	disc_exact_rbp_P_FWER	disc_exact_any_P_FWER	disc_exact_rank	disc_cognate_min_P_FWER	disc_cognate_best_rank	disc_top1_RBP	disc_sig_rbps_fwer05	rMAPS2_sig_rbps_bonf	rMAPS2_exact_rank	NoFWL_OOF_GLM_sig_bonf	NoFWL_OOF_GLM_exact_rank	Unmatched_MWU_FullBonf_sig	Unmatched_MWU_RBPBonf_sig
+PTBP1	high_block_positive	PTBP1	1276	10029	4190	0.0005	1	9.181	0.0005	1	PTBP1	PTBP1	0.0005	20	0.001	0.001	2	0.001	1	PTBP2	16	-1	-1.0	69	1	169	169
+GSE206660_PTBP2	high_block_positive	PTBP2	2397	51936	9095	0.0005	3	-11.071	0.0005	1	PTBP1	PTBP1	0.0005	77	0.001	0.001	2	0.001	1	PTBP1	43	-1	-1.0	142	16	169	169
+SRSF1	high_block_positive	SRSF1	2731	11912	8020	0.0015	35	-5.17	0.0005	1	SRSF9	SRSF9	0.0005	52	0.001	0.001	4	0.001	4	HNRNPA1	21	-1	-1.0	55	15	169	169
+HNRNPA1	high_block_positive	HNRNPA1	608	8123	2489	0.975	45	3.052	0.975	45	HNRNPA1	RBM14	0.0005	4	0.012	0.002	11	0.012	11	HNRNPA0	23	-1	-1.0	8	144	162	169
+HNRNPF	high_block_positive	HNRNPF	650	8713	2572	0.0015	8	4.814	0.0015	8	HNRNPF	PPRC1	0.0005	15	1.0	0.997	50	1.0	47	DHX9	4	-1	-1.0	13	14	77	117
+GSE206660_NegA	negative_control	NONE	856	30432	5072	1.0	-1		1.0	-1		ZC3H10	0.085	0	1.0	1.0	-1	1.0	114	SRSF9	0	-1	-1.0	92	-1	169	169
+U2AF2	low_block_positive	U2AF2	651	8199	1740	1.0	52	2.606	1.0	52	U2AF2	RBM3	0.005	4	1.0	1.0	133	1.0	133		3	81	59.5	109	77	167	169
+PCBP2	low_block_positive	PCBP2	246	4078	729	1.0	96	2.376	1.0	60	PCBP1	PPRC1	0.002	6	1.0	1.0	54	1.0	54		0	30	1.5	147	25	169	169
+SRSF3	low_block_positive	SRSF3	194	3077	402	0.0365	1	-4.404	0.0365	1	SRSF3	SRSF3	0.0365	2	1.0	1.0	59	1.0	59		0	24	16.5	3	10	160	169
+HNRNPK	low_block_positive	HNRNPK	188	3243	483	1.0	45	2.749	1.0	45	HNRNPK	DHX9	0.0005	5	1.0	1.0	66	1.0	66		0	0	1.0	11	139	164	169
+TARDBP	low_block_positive	TARDBP	187	2895	375	0.9995	28	-2.892	0.9995	28	TARDBP	PPIE	0.0165	1	1.0	1.0	104	1.0	104		0	0	73.0	9	14	169	169
+TIAL1	low_block_positive	TIAL1	155	2351	334	1.0	159	-1.441	0.9995	36	TIA1	IGF2BP1	0.0875	0	1.0	1.0	75	1.0	75		0	0	-1.0	1	143	164	169
+SRSF9	low_block_positive	SRSF9	113	2168	263	1.0	59	2.824	1.0	59	SRSF9	NUDT21	0.0015	2	1.0	1.0	79	1.0	79		1	0	10.0	2	81	158	169
+HNRNPL	low_block_positive	HNRNPL	108	2149	259	1.0	53	2.444	1.0	53	HNRNPL	PPRC1	0.002	4	1.0	1.0	42	1.0	42		0	0	77.0	4	92	166	169
+KHSRP	low_block_positive	KHSRP	87	2157	292	0.082	3	4.164	0.082	3	KHSRP	IGF2BP3	0.014	2	1.0	1.0	44	1.0	44		0	0	1.5	7	5	161	169
+ZRANB2	low_block_positive	ZRANB2	82	2316	291	1.0	150	-1.751	1.0	150	ZRANB2	SNRPB2	0.006	2	1.0	1.0	70	1.0	70		1	0	52.0	10	51	90	163
+SUPV3L1	mitochondrial_negative_control	SUPV3L1	150	2431	316	1.0	-1		1.0	-1		XPO5	0.143	0	1.0	1.0	-1	1.0	-1		0	0	-1.0	46	-1	169	169
+PNPT1	mitochondrial_negative_control	PNPT1	60	1710	180	1.0	-1		1.0	-1		G3BP1	0.1535	0	1.0	1.0	-1	1.0	-1		0	0	-1.0	1	-1	161	169

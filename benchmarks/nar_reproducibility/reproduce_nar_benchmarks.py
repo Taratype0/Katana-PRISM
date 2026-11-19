@@ -135,6 +135,12 @@ def run_encode_bridge_benchmark(splicetools_dir: Path, hg38_fasta: Path, out_dir
 
 def verify_bundled_tables(tables_path: Path) -> None:
     """Verify key statistical invariants across bundled NAR benchmark tables."""
+    f2c = pd.read_csv(tables_path / "fig2c_splicetrace_exact_and_ablations.tsv", sep="\t")
+    nulls = f2c[f2c["role"].isin(["negative_control", "mitochondrial_negative_control"])]
+    assert len(nulls) == 3 and int(nulls["cont_sig_rbps_fwer05"].sum()) == 0 and int(nulls["disc_sig_rbps_fwer05"].sum()) == 0
+    hb = f2c[f2c["role"].eq("high_block_positive")]
+    assert len(hb) == 5 and int((hb["disc_exact_rbp_P_FWER"] <= 0.05).sum()) == 4 and int((hb["cont_exact_P_FWER"] <= 0.05).sum()) == 4
+
     b_df = pd.read_csv(tables_path / "fig4a_encode_module_rbp_bridge_distal500.tsv", sep="\t")
     sig_mods = sorted(b_df.loc[b_df["module_P_FWER"] <= 0.05, "module"].unique().tolist())
     assert sig_mods == ["M1", "M12", "M3", "M9"], f"Unexpected FWER<=0.05 bridged modules: {sig_mods}"
@@ -143,6 +149,9 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert len(flows) == 611
     assert int((flows["bridge_tier"] == "FWER<=0.05_Bridged").sum()) == 286
     assert int((flows["bridge_tier"] == "Exploratory_Orphan_Module").sum()) == 325
+
+    f5a = pd.read_csv(tables_path / "fig5a_sc_manifold_vs_marvel_jutils.tsv", sep="\t").set_index("method")
+    assert abs(float(f5a.loc["MARVEL (Mean-Imputed, Same 1,000 HVEs)", "permanova_r2"]) - 0.0119) < 1e-3
 
     slam = pd.read_csv(tables_path / "fig5c_gse270928_slamf1_per_cell_event_psi.tsv", sep="\t")
     assert int(slam["event_psi"].notna().sum()) == 76
