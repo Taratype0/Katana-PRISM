@@ -86,14 +86,14 @@ process SPLICETRACE {
     def sp_val  = (species in ['human', 'mouse']) ? species : 'mouse'
     """
     fasta_ref="${fasta}"
-    if [[ "$fasta_ref" == *.gz ]]; then gzip -dc "$fasta_ref" > genome_unpacked.fa; fasta_ref="genome_unpacked.fa"; fi
-    if [[ ! -f "${fasta_ref}.fai" ]]; then samtools faidx "$fasta_ref"; fi
+    if [[ "\$fasta_ref" == *.gz ]]; then gzip -dc "\$fasta_ref" > genome_unpacked.fa; fasta_ref="genome_unpacked.fa"; fi
+    if [[ ! -f "\${fasta_ref}.fai" ]]; then cp -L "\$fasta_ref" genome_local.fa && fasta_ref="genome_local.fa" && samtools faidx "\$fasta_ref"; fi
     gtf_ref="${gtf}"
-    if [[ "$gtf_ref" == *.gz ]]; then gzip -dc "$gtf_ref" > annotation_unpacked.gtf; gtf_ref="annotation_unpacked.gtf"; fi
+    if [[ "\$gtf_ref" == *.gz ]]; then gzip -dc "\$gtf_ref" > annotation_unpacked.gtf; gtf_ref="annotation_unpacked.gtf"; fi
     splicetrace \
         --rmats "${rmats_dir}" \
-        --fasta "${fasta_ref}" \
-        --gtf "${gtf_ref}" \
+        --fasta "\${fasta_ref}" \
+        --gtf "\${gtf_ref}" \
         --species "${sp_val}" \
         ${net_arg} \
         --threads ${task.cpus} \
@@ -132,14 +132,14 @@ process KATANA_REPORT {
     def sp_val    = (species in ['auto', 'human', 'mouse']) ? species : 'auto'
     """
     fasta_ref="${fasta}"
-    if [[ "$fasta_ref" == *.gz ]]; then gzip -dc "$fasta_ref" > genome_unpacked.fa; fasta_ref="genome_unpacked.fa"; fi
-    if [[ ! -f "${fasta_ref}.fai" ]]; then samtools faidx "$fasta_ref"; fi
+    if [[ "\$fasta_ref" == *.gz ]]; then gzip -dc "\$fasta_ref" > genome_unpacked.fa; fasta_ref="genome_unpacked.fa"; fi
+    if [[ ! -f "\${fasta_ref}.fai" ]]; then cp -L "\$fasta_ref" genome_local.fa && fasta_ref="genome_local.fa" && samtools faidx "\$fasta_ref"; fi
     gtf_ref="${gtf}"
-    if [[ "$gtf_ref" == *.gz ]]; then gzip -dc "$gtf_ref" > annotation_unpacked.gtf; gtf_ref="annotation_unpacked.gtf"; fi
+    if [[ "\$gtf_ref" == *.gz ]]; then gzip -dc "\$gtf_ref" > annotation_unpacked.gtf; gtf_ref="annotation_unpacked.gtf"; fi
     katana-report bulk \
         --bundle "${bundle}" \
-        --fasta "${fasta_ref}" \
-        --gtf "${gtf_ref}" \
+        --fasta "\${fasta_ref}" \
+        --gtf "\${gtf_ref}" \
         --study-name "${study_name}" \
         --species "${sp_val}" \
         --fdr ${das_fdr} \
@@ -241,12 +241,17 @@ process SCSPLICETRACE {
     def net_arg = scsplicenet_dir.name != 'NO_SCSPLICENET' ? "--splicenet-modules ${scsplicenet_dir}/scsplicenet_modules.tsv" : ''
     def sp_val  = (species in ['human', 'mouse']) ? species : 'human'
     """
+    fasta_ref="${fasta}"
+    if [[ "\$fasta_ref" == *.gz ]]; then gzip -dc "\$fasta_ref" > genome_unpacked.fa; fasta_ref="genome_unpacked.fa"; fi
+    if [[ ! -f "\${fasta_ref}.fai" ]]; then cp -L "\$fasta_ref" genome_local.fa && fasta_ref="genome_local.fa" && samtools faidx "\$fasta_ref"; fi
+    gtf_ref="${gtf}"
+    if [[ "\$gtf_ref" == *.gz ]]; then gzip -dc "\$gtf_ref" > annotation_unpacked.gtf; gtf_ref="annotation_unpacked.gtf"; fi
     scsplicetrace \
         --events "${events_table}" \
         --psi "${psi_matrix}" \
         --metadata "${cell_metadata}" \
-        --fasta "${fasta}" \
-        --gtf "${gtf}" \
+        --fasta "\${fasta_ref}" \
+        --gtf "\${gtf_ref}" \
         --species "${sp_val}" \
         --numerator "${numerator}" \
         --denominator "${denominator}" \
