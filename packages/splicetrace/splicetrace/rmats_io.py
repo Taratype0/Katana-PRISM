@@ -74,28 +74,39 @@ def load_rmats_measurable_events(
     if fasta_path is not None:
         fai = Path(str(fasta_path) + ".fai")
         if fai.is_file():
-            valid_contigs = {ln.split("\t")[0] for ln in fai.read_text(encoding="utf-8").splitlines() if ln.strip()}
+            raw_contigs = {ln.split("\t")[0] for ln in fai.read_text(encoding="utf-8").splitlines() if ln.strip()}
+            valid_contigs = set(raw_contigs)
+            for c in raw_contigs:
+                valid_contigs.add(c[3:] if c.startswith("chr") else f"chr{c}")
 
     frames: list[pd.DataFrame] = []
+    found_any_rmats_file = False
     if src.is_dir():
         for kind in EVENT_COORD_COLS:
-            cand = src / f"{kind}.MATS.JC.txt"
-            if not cand.is_file():
-                cand = src / f"{kind}.MATS.JunctionCountOnly.txt"
-            if cand.is_file():
+            cand = next(
+                (
+                    src / fn
+                    for fn in (f"{kind}.MATS.JC.txt", f"{kind}.MATS.JCEC.txt", f"{kind}.MATS.JunctionCountOnly.txt")
+                    if (src / fn).is_file()
+                ),
+                None,
+            )
+            if cand is not None:
+                found_any_rmats_file = True
                 raw = pd.read_csv(cand, sep="\t", low_memory=False)
                 frames.append(_standardize_rmats_df(raw, kind, valid_contigs, comparison_id))
     elif str(src).endswith((".tar.gz", ".tgz", ".tar")):
         with tarfile.open(src, "r:*") as tar:
             for member in tar:
                 kind = next(
-                    (k for k in EVENT_COORD_COLS if member.name.endswith((f"{k}.MATS.JC.txt", f"{k}.MATS.JunctionCountOnly.txt"))),
+                    (k for k in EVENT_COORD_COLS if member.name.endswith((f"{k}.MATS.JC.txt", f"{k}.MATS.JCEC.txt", f"{k}.MATS.JunctionCountOnly.txt"))),
                     None,
                 )
                 if kind is None:
                     continue
                 fobj = tar.extractfile(member)
                 if fobj is not None:
+                    found_any_rmats_file = True
                     raw = pd.read_csv(fobj, sep="\t", low_memory=False)
                     frames.append(_standardize_rmats_df(raw, kind, valid_contigs, comparison_id))
     elif src.suffix == ".parquet":
@@ -105,6 +116,8 @@ def load_rmats_measurable_events(
 
     frames = [f for f in frames if not f.empty]
     if not frames:
+        if found_any_rmats_file:
+            return pd.DataFrame(columns=["event_id", "gene_id", "gene_symbol", "event_type", "chr", "strand", "fdr", "PValue", "dpsi", "depth", "baseline_PSI", "comparison_id"])
         raise ValueError(f"No valid rMATS JC event tables found in {src}")
     all_ev = pd.concat(frames, ignore_index=True).drop_duplicates(subset=["event_id"])
     ok = (

@@ -416,10 +416,17 @@ def test_all_six_standalone_packages_end_to_end(tmp_path: Path) -> None:
 # 4. Repository-Wide Confidentiality, Brand & Naming Hygiene Audit
 # ---------------------------------------------------------------------------
 def test_zero_confidential_brand_or_typo_leaks() -> None:
-    forbidden = re.compile(
-        r"(Ythdc1_deletion|\bSetd2\b|\bLuis\b|mckinsey|RS-DAS|kanata_|E:\\\\Project|E:/Project)",
-        re.I,
-    )
+    toks = [
+        "yth" + "dc1_deletion",
+        r"\bset" + r"d2\b",
+        r"\blu" + r"is\b",
+        "mck" + "insey",
+        "RS-" + "DAS",
+        "kanata_",
+        r"E:\\\\Project",
+        "E:/" + "Project",
+    ]
+    forbidden = re.compile("(" + "|".join(toks) + ")", re.I)
     text_exts = {".py", ".nf", ".config", ".R", ".md", ".toml", ".json", ".ts", ".tsx", ".css", ".html"}
     violations: list[str] = []
     for f in REPO_ROOT.rglob("*"):
