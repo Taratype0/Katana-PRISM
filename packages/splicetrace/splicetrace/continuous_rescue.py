@@ -208,6 +208,7 @@ def run_bulk_continuous_rescue(
     *,
     distal_intron_nt: int = 500,
     include_exon_gc: bool = False,
+    use_fwl: bool = True,
     rbp_expr_df: pd.DataFrame | None = None,
     min_rbp_expr: float = 1.0,
     max_events_blind_depth: int = 3500,
@@ -362,10 +363,11 @@ def run_bulk_continuous_rescue(
 
     n_reg, n_rbp = len(region_names), len(rbps)
     F_flat = rbp_tensor.reshape(len(cont_df), n_reg * n_rbp)
-    F_res = _fwl_residuals(F_flat, X_nuis, w)
+    X_proj = X_nuis if use_fwl else np.ones((n_c, 1), dtype=float)
+    F_res = _fwl_residuals(F_flat, X_proj, w)
     f_sd0 = np.sqrt(np.maximum(np.sum((F_res * F_res) * w[:, None], axis=0), 1e-12))
-    F_win = _fwl_residuals(np.clip(F_res / f_sd0[None, :], -3.5, 3.5), X_nuis, w)
-    y_res = _fwl_residuals(y_sparse, X_nuis, w)
+    F_win = _fwl_residuals(np.clip(F_res / f_sd0[None, :], -3.5, 3.5), X_proj, w)
+    y_res = _fwl_residuals(y_sparse, X_proj, w)
 
     F_g = np.zeros((G, n_reg * n_rbp), dtype=float)
     np.add.at(F_g, g_codes, w[:, None] * F_win)
