@@ -171,6 +171,13 @@ def verify_bundled_tables(tables_path: Path) -> None:
     slam = pd.read_csv(tables_path / "fig5c_gse270928_slamf1_per_cell_event_psi.tsv", sep="\t")
     assert int(slam["event_psi"].notna().sum()) == 76
 
+    pw = pd.read_csv(tables_path / "fig5f_gse270928_pathway_partitioning_151genes.tsv", sep="\t").set_index("term_id")
+    assert int(pw.loc["GOBP_RNA_SPLICING", "das_151_total"]) == 151
+    assert int(pw.loc["GOBP_RNA_SPLICING", "das_overlap"]) == 18
+    assert int(pw.loc["GOBP_RNA_SPLICING", "concordant2d_overlap"]) == 11
+    assert int(pw.loc["REACTOME_PROCESSING_OF_CAPPED_INTRON_CONTAINING_PRE_MRNA", "das_overlap"]) == 12
+    assert int(pw.loc["REACTOME_PROCESSING_OF_CAPPED_INTRON_CONTAINING_PRE_MRNA", "concordant2d_overlap"]) == 8
+
     pool = pd.read_csv(tables_path / "figS4a_within_donor_state_pooling.tsv", sep="\t")
     assert int(pool["cells_per_donor_state"].max()) == 48
     print("[OK] All bundled NAR benchmark table invariants verified.")
