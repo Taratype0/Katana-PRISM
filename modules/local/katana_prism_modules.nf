@@ -131,10 +131,15 @@ process KATANA_REPORT {
     def trace_arg = (splicetrace_outs && splicetrace_outs.toString() != 'NO_SPLICETRACE') ? "--splicetrace-dirs ${splicetrace_outs}" : ''
     def sp_val    = (species in ['auto', 'human', 'mouse']) ? species : 'auto'
     """
+    fasta_ref="${fasta}"
+    if [[ "$fasta_ref" == *.gz ]]; then gzip -dc "$fasta_ref" > genome_unpacked.fa; fasta_ref="genome_unpacked.fa"; fi
+    if [[ ! -f "${fasta_ref}.fai" ]]; then samtools faidx "$fasta_ref"; fi
+    gtf_ref="${gtf}"
+    if [[ "$gtf_ref" == *.gz ]]; then gzip -dc "$gtf_ref" > annotation_unpacked.gtf; gtf_ref="annotation_unpacked.gtf"; fi
     katana-report bulk \
         --bundle "${bundle}" \
-        --fasta "${fasta}" \
-        --gtf "${gtf}" \
+        --fasta "${fasta_ref}" \
+        --gtf "${gtf_ref}" \
         --study-name "${study_name}" \
         --species "${sp_val}" \
         --fdr ${das_fdr} \

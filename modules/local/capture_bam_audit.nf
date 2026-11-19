@@ -7,13 +7,14 @@ process CAPTURE_BAM_AUDIT {
     path metrics_helper
     output:
     tuple val(meta), path('audit.header.sam'), path('audit.primary_metrics.tsv'), emit: captured
-    tuple val(meta), path('katana_source.bam', includeInputs: true), emit: staged_bam
+    tuple val(meta), path("${meta.id}.coord.bam"), emit: staged_bam
     path 'versions.yml', emit: versions
     script:
     """
     samtools quickcheck -v "$bam"
     samtools view -H "$bam" > audit.header.sam
     samtools view -@ ${task.cpus} -F 2304 "$bam" | awk -f "$metrics_helper" > audit.primary_metrics.tsv
+    ln -sf "\$(readlink -f "$bam")" "${meta.id}.coord.bam"
     printf 'samtools: %s\\n' "\$(samtools --version | head -n 1)" > versions.yml
     """
 }

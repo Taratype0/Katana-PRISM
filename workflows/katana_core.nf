@@ -412,7 +412,7 @@ workflow KATANA_PIPELINE {
             ch_versions = ch_versions.mix(KATANA_MULTIQC.out.versions)
             ch_artifacts = ch_artifacts.mix(
                 KATANA_MULTIQC.out.report.map { artifact('qc', it, 'qc/multiqc/multiqc_report.html', [qc_type: 'multiqc', qc_phase: 'multiqc']) },
-                KATANA_MULTIQC.out.data_files.flatten().map { p -> artifact('qc', p, "qc/multiqc/${p.name}", [qc_type: 'multiqc', qc_phase: 'multiqc']) }
+                KATANA_MULTIQC.out.data_files.flatten().findAll { java.nio.file.Files.isRegularFile(it) }.map { p -> artifact('qc', p, "qc/multiqc/${p.name}", [qc_type: 'multiqc', qc_phase: 'multiqc']) }
             )
         }
     }
