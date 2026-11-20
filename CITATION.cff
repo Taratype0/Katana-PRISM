@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+title: "Katana-PRISM: unifying bulk and single-cell alternative splicing manifolds, cis-regulatory RNA maps, co-splicing networks, and proteome consequences"
+message: "If you use Katana-PRISM in your research, please cite it using the metadata below."
+type: software
+version: "1.0.1"
+license: MIT
+repository-code: "https://github.com/Taratype0/Katana-PRISM"
+authors:
+  - family-names: Maharjan
+    given-names: Dhruba Tara
+    email: "dhruba.tara.maharjan@ki.se"
+    affiliation: "Department of Medical Biochemistry and Biophysics, Karolinska Institutet, Stockholm, Sweden"
+  - family-names: Dagliyan
+    given-names: Onur
+    email: "onur.dagliyan@ki.se"
+    affiliation: "Department of Medical Biochemistry and Biophysics, Karolinska Institutet, Stockholm, Sweden"

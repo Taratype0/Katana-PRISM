@@ -9,6 +9,7 @@ description = "Katana Studio & Katana Report: Self-contained SHA256-verified spl
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
+authors = [{name = "Dhruba Tara Maharjan", email = "dhruba.tara.maharjan@ki.se"}]
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",

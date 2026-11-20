@@ -9,6 +9,7 @@ description = "scSpliceTrace: Single-cell Smart-seq3 donor-stratified cis-regula
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
+authors = [{name = "Dhruba Tara Maharjan", email = "dhruba.tara.maharjan@ki.se"}]
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",

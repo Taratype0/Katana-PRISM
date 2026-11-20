@@ -94,6 +94,10 @@ scsplicetrace --events sc_events.tsv --psi cell_psi.tsv.gz --metadata cells.tsv 
 
 ---
 
+## Author & Contributor
+
+- **Dhruba Tara Maharjan** — Lead Developer & Maintainer (`@Taratype0`, Department of Medical Biochemistry and Biophysics, Karolinska Institutet, Stockholm, Sweden; `dhruba.tara.maharjan@ki.se`)
+
 ## License
 
-Released under the [MIT License](LICENSE).
+Released under the [MIT License](LICENSE) (`Copyright (c) 2026 Dhruba Tara Maharjan`).
