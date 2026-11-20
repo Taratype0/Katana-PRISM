@@ -21,11 +21,11 @@ Katana-PRISM cleanly separates **cluster/container workflow scheduling** from **
 | Component | Package / Directory | CLI Command | Scope & Methodological Innovation |
 | :--- | :--- | :--- | :--- |
 | **`Katana`** | Root (`main.nf`, `workflows/`, `modules/`) | `nextflow run main.nf` | `nf-core` DSL2 end-to-end bulk (`FASTQ`/`BAM`) & single-cell (`Smart-seq3`) orchestrator |
-| **`SpliceManifold`** | `packages/splicemanifold` | `splicemanifold` | **`PS-DAS`** (*Precision-Supported DAS*, `katana-ps-das`) qualification, Empirical-Bayes shrunk PSI Ward Clustermap, PERMANOVA PCA, and Fisher-Precision Kernel **Event-PSI UMAP** ($\Delta_{\text{kNN}}$ divergence) |
+| **`SpliceManifold`** | `packages/splicemanifold` | `splicemanifold` | **`PS-DAS`** (*Posterior-Stability / Precision-Supported DAS*, `katana-ps-das`) qualification, Empirical-Bayes shrunk PSI Ward Clustermap, PERMANOVA PCA, and precision-weighted **Isoform/Event-PSI UMAP** ($\Delta_{\text{kNN}}$ divergence) |
 | **`SpliceNet`** | `packages/splicenet` | `splicenet` | Bulk RNA-seq `ExcessBioVar` binomial-debiased signed Topological Overlap (TOM) co-splicing network & hub discovery |
-| **`SpliceTrace`** | `packages/splicetrace` | `splicetrace` | Bulk RNA-seq 170-RBP (621 PWM) 11-channel directional splicing map, gene-block FWER inference, module bridge, `50-nt EJC` NMD & UniProt/Pfam domain consequences |
-| **`scSpliceNet`** | `packages/scsplicenet` | `scsplicenet` | Independent `Smart-seq3` single-cell donor-aware support-precision co-splicing network & module discovery |
-| **`scSpliceTrace`** | `packages/scsplicetrace` | `scsplicetrace` | Independent `Smart-seq3` single-cell donor-stratified cis-regulatory RBP program & isoform protein consequence engine |
+| **`SpliceTrace`** | `packages/splicetrace` | `splicetrace` | Bulk RNA-seq 170-RBP (621 PWM) 13-channel (mature-RNA path + 12 spatial windows) FWL splicing map, gene-block FWER inference, module bridge, `50-nt EJC` NMD & UniProt domain consequences |
+| **`scSpliceNet`** | `packages/scsplicenet` | `scsplicenet` | Independent `Smart-seq2/3` single-cell donor-aware support-precision co-splicing network & module discovery |
+| **`scSpliceTrace`** | `packages/scsplicetrace` | `scsplicetrace` | Independent `Smart-seq2/3` single-cell donor-stratified cis-regulatory RBP program & isoform protein consequence engine |
 | **`Katana Studio`** | `packages/katana_studio` | `katana-report`, `katana-studio` | SHA256-verified self-contained `REPORT.html` / `REPORT.zip` synthesis and interactive local web workbench |
 
 ---
@@ -69,7 +69,7 @@ splicemanifold bulk --rmats-dir path/to/rmats_post --samples samples.csv --outdi
 # 2. Excess-BioVar Signed TOM co-splicing network & hub discovery
 splicenet --rmats-dir path/to/rmats_post --samples samples.csv --output-dir out_splicenet
 
-# 3. 170-RBP 11-channel splicing map + 50-nt EJC NMD & UniProt domain consequences
+# 3. 170-RBP 13-channel (mature-RNA path + 12 spatial windows) splicing map + 50-nt EJC NMD & UniProt domain consequences
 splicetrace --rmats path/to/rmats_post --fasta genome.fa --gtf annotation.gtf \
   --species mouse --splicenet-modules out_splicenet/module_assignments.tsv --output-dir out_splicetrace
 
@@ -78,10 +78,10 @@ katana-report bulk --rmats path/to/rmats_post --samples samples.csv --fasta geno
 katana-studio out_report/REPORT.zip --port 18775
 ```
 
-Run independent single-cell (`Smart-seq3`) discovery modules:
+Run independent single-cell (`Smart-seq2/3`) discovery modules:
 
 ```bash
-# Single-cell Precision Event-PSI UMAP & expression modality divergence
+# Single-cell Precision Isoform/Event-PSI UMAP & expression modality divergence
 splicemanifold single-cell --psi cell_psi.tsv.gz --support cell_depth.tsv.gz --metadata cells.tsv --expression log_expr.tsv.gz --cells-as-rows --outdir sc_manifold
 
 # Single-cell support-precision co-splicing network
@@ -94,9 +94,10 @@ scsplicetrace --events sc_events.tsv --psi cell_psi.tsv.gz --metadata cells.tsv 
 
 ---
 
-## Author & Contributor
+## Authors & Citation
 
-- **Dhruba Tara Maharjan** — Lead Developer & Maintainer (`@Taratype0`, Department of Medical Biochemistry and Biophysics, Karolinska Institutet, Stockholm, Sweden; `dhruba.tara.maharjan@ki.se`)
+- **Dhruba Tara Maharjan** — Lead Developer & Co-Corresponding Author (`@Taratype0`, Department of Medical Biochemistry and Biophysics, Karolinska Institutet, Stockholm, Sweden; `dhruba.tara.maharjan@ki.se`)
+- **Onur Dagliyan** — Principal Investigator & Co-Corresponding Author (Department of Medical Biochemistry and Biophysics, Karolinska Institutet, Stockholm, Sweden; `onur.dagliyan@ki.se`)
 
 ## License
 
