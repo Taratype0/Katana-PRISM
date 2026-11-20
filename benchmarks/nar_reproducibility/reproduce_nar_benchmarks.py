@@ -205,6 +205,8 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert "SS3SE:chr1:24646789:24647078:24647208:24648858:+:ENSG00000133226" not in sc_mod             # SRRM1
 
     pw = pd.read_csv(tables_path / "fig5f_gse270928_pathway_partitioning_151genes.tsv", sep="\t").set_index("term_id")
+    assert len(pw) == 5108 and "GOBP_LEUKOCYTE_PROLIFERATION" in pw.index
+    assert int(pw.loc["GOBP_LEUKOCYTE_PROLIFERATION", "deg_overlap"]) == 16
     assert int(pw.loc["GOBP_RNA_SPLICING", "das_151_total"]) == 151
     assert int(pw.loc["GOBP_RNA_SPLICING", "das_overlap"]) == 18
     assert int(pw.loc["GOBP_RNA_SPLICING", "concordant2d_overlap"]) == 11
