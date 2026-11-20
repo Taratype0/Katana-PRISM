@@ -146,6 +146,7 @@ def verify_bundled_tables(tables_path: Path) -> None:
     lb = f2c[f2c["role"].eq("low_block_positive")]
     assert len(lb) == 10 and lb["disc_exact_rbp_P_FWER"].notna().all() and lb["disc_exact_rank"].notna().all()
     assert int((lb["cont_exact_P_FWER"] <= 0.05).sum()) == 1 and int((lb["NoFWL_SameMaxT_exact_P_FWER"] <= 0.05).sum()) == 5
+    assert int(lb["NoFWL_SameMaxT_sig_fwer05"].min()) == 0 and int(lb["NoFWL_SameMaxT_sig_fwer05"].max()) == 153
 
     b_df = pd.read_csv(tables_path / "fig4a_encode_module_rbp_bridge_distal500.tsv", sep="\t")
     sig_mods = sorted(b_df.loc[b_df["module_P_FWER"] <= 0.05, "module"].unique().tolist())
@@ -173,6 +174,27 @@ def verify_bundled_tables(tables_path: Path) -> None:
 
     slam = pd.read_csv(tables_path / "fig5c_gse270928_slamf1_per_cell_event_psi.tsv", sep="\t")
     assert int(slam["event_psi"].notna().sum()) == 76
+    slam_any = (slam["inclusion_reads"] + slam["exclusion_reads"]) > 0
+    assert int(slam_any[slam["condition"].eq("Ctrl")].sum()) == 18
+    assert int(slam_any[~slam["condition"].eq("Ctrl")].sum()) == 90
+    assert int(slam.loc[slam["condition"].eq("Ctrl"), "event_psi"].notna().sum()) == 7
+    assert int(slam.loc[~slam["condition"].eq("Ctrl"), "event_psi"].notna().sum()) == 69
+
+    tas = pd.read_csv(tables_path / "fig5e_tasic_71mice_scsplicenet_vs_pooled_acorde.tsv", sep="\t")
+    tas_w = tas[tas["scope"].eq("within_animal_cell_type") & tas["endpoint"].eq("observed_usage")].groupby("method")["heldout_correlation"].mean()
+    assert abs(float(tas_w["SC_CoSplice_v2_precision_EB"]) - 0.006448) < 2e-5
+    assert abs(float(tas_w["usage_pooled"]) - 0.005586) < 2e-5
+    assert abs(float(tas_w["acorde_percentile_native"]) - 0.002221) < 2e-5
+
+    sc_mod = pd.read_csv(tables_path / "fig5e_gse270928_scsplicenet_modules.tsv", sep="\t").set_index("event_id")["module"].to_dict()
+    sc_br = pd.read_csv(tables_path / "fig5e_gse270928_sc_module_rbp_bridge.tsv", sep="\t")
+    sig_sc_br = sc_br[sc_br["module_P_FWER"] <= 0.05].set_index("RBP")["module"].to_dict()
+    assert sig_sc_br.get("RBM10") == "M3" and sig_sc_br.get("HNRNPAB") == "M3" and sig_sc_br.get("SF1") == "M2"
+    assert sc_mod.get("SS3SE:chr1:160619849:160623502:160623585:160624095:-:ENSG00000117090") == "M3"  # SLAMF1
+    assert sc_mod.get("SS3SE:chr1:70228555:70231858:70231975:70232267:+:ENSG00000116754") == "M3"      # SRSF11
+    assert sc_mod.get("SS3SE:chr1:198699704:198702386:198702530:198703297:+:ENSG00000081237") == "M2"  # PTPRC
+    assert "SS3SE:chr1:160796311:160797109:160797275:160799752:+:ENSG00000122224" not in sc_mod         # LY9
+    assert "SS3SE:chr1:24646789:24647078:24647208:24648858:+:ENSG00000133226" not in sc_mod             # SRRM1
 
     pw = pd.read_csv(tables_path / "fig5f_gse270928_pathway_partitioning_151genes.tsv", sep="\t").set_index("term_id")
     assert int(pw.loc["GOBP_RNA_SPLICING", "das_151_total"]) == 151
