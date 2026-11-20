@@ -1,0 +1,6 @@
+null_cohort	design	evaluated_events	raw_FDR05_dPSI10_calls	PS_DAS_qualified_calls	Strict_All10_calls	PS_DAS_reduction_pct
+ENCODE_PTBP1_BalancedReplicateSwap ((KD1,CTL1) vs (KD2,CTL2))	Within-batch balanced replicate swap (true population & batch dPSI === 0)	63635	26.0	19.0	19.0	26.92
+ENCODE_SRSF1_BalancedReplicateSwap ((KD1,CTL1) vs (KD2,CTL2))	Within-batch balanced replicate swap (true population & batch dPSI === 0)	70374	15.0	14.0	14.0	6.67
+ENCODE_HNRNPA1_BalancedReplicateSwap ((KD1,CTL1) vs (KD2,CTL2))	Within-batch balanced replicate swap (true population & batch dPSI === 0)	53005	16.0	15.0	15.0	6.25
+ENCODE_HNRNPF_BalancedReplicateSwap ((KD1,CTL1) vs (KD2,CTL2))	Within-batch balanced replicate swap (true population & batch dPSI === 0)	55494	7.0	7.0	7.0	0.0
+GSE122380_Day0_iPSC_SameCondition_9v9 (mean of 10 splits)	9 vs 9 unperturbed Day-0 iPSC donors (strictly identical biological state)	75276	44.9	24.7	18.1	44.99

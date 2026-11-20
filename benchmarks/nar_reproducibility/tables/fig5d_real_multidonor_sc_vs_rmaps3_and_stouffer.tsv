@@ -1,0 +1,11 @@
+cohort	method	balanced_real_population_null_trials	real_population_null_familywise_FPR_pct	real_population_null_mean_FP_rbps	full_7mouse_contrast_called_rbps	full_7mouse_top1_rbp_summary
+TabulaMuris_cardiac (D=7 mice, 3,294 cells)	Katana_PRISM_scSpliceTrace_DonorSignFlip_FWER05	35	2.86	0.03	0	Srsf2 (nom P=0.0156, FWER=0.344)
+TabulaMuris_cardiac (D=7 mice, 3,294 cells)	Donor_Stratified_Stouffer_MetaZ_BH05	35	14.29	0.2	0	Mbnl3 (BH q=0.1199)
+TabulaMuris_cardiac (D=7 mice, 3,294 cells)	Donor_Pseudobulked_rMAPS3_BH05	35	0.0	0.0	0	Rbm15b (BH q=0.7934)
+TabulaMuris_cardiac (D=7 mice, 3,294 cells)	Cell_Pooled_rMAPS3_BH05	35	0.0	0.0	0	Snrpa (BH q=0.4923)
+TabulaMuris_cardiac (D=7 mice, 3,294 cells)	Cell_Pooled_rMAPS3_Holm05	35	0.0	0.0	0	Snrpa (Holm P=0.4923)
+TabulaMuris_brain (D=7 mice, 1,850 cells)	Katana_PRISM_scSpliceTrace_DonorSignFlip_FWER05	35	2.86	0.03	0	Ptbp2 (nom P=0.0156, FWER=0.078)
+TabulaMuris_brain (D=7 mice, 1,850 cells)	Donor_Stratified_Stouffer_MetaZ_BH05	35	20.0	0.29	0	Lin28a (BH q=0.1338)
+TabulaMuris_brain (D=7 mice, 1,850 cells)	Donor_Pseudobulked_rMAPS3_BH05	35	0.0	0.0	0	U2af1 (BH q=0.4103)
+TabulaMuris_brain (D=7 mice, 1,850 cells)	Cell_Pooled_rMAPS3_BH05	35	0.0	0.0	0	A1cf (BH q=1.0000)
+TabulaMuris_brain (D=7 mice, 1,850 cells)	Cell_Pooled_rMAPS3_Holm05	35	0.0	0.0	0	A1cf (Holm P=1.0000)

@@ -221,7 +221,28 @@ def verify_bundled_tables(tables_path: Path) -> None:
 
     pool = pd.read_csv(tables_path / "figS4a_within_donor_state_pooling.tsv", sep="\t")
     assert int(pool["cells_per_donor_state"].max()) == 48
-    print("[OK] All bundled NAR benchmark table invariants verified.")
+
+    # v13 newly added fairness, real multi-donor single-cell, pure-null, and hyperparameter sensitivity tables
+    f3d_fair = pd.read_csv(tables_path / "fig3d_gse122380_fair_wgcna_and_djexpress.tsv", sep="\t")
+    w5k = f3d_fair[(f3d_fair["budget"] == 5000) & f3d_fair["method"].eq("Standard_WGCNA_SameUsageRatio")].iloc[0]
+    assert abs(float(w5k["median_coherence_gap"]) - 0.0209) < 1e-3
+    cf_st = pd.read_csv(tables_path / "fig3e_gse122380_crossfold_stability.tsv", sep="\t")
+    assert len(cf_st) == 6
+    s7a = pd.read_csv(tables_path / "tableS7a_ps_das_tau_sensitivity.tsv", sep="\t")
+    assert int(s7a.loc[s7a["is_default"].eq(True), "NegA_called_events"].iloc[0]) == 923
+    s7b = pd.read_csv(tables_path / "tableS7b_splicetrace_exon_gc_ablation.tsv", sep="\t")
+    assert len(s7b) == 18
+    s7b2 = pd.read_csv(tables_path / "tableS7b2_splicetrace_component_and_vif_ablations.tsv", sep="\t")
+    assert len(s7b2) == 18 and float(s7b2["FWL_full_design_cond_number_raw"].max()) < 10.0
+    s7c = pd.read_csv(tables_path / "tableS7c_splicenet_biweight_tail_sensitivity.tsv", sep="\t")
+    assert float(s7c["GSE62669_N60_partition_ARI_vs_default"].min()) > 0.85
+    s7d = pd.read_csv(tables_path / "tableS7d_manifold_and_treecut_sensitivity.tsv", sep="\t")
+    assert len(s7d) >= 15
+    tm_sc = pd.read_csv(tables_path / "fig5d_real_multidonor_sc_vs_rmaps3_and_stouffer.tsv", sep="\t")
+    assert len(tm_sc) == 10
+    het_sw = pd.read_csv(tables_path / "tableS6_semisynthetic_sigma_het_sweep.tsv", sep="\t")
+    assert len(het_sw) == 6 and float(het_sw.iloc[0]["Cell_Pooled_rMAPS3_Holm_FPR_pct"]) == 0.0
+    print("[OK] All bundled NAR benchmark table invariants (including v13 ablations) verified.")
 
 
 def main() -> int:
