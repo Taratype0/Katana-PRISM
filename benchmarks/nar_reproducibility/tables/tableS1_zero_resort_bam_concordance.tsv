@@ -1,0 +1,12 @@
+slurm_jobs_compared	contrast_and_caller	samtools_sort_invocations	htslib_index_monotonicity_verified	fastq_star_events	zero_resort_bam_events	exact_coordinate_overlap_pct	ijc_pearson_r	max_abs_delta_ijc	sjc_pearson_r	max_abs_delta_sjc	dpsi_pearson_r	max_abs_delta_dpsi
+27690854 (FASTQ->complete, 100/100) vs 27690627 (BAM->complete, 87/87)	Pooled All Contrasts & Event Classes (FASTQ->STAR vs Zero-Resort Coord-BAM, SAMTOOLS_SORT=0)	0	Yes (4/4 primary BAMs, 100% records)	744	744	100.0	1.0	0.0	1.0	0.0	1.0	0.0
+27690854 (FASTQ->complete, 100/100) vs 27690627 (BAM->complete, 87/87)	rMATS-turbo JCEC (GBR-YRI : A3SS)	0	Yes (4/4 primary BAMs, 100% records)	52	52	100.0	1.0	0.0	1.0	0.0	1.0	0.0
+27690854 (FASTQ->complete, 100/100) vs 27690627 (BAM->complete, 87/87)	rMATS-turbo JCEC (GBR-YRI : A5SS)	0	Yes (4/4 primary BAMs, 100% records)	39	39	100.0	1.0	0.0	1.0	0.0	1.0	0.0
+27690854 (FASTQ->complete, 100/100) vs 27690627 (BAM->complete, 87/87)	rMATS-turbo JCEC (GBR-YRI : MXE)	0	Yes (4/4 primary BAMs, 100% records)	17	17	100.0	1.0	0.0	1.0	0.0	1.0	0.0
+27690854 (FASTQ->complete, 100/100) vs 27690627 (BAM->complete, 87/87)	rMATS-turbo JCEC (GBR-YRI : RI)	0	Yes (4/4 primary BAMs, 100% records)	56	56	100.0	1.0	0.0	1.0	0.0	1.0	0.0
+27690854 (FASTQ->complete, 100/100) vs 27690627 (BAM->complete, 87/87)	rMATS-turbo JCEC (GBR-YRI : SE)	0	Yes (4/4 primary BAMs, 100% records)	208	208	100.0	1.0	0.0	1.0	0.0	1.0	0.0
+27690854 (FASTQ->complete, 100/100) vs 27690627 (BAM->complete, 87/87)	rMATS-turbo JCEC (YRI-GBR : A3SS)	0	Yes (4/4 primary BAMs, 100% records)	52	52	100.0	1.0	0.0	1.0	0.0	1.0	0.0
+27690854 (FASTQ->complete, 100/100) vs 27690627 (BAM->complete, 87/87)	rMATS-turbo JCEC (YRI-GBR : A5SS)	0	Yes (4/4 primary BAMs, 100% records)	39	39	100.0	1.0	0.0	1.0	0.0	1.0	0.0
+27690854 (FASTQ->complete, 100/100) vs 27690627 (BAM->complete, 87/87)	rMATS-turbo JCEC (YRI-GBR : MXE)	0	Yes (4/4 primary BAMs, 100% records)	17	17	100.0	1.0	0.0	1.0	0.0	1.0	0.0
+27690854 (FASTQ->complete, 100/100) vs 27690627 (BAM->complete, 87/87)	rMATS-turbo JCEC (YRI-GBR : RI)	0	Yes (4/4 primary BAMs, 100% records)	56	56	100.0	1.0	0.0	1.0	0.0	1.0	0.0
+27690854 (FASTQ->complete, 100/100) vs 27690627 (BAM->complete, 87/87)	rMATS-turbo JCEC (YRI-GBR : SE)	0	Yes (4/4 primary BAMs, 100% records)	208	208	100.0	1.0	0.0	1.0	0.0	1.0	0.0

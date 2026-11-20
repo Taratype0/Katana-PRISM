@@ -242,6 +242,10 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert len(tm_sc) == 10
     het_sw = pd.read_csv(tables_path / "tableS6_semisynthetic_sigma_het_sweep.tsv", sep="\t")
     assert len(het_sw) == 6 and float(het_sw.iloc[0]["Cell_Pooled_rMAPS3_Holm_FPR_pct"]) == 0.0
+    s1_bam = pd.read_csv(tables_path / "tableS1_zero_resort_bam_concordance.tsv", sep="\t")
+    assert len(s1_bam) == 11 and float(s1_bam["exact_coordinate_overlap_pct"].min()) == 100.0 and float(s1_bam["max_abs_delta_dpsi"].max()) == 0.0
+    s6_map = pd.read_csv(tables_path / "tableS6_event_coordinate_mapping_audit.tsv", sep="\t")
+    assert int(s6_map.iloc[0]["mapped_canonical_binary_events"]) == 563 and int(s6_map.iloc[0]["quarantined_in_exclusions_tsv"]) == 9873
     print("[OK] All bundled NAR benchmark table invariants (including v13 ablations) verified.")
 
 
