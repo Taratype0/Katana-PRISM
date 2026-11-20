@@ -1,8 +1,8 @@
 module_tier	parameter_grid	endpoint_1_name	endpoint_1_value	endpoint_2_name	endpoint_2_value
-SpliceManifold-SC (GSE270928, n=192)	prior_kappa = 5	State PERMANOVA R2	0.0539	Retained HVEs	1000.0
-SpliceManifold-SC (GSE270928, n=192)	prior_kappa = 10 [default]	State PERMANOVA R2	0.0464	Retained HVEs	1000.0
-SpliceManifold-SC (GSE270928, n=192)	prior_kappa = 20	State PERMANOVA R2	0.0352	Retained HVEs	1000.0
-SpliceManifold Event-Class Prior (GSE270928 SE/MXE/A5SS/A3SS)	Event-type-scaled kappa_type vs uniform kappa=10 (uniform R2=0.0377)	Class-scaled PERMANOVA R2	0.0395	Pairwise distance r vs uniform	0.9998
+SpliceManifold-SC Isoform Usage (GSE270928 kallisto, n=192)	prior_kappa = 5	State PERMANOVA R2	0.0539	Retained HVIs (kallisto isoforms)	1000.0
+SpliceManifold-SC Isoform Usage (GSE270928 kallisto, n=192)	prior_kappa = 10 [default]	State PERMANOVA R2	0.0464	Retained HVIs (kallisto isoforms)	1000.0
+SpliceManifold-SC Isoform Usage (GSE270928 kallisto, n=192)	prior_kappa = 20	State PERMANOVA R2	0.0352	Retained HVIs (kallisto isoforms)	1000.0
+SpliceManifold 5-Class Event Prior (ENCODE N=16: A3SS=4004, A5SS=2584, MXE=2378, RI=3381, SE=22468)	Event-type-scaled kappa_type vs uniform kappa=10 (uniform R2=0.3867)	Class-scaled PERMANOVA R2	0.3839	Pairwise distance r vs uniform	0.9992
 SpliceManifold Dual-Modality kNN (GSE270928)	k_neighbors = 10	Mean cross-modality divergence Delta_kNN	0.9839	Permutation P-value	0.005
 SpliceManifold Dual-Modality kNN (GSE270928)	k_neighbors = 15 [default]	Mean cross-modality divergence Delta_kNN	0.9618	Permutation P-value	0.005
 SpliceManifold Dual-Modality kNN (GSE270928)	k_neighbors = 25	Mean cross-modality divergence Delta_kNN	0.914	Permutation P-value	0.005

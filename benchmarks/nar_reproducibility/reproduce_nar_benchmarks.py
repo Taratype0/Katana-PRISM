@@ -7,7 +7,7 @@ Reproduces:
      conditional Fisher odds ratios and Haldane-Anscombe 95% confidence intervals.
   3. 16-library ENCODE multi-RBP `SpliceNet -> SpliceTrace` module-to-RBP regulatory bridge (`distal_intron_nt = 500`),
      separating `module_P_FWER <= 0.05` bridged pathways from unattributed (`FWER > 0.05`) orphan modules.
-  4. `GSE270928` Smart-seq3 dual-denominator `Jutils` retention (`0/1,000` shared HVEs; `327/66,391` candidate transcripts),
+  4. `GSE270928` Smart-seq3 dual-denominator `Jutils` retention (`0/1,000` shared HVIs; `327/66,391` multi-isoform transcripts via kallisto v0.46.1 tx_TPM/gene_TPM),
      donor-stratified Stouffer `DEG` independence across `167` protein-altering switches, `SLAMF1` (`Q13291-4` vs `Q13291-1`)
      per-cell `83-nt` cassette-exon `PSI`, and within-`donor x state` cell-pooling sensitivity curves (`5..48` cells).
 """
@@ -163,10 +163,18 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert abs(float(b_idx.loc[("M12", "IGF2BP1"), "module_P_FWER"]) - 0.035) < 1e-6 and abs(float(b_idx.loc[("M12", "IGF2BP1"), "stat_Z"]) - 5.9014) < 1e-3
 
     flows = pd.read_csv(tables_path / "fig4c_bridged_vs_orphan_coding_flows.tsv", sep="\t")
-    assert len(flows) == 610
+    assert len(flows) == 610 and "event_id" in flows.columns and flows["event_id"].nunique() == 610
     assert int((flows["bridge_tier"] == "PerModule_FWER<=0.05_Bridged").sum()) == 286
     assert int((flows["bridge_tier"] == "Exploratory_Orphan_Module").sum()) == 324
     assert "GFFKR" not in " ".join(flows.loc[flows["gene_symbol"].eq("ITGA6"), "disrupted_domain"].astype(str))
+    rbm_m1 = flows[flows["gene_symbol"].eq("RBM39") & flows["module"].eq("M1")]
+    assert len(rbm_m1) == 3 and set(rbm_m1["top_tested_rbp"]) == {"SRSF9"} and set(rbm_m1["dominant_knockdown"]) == {"SRSF1"}
+    assert abs(float(rbm_m1["top_rbp_study_P_FWER"].iloc[0]) - 0.0034) < 1e-4 and abs(float(rbm_m1["dominant_kd_rbp_study_P_FWER"].iloc[0]) - 0.2204) < 1e-4
+
+    s1_ds = pd.read_csv(tables_path / "fig1_ps_das_downstream_splicetrace_utility.tsv", sep="\t")
+    assert (s1_ds["downstream_model"] == "Continuous 13-channel FWL + 1,999 host-gene-block maxT").all()
+    assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_PTBP2") & s1_ds["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "qualified_foreground_events"].iloc[0]) == 2537
+    assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_NegA") & s1_ds["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "qualified_foreground_events"].iloc[0]) == 923
 
     f4d = pd.read_csv(tables_path / "fig4d_deconvolution_vs_competitors.tsv", sep="\t").set_index("method")
     prism_4d = f4d.loc["Katana-PRISM (SpliceNet -> SpliceTrace Bridge)"]
@@ -175,6 +183,7 @@ def verify_bundled_tables(tables_path: Path) -> None:
 
     f5a = pd.read_csv(tables_path / "fig5a_sc_manifold_vs_marvel_jutils.tsv", sep="\t").set_index("method")
     assert abs(float(f5a.loc["MARVEL (Mean-Imputed, Same 1,000 HVEs)", "permanova_r2"]) - 0.0119) < 1e-3
+    assert "input_representation" in f5a.columns and "kallisto" in str(f5a["input_representation"].iloc[0])
 
     f5b = pd.read_csv(tables_path / "fig5b_gse270928_sc_proteome_consequences.tsv", sep="\t")
     f5b_cod = f5b[f5b["frame_status"].isin(["frameshift", "in_frame_indel", "translation_start_altered"])]
@@ -236,11 +245,11 @@ def verify_bundled_tables(tables_path: Path) -> None:
     s7b = pd.read_csv(tables_path / "tableS7b_splicetrace_exon_gc_ablation.tsv", sep="\t")
     assert len(s7b) == 18
     s7b2 = pd.read_csv(tables_path / "tableS7b2_splicetrace_component_and_vif_ablations.tsv", sep="\t")
-    assert len(s7b2) == 18 and float(s7b2["FWL_full_design_cond_number_raw"].max()) < 10.0
+    assert len(s7b2) == 18 and "FWL_continuous_cond_number_centered" not in s7b2.columns and float(s7b2["FWL_standardized_design_cond_number"].max()) < 10.0
     s7c = pd.read_csv(tables_path / "tableS7c_splicenet_biweight_tail_sensitivity.tsv", sep="\t")
     assert float(s7c["GSE62669_N60_partition_ARI_vs_default"].min()) > 0.85
     s7d = pd.read_csv(tables_path / "tableS7d_manifold_and_treecut_sensitivity.tsv", sep="\t")
-    assert len(s7d) >= 15
+    assert len(s7d) >= 15 and s7d["module_tier"].str.contains("ENCODE N=16").any()
     tm_sc = pd.read_csv(tables_path / "fig5d_real_multidonor_sc_vs_rmaps3_and_stouffer.tsv", sep="\t")
     assert len(tm_sc) == 12
     het_sw = pd.read_csv(tables_path / "tableS6_semisynthetic_sigma_het_sweep.tsv", sep="\t")
@@ -248,7 +257,7 @@ def verify_bundled_tables(tables_path: Path) -> None:
     s1_bam = pd.read_csv(tables_path / "tableS1_zero_resort_bam_concordance.tsv", sep="\t")
     assert len(s1_bam) == 11 and float(s1_bam["exact_coordinate_overlap_pct"].min()) == 100.0 and float(s1_bam["max_abs_delta_dpsi"].max()) == 0.0
     s6_map = pd.read_csv(tables_path / "tableS6_event_coordinate_mapping_audit.tsv", sep="\t")
-    assert int(s6_map.iloc[0]["final_evaluated_binary_events"]) == 563 and int(s6_map.iloc[1]["initial_annotated_or_cluster_denominator"]) == 53663 and int(s6_map.iloc[1]["final_evaluated_binary_events"]) == 2169
+    assert len(s6_map) == 3 and int(s6_map.iloc[0]["final_evaluated_binary_events"]) == 563 and int(s6_map.iloc[1]["initial_annotated_or_cluster_denominator"]) == 53663 and int(s6_map.iloc[1]["final_evaluated_binary_events"]) == 2169 and int(s6_map.iloc[2]["initial_annotated_or_cluster_denominator"]) == 66391 and int(s6_map.iloc[2]["final_evaluated_binary_events"]) == 1000
     print("[OK] All bundled NAR benchmark table invariants (including v13 ablations) verified.")
 
 

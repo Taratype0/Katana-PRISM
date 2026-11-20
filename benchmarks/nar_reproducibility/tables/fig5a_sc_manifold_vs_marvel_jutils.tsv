@@ -1,5 +1,5 @@
-cohort	method	retained_events	permanova_r2	permanova_p	activation_silhouette	donor_lisi	mean_modality_divergence	within_donor_perm_p
-GSE270928_SmartSeq3_192_TCells	Katana-PRISM (SpliceManifold-SC)	1000	0.0464	0.002	0.0394	1.471	0.9618	0.001
-GSE270928_SmartSeq3_192_TCells	MARVEL (Mean-Imputed PSI)	1000	0.0099	0.0033	0.0051	1.301		
-GSE270928_SmartSeq3_192_TCells	Jutils (Complete-Case dropna)	327	0.0292	0.0033	0.0257	1.142		
-GSE270928_SmartSeq3_192_TCells	MARVEL (Mean-Imputed, Same 1,000 HVEs)	1000	0.0119	0.001	0.006	1.301		0.001
+cohort	method	retained_events	permanova_r2	permanova_p	activation_silhouette	donor_lisi	mean_modality_divergence	within_donor_perm_p	input_representation
+GSE270928_SmartSeq3_192_TCells	Katana-PRISM (SpliceManifold-SC)	1000	0.0464	0.002	0.0394	1.471	0.9618	0.001	kallisto v0.46.1 relative transcript isoform usage (tx_TPM / gene_TPM at gene_fragments >= 10; 66,391 multi-isoform candidates)
+GSE270928_SmartSeq3_192_TCells	MARVEL (Mean-Imputed PSI)	1000	0.0099	0.0033	0.0051	1.301			kallisto v0.46.1 relative transcript isoform usage (tx_TPM / gene_TPM at gene_fragments >= 10; 66,391 multi-isoform candidates)
+GSE270928_SmartSeq3_192_TCells	Jutils (Complete-Case dropna)	327	0.0292	0.0033	0.0257	1.142			kallisto v0.46.1 relative transcript isoform usage (tx_TPM / gene_TPM at gene_fragments >= 10; 66,391 multi-isoform candidates)
+GSE270928_SmartSeq3_192_TCells	MARVEL (Mean-Imputed, Same 1,000 HVEs)	1000	0.0119	0.001	0.006	1.301		0.001	kallisto v0.46.1 relative transcript isoform usage (tx_TPM / gene_TPM at gene_fragments >= 10; 66,391 multi-isoform candidates)
