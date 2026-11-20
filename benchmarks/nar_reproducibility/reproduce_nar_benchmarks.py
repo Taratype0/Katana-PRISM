@@ -170,6 +170,10 @@ def verify_bundled_tables(tables_path: Path) -> None:
     rbm_m1 = flows[flows["gene_symbol"].eq("RBM39") & flows["module"].eq("M1")]
     assert len(rbm_m1) == 3 and set(rbm_m1["top_tested_rbp"]) == {"SRSF9"} and set(rbm_m1["dominant_knockdown"]) == {"SRSF1"}
     assert abs(float(rbm_m1["top_rbp_study_P_FWER"].iloc[0]) - 0.0034) < 1e-4 and abs(float(rbm_m1["dominant_kd_rbp_study_P_FWER"].iloc[0]) - 0.2204) < 1e-4
+    fn1_m1 = flows[flows["gene_symbol"].eq("FN1") & flows["module"].eq("M1")].iloc[0]
+    assert abs(float(fn1_m1["pooled_4kd_dpsi"]) - (-0.0478)) < 1e-3 and abs(float(fn1_m1["srsf1_kd_dpsi"]) - (-0.282)) < 1e-3
+    rbm_73 = flows[flows["event_id"].eq("SE:chr20:-:35740524:35740597:35738967:35739017:35740823:35740887")].iloc[0]
+    assert abs(float(rbm_73["srsf1_kd_dpsi"]) - (-0.197)) < 1e-3
 
     s1_ds = pd.read_csv(tables_path / "fig1_ps_das_downstream_splicetrace_utility.tsv", sep="\t")
     assert (s1_ds["downstream_model"] == "Continuous 13-channel FWL + 1,999 host-gene-block maxT").all()
@@ -222,8 +226,11 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert int(pw.loc["GOBP_RNA_SPLICING", "das_151_total"]) == 151
     assert int(pw.loc["GOBP_RNA_SPLICING", "das_overlap"]) == 18
     assert int(pw.loc["GOBP_RNA_SPLICING", "concordant2d_overlap"]) == 11
+    assert int(pw.loc["GOBP_RNA_SPLICING", "measurable_se_bg_total"]) == 1293 and int(pw.loc["GOBP_RNA_SPLICING", "pathway_genes_in_se_bg"]) == 121
+    assert float(pw.loc["GOBP_RNA_SPLICING", "das_bh_q_se_bg"]) == 1.0 and abs(float(pw.loc["GOBP_RNA_SPLICING", "concordant2d_bh_q_se_bg"]) - 0.6346) < 1e-3
     assert int(pw.loc["REACTOME_PROCESSING_OF_CAPPED_INTRON_CONTAINING_PRE_MRNA", "das_overlap"]) == 12
     assert int(pw.loc["REACTOME_PROCESSING_OF_CAPPED_INTRON_CONTAINING_PRE_MRNA", "concordant2d_overlap"]) == 8
+    assert float(pw.loc["REACTOME_PROCESSING_OF_CAPPED_INTRON_CONTAINING_PRE_MRNA", "das_bh_q_se_bg"]) == 1.0 and abs(float(pw.loc["REACTOME_PROCESSING_OF_CAPPED_INTRON_CONTAINING_PRE_MRNA", "concordant2d_bh_q_se_bg"]) - 0.9606) < 1e-3
 
     s4c = pd.read_csv(tables_path / "figS4c_gse270928_qr_fwl_projection_check.tsv", sep="\t")
     assert s4c["covariate"].tolist() == [
