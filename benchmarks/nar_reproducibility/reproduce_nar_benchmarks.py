@@ -142,8 +142,10 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert nulls["disc_exact_rbp_P_FWER"].isna().all() and nulls["cont_exact_P_FWER"].isna().all()
     hb = f2c[f2c["role"].eq("high_block_positive")]
     assert len(hb) == 5 and int((hb["disc_exact_rbp_P_FWER"] <= 0.05).sum()) == 4 and int((hb["cont_exact_P_FWER"] <= 0.05).sum()) == 4
+    assert int((hb["NoFWL_SameMaxT_exact_P_FWER"] <= 0.05).sum()) == 3
     lb = f2c[f2c["role"].eq("low_block_positive")]
     assert len(lb) == 10 and lb["disc_exact_rbp_P_FWER"].notna().all() and lb["disc_exact_rank"].notna().all()
+    assert int((lb["cont_exact_P_FWER"] <= 0.05).sum()) == 1 and int((lb["NoFWL_SameMaxT_exact_P_FWER"] <= 0.05).sum()) == 5
 
     b_df = pd.read_csv(tables_path / "fig4a_encode_module_rbp_bridge_distal500.tsv", sep="\t")
     sig_mods = sorted(b_df.loc[b_df["module_P_FWER"] <= 0.05, "module"].unique().tolist())
