@@ -1,612 +1,611 @@
-regulator	module	module_min_P_FWER	bridge_tier	event_type	proteome_fate	gene_symbol	disrupted_domain
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	RI	In-Frame UniProt Domain Indel	INVS	IDR:Disordered_Region [589-833 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A3SS	In-Frame UniProt Domain Indel	ITGB1BP1	DOMAIN:PID [58-184 aa, 45%]; Region:Interaction with KRIT1 [136-139 aa, 100%]; Region:Interaction with ITGB1 [139-141 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	RBM39	DOMAIN:RRM 1 [153-230 aa, 100%]; DOMAIN:RRM 2 [250-328 aa, 100%]; DOMAIN:RRM 3 [445-508 aa, 100%]; Region:Interaction with JUN [291-406 aa, 100%]; Region:Activating domain [291-355 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	ITGB1BP1	DOMAIN:PID [58-200 aa, 35%]; Region:Interaction with KRIT1 [136-139 aa, 100%]; Region:Interaction with ITGB1 [139-141 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	SRSF2	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	RI	C-Terminal Frameshift	C21orf59	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	FYN	DOMAIN:SH2 [149-246 aa, 13%]; DOMAIN:Protein kinase [271-524 aa, 7%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	EMC9	DOMAIN:MPN [4-139 aa, replaced_C_tail]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	MYO1B	DOMAIN:IQ 5 [787-816 aa, 57%]; DOMAIN:IQ 6 [816-844 aa, 24%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A5SS	In-Frame UniProt Domain Indel	TTC31	IDR:Disordered_Region [253-294 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	ZNF625-ZNF20	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	FN1	DOMAIN:Fibronectin type-III 12 [1635-1726 aa, 5%]; DOMAIN:Fibronectin type-III 13 [1727-1814 aa, 98%]; Region:Heparin-binding 2 [1812-2082 aa, 0%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	ACIN1	IDR:Disordered_Region [159-460 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	FAM45A	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	INO80E	IDR:Disordered_Region [63-236 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	EMC9	DOMAIN:MPN [4-139 aa, replaced_C_tail]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A3SS	In-Frame Peptide Remodeling	VEZT	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	PHPT1	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	RBM39	DOMAIN:RRM 1 [153-230 aa, 100%]; DOMAIN:RRM 2 [250-328 aa, 100%]; DOMAIN:RRM 3 [445-508 aa, 100%]; Region:Interaction with JUN [291-406 aa, 100%]; Region:Activating domain [291-355 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	SRRM2	Coiled_Coil [60-92 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	VEZT	Transmembrane:Helical [139-159 aa, 100%]; Transmembrane:Helical [162-182 aa, 100%]; Coiled_Coil [430-462 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	CCDC57	Coiled_Coil [428-450 aa, 100%]; Region:Centrosomal targeting domain [1-412 aa, 2%]; Region:Microtubule binding domain [497-751 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	USP8	IDR:Disordered_Region [475-648 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	CCNL2	Region:Cyclin-like 2 [198-282 aa, replaced_C_tail]; Region:RS [385-423 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	PITPNM2	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	METTL6	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	FKBP7	DOMAIN:PPIase FKBP-type [53-145 aa, 23%]; DOMAIN:EF-hand 1 [145-180 aa, 100%]; DOMAIN:EF-hand 2 [189-221 aa, 100%]; MOTIF:Retention in the endoplasmic reticulum [219-221 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	ZNF283	DOMAIN:KRAB [73-152 aa, 100%]; ZN_FING:C2H2-type 1 [205-227 aa, 100%]; ZN_FING:C2H2-type 2 [233-255 aa, 100%]; ZN_FING:C2H2-type 3 [261-283 aa, 100%]; ZN_FING:C2H2-type 4 [289-311 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	TCF3	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	C-Terminal Frameshift	ATP5S	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	POC1A	Coiled_Coil [369-397 aa, 24%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	FANCA	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	C-Terminal Frameshift	FAM45A	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	CCNL2	Region:Cyclin-like 2 [198-282 aa, replaced_C_tail]; Region:RS [385-423 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	RBM39	DOMAIN:RRM 1 [153-230 aa, 100%]; DOMAIN:RRM 2 [250-328 aa, 100%]; DOMAIN:RRM 3 [445-508 aa, 100%]; Region:Interaction with JUN [291-406 aa, 100%]; Region:Activating domain [291-355 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	CARD8	IDR:Disordered_Region [1-28 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	TCF3	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	SETMAR	DOMAIN:Pre-SET [58-108 aa, 100%]; DOMAIN:SET [111-210 aa, 100%]; DOMAIN:Post-SET [225-238 aa, 100%]; DNA_BIND:H-T-H motif [290-315 aa, 100%]; DNA_BIND:H-T-H motif [341-357 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	PITPNM2	MOTIF:FFAT [341-349 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	BECN1	Region:Evolutionary conserved domain (ECD) [167-306 aa, replaced_C_tail]; Region:Required for membrane-association [289-306 aa, replaced_C_tail]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	F2	DOMAIN:Peptidase S1 [364-618 aa, 50%]; Region:High affinity receptor-binding region which i... [551-573 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	SLC22A3	Transmembrane:Helical [330-343 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	RDH5	Transmembrane:Helical [1-21 aa, 95%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	EXOC1	IDR:Disordered_Region [439-495 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	MXE	NMD Poison-Exon Switch	RALY	DOMAIN:RRM [16-72 aa, replaced_C_tail]; Coiled_Coil [144-169 aa, 100%]; Region:Epitope (recognized by BKRF1 antibodies) [178-198 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	TINAGL1	DOMAIN:SMB [50-98 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	HNRNPD	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	TMEM53	Transmembrane:Helical [124-139 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	RDH5	Transmembrane:Helical [1-21 aa, 95%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	FGFR1	DOMAIN:Ig-like C2-type 1 [26-123 aa, 61%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	KANK4	REPEAT:ANK 3 [895-924 aa, 100%]; REPEAT:ANK 4 [928-958 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	KIF2C	Region:Globular [2-254 aa, 17%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	GAK	IDR:Disordered_Region [749-788 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	VEZT	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	NCK2	DOMAIN:SH3 2 [111-170 aa, 100%]; DOMAIN:SH3 3 [195-257 aa, 100%]; DOMAIN:SH2 [285-380 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	MXE	NMD Poison-Exon Switch	VEZT	Transmembrane:Helical [139-159 aa, 100%]; Transmembrane:Helical [162-182 aa, 100%]; Coiled_Coil [430-462 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	NCOA1	MOTIF:LXXLL motif 7 [1435-1439 aa, replaced_C_tail]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	CDCA7	ZN_FING:Hemimethylation-sensing zinc finger (HMZF) [320-450 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	BCOR	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	ARFGAP2	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	MYLK	DOMAIN:Ig-like C2-type 3 [414-503 aa, 74%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	C20orf24	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	NCBP2	DOMAIN:RRM [26-78 aa, replaced_C_tail]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	FYN	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	MXE	NMD Skipping-Decay Switch	VEZT	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	MTERF4	REPEAT:MTERF 3 [209-239 aa, 13%]; REPEAT:MTERF 4 [245-270 aa, 100%]; REPEAT:MTERF 5 [290-318 aa, 100%]; Region:Dimerization with NSUN4 [310-327 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	SPPL2A	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	RBM5	DOMAIN:RRM 2 [231-315 aa, 100%]; DOMAIN:G-patch [743-789 aa, 100%]; ZN_FING:RanBP2-type [181-210 aa, 70%]; ZN_FING:C2H2-type [647-677 aa, 100%]; Region:Required for interaction with U2AF2 [321-809 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	MYO1B	DOMAIN:IQ 4 [779-808 aa, 30%]; DOMAIN:IQ 5 [808-837 aa, 70%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	STK19	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	PRR3	ZN_FING:C3H1-type [155-183 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	MELK	DOMAIN:Protein kinase [11-263 aa, 19%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	IL17RB	DOMAIN:SEFIR [331-477 aa, 100%]; Transmembrane:Helical [293-313 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	CDK5RAP2	IDR:Disordered_Region [1646-1706 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	BCLAF1	IDR:Disordered_Region [810-840 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	BCLAF1	IDR:Disordered_Region [637-796 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	EHMT2	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	CABIN1	REPEAT:TPR 2 [90-123 aa, 82%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	NECAP2	MOTIF:WXXF motif 1 [239-239 aa, 100%]; MOTIF:WXXF motif 2 [239-239 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A5SS	In-Frame UniProt Domain Indel	ZSCAN26	DOMAIN:SCAN box [51-133 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	AFMID	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	IFT46	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	CLK2	DOMAIN:Protein kinase [163-479 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A5SS	In-Frame UniProt Domain Indel	ZSCAN26	DOMAIN:SCAN box [51-133 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	ZNF76	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	SETX	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	SETD4	DOMAIN:SET [48-273 aa, replaced_C_tail]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	MTERF4	REPEAT:MTERF 5 [250-275 aa, 100%]; Region:Dimerization with NSUN4 [268-282 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	INTS3	IDR:Disordered_Region [977-1042 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A3SS	In-Frame UniProt Domain Indel	FKBP1B	DOMAIN:PPIase FKBP-type [20-108 aa, replaced_C_tail]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	CTTN	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	FIP1L1	Region:Necessary for stimulating PAPOLA activity [1-356 aa, 4%]; Region:Sufficient for interaction with PAPOLA [1-111 aa, 14%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SGO1	MOTIF:D-box 1 [192-200 aa, 100%]; MOTIF:KEN box [310-312 aa, 100%]; Coiled_Coil [273-313 aa, 100%]; Region:Necessary for interaction with PPP2CA and PPP... [1-176 aa, 10%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	RI	Frameshift Domain Loss	STEAP2	Transmembrane:Helical [432-452 aa, 38%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	TRO	REPEAT:54 [662-666 aa, replaced_C_tail]; REPEAT:55 [667-671 aa, replaced_C_tail]; REPEAT:56 [671-676 aa, replaced_C_tail]; REPEAT:57 [676-681 aa, replaced_C_tail]; REPEAT:58 [681-686 aa, replaced_C_tail]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	MXE	NMD Poison-Exon Switch	KIF1C	DOMAIN:Kinesin motor [5-323 aa, replaced_C_tail]; DOMAIN:FHA [485-547 aa, 100%]; Coiled_Coil [333-360 aa, 100%]; Coiled_Coil [406-444 aa, 100%]; Coiled_Coil [587-625 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	GUSB	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	AK2	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	CAMK2G	IDR:Disordered_Region [376-423 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SIN3B	Region:Interaction with NCOR1 [284-540 aa, 12%]; Region:Interaction with SUDS3 and HDAC1 [392-591 aa, 16%]; Region:Middle-domain [394-430 aa, 22%]; Region:Gate loop [430-446 aa, 100%]; Region:HDAC-interacting domain [446-572 aa, 7%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	CAMK2G	IDR:Disordered_Region [376-423 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	ITIH1	Region:Hyaluronan-binding [387-911 aa, 26%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	ABCD4	DOMAIN:ABC transporter [389-603 aa, 74%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SCOC	Coiled_Coil [78-146 aa, 41%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	AFMID	MOTIF:HGGXW [71-74 aa, replaced_C_tail]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	MRPS22	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	CARD8	IDR:Disordered_Region [1-28 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	DLG1	DOMAIN:Guanylate kinase-like [714-889 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	PAM	Transmembrane:Helical [864-887 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	UBXN2B	DOMAIN:SEP [141-206 aa, 42%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	YBX3	IDR:Disordered_Region [181-372 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	C-Terminal Frameshift	NSL1	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	MXE	Frameshift Domain Loss	BORA	IDR:Disordered_Region [1-24 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	ARID5B	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	MXE	NMD Skipping-Decay Switch	DGUOK	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A5SS	In-Frame Peptide Remodeling	SLC39A11	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	CLK2	DOMAIN:Protein kinase [163-479 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	PLEKHA6	IDR:Disordered_Region [1005-1048 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	AP1M2	DOMAIN:MHD [168-421 aa, 17%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	CAMTA2	DOMAIN:IPT/TIG [554-635 aa, 100%]; DOMAIN:IQ 1 [1083-1113 aa, 100%]; DOMAIN:IQ 2 [1138-1168 aa, 100%]; REPEAT:ANK 1 [735-769 aa, 100%]; REPEAT:ANK 2 [782-813 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	TAF5	REPEAT:WD 2 [541-580 aa, 62%]; REPEAT:WD 3 [583-624 aa, 67%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	CDK5RAP3	MOTIF:Shuffled ATG8-binding motif 1 [267-270 aa, 100%]; MOTIF:Shuffled ATG8-binding motif 2 [292-295 aa, 100%]; MOTIF:Shuffled ATG8-binding motif 3 [310-313 aa, 100%]; Region:Required for interaction with UFL1 and mediat... [269-506 aa, 100%]; Region:RPL10a-binding domain (RBD) [355-370 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	NT5C	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	BTAF1	DOMAIN:Helicase ATP-binding [1278-1453 aa, 100%]; DOMAIN:Helicase C-terminal [1636-1790 aa, 100%]; REPEAT:HEAT 1 [385-422 aa, 100%]; REPEAT:HEAT 2 [426-463 aa, 100%]; REPEAT:HEAT 3 [513-550 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	CDCA7	ZN_FING:Hemimethylation-sensing zinc finger (HMZF) [320-450 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	DAP3	IDR:Disordered_Region [39-67 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A5SS	Frameshift Domain Loss	TRO	REPEAT:1 [751-760 aa, 100%]; REPEAT:2 [769-778 aa, 100%]; REPEAT:3 [779-786 aa, 100%]; REPEAT:4 [787-796 aa, 100%]; REPEAT:5 [805-814 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	MFF	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A3SS	In-Frame Peptide Remodeling	ROBO1	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	LUC7L3	Coiled_Coil [140-205 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	PPP4C	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A5SS	In-Frame UniProt Domain Indel	UPF1	Region:Sufficient for interaction with RENT2 [1-415 aa, 3%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	ASB1	REPEAT:ANK 1 [36-68 aa, 15%]; REPEAT:ANK 2 [77-106 aa, 100%]; REPEAT:ANK 3 [110-139 aa, 100%]; REPEAT:ANK 4 [143-172 aa, 73%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	UBE2V1	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	C-Terminal Frameshift	GANC	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	MXE	Frameshift Domain Loss	CLN3	MOTIF:Lysosomal targeting motif [144-145 aa, 100%]; Transmembrane:Helical [23-35 aa, 100%]; Transmembrane:Helical [76-88 aa, 100%]; Transmembrane:Helical [91-102 aa, 100%]; Transmembrane:Helical [109-121 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	SCN9A	DOMAIN:IQ [1889-1918 aa, 100%]; REPEAT:IV [1497-1795 aa, 100%]; Transmembrane:Helical; Name=S1 of repeat IV [1515-1534 aa, 100%]; Transmembrane:Helical; Name=S2 of repeat IV [1546-1567 aa, 100%]; Transmembrane:Helical; Name=S3 of repeat IV [1577-1598 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	PAM	Transmembrane:Helical [864-887 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	F11	DOMAIN:Peptidase S1 [388-623 aa, 14%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	TUBD1	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	SERPINA11	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	LSM14A	IDR:Disordered_Region [147-288 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	TTC31	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	ATXN1	DOMAIN:AXH [562-693 aa, 100%]; MOTIF:Nuclear localization signal [794-797 aa, 100%]; Region:Self-association [494-604 aa, 100%]; Region:Interaction with USP7 [538-815 aa, 100%]; Region:RNA-binding [540-766 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	MXE	NMD Skipping-Decay Switch	LSM14B	DOMAIN:DFDF [257-296 aa, 100%]; MOTIF:FFD box [331-348 aa, 100%]; MOTIF:TFG box [352-374 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	LIMS2	DOMAIN:LIM zinc-binding 5 [256-315 aa, replaced_C_tail]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	PAM	Transmembrane:Helical [864-887 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	SLC17A9	Transmembrane:Helical [276-296 aa, replaced_C_tail]; Transmembrane:Helical [316-336 aa, 100%]; Transmembrane:Helical [369-389 aa, 100%]; Transmembrane:Helical [402-422 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	GIPC1	IDR:Disordered_Region [1-54 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	CRELD2	REPEAT:FU 2 [233-278 aa, 63%]; MOTIF:CXXC [242-245 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	PPP6R2	IDR:Disordered_Region [408-436 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	MXE	NMD Poison-Exon Switch	HMGN1	IDR:Disordered_Region [1-48 aa]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	TIA1	DOMAIN:RRM 3 [214-286 aa, replaced_C_tail]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	DNM1L	Region:Interaction with GSK3B [448-685 aa, 11%]; Region:B domain [502-569 aa, 35%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SLC38A9	Transmembrane:Helical; Name=4 [284-300 aa, 100%]; Transmembrane:Helical; Name=5 [310-334 aa, 32%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A3SS	In-Frame Peptide Remodeling	FAM219A	none
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	A3SS	Frameshift Domain Loss	C1RL	DOMAIN:Sushi [151-210 aa, replaced_C_tail]; DOMAIN:Peptidase S1 [224-442 aa, replaced_C_tail]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	ZNF394	DOMAIN:KRAB [155-230 aa, 100%]; ZN_FING:C2H2-type 1 [358-380 aa, 100%]; ZN_FING:C2H2-type 2 [386-408 aa, 100%]; ZN_FING:C2H2-type 3 [414-436 aa, 100%]; ZN_FING:C2H2-type 4 [442-463 aa, 100%]
-SRSF1 (SRSF9 motif)	M1	0.001	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	AHI1	IDR:Disordered_Region [1115-1196 aa]
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	SIRT6	DOMAIN:Deacetylase sirtuin-type [27-272 aa, 100%]
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	A3SS	NMD Skipping-Decay Switch	FAM20A	none
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	ANKRD13C	none
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	DEPDC4	DOMAIN:DEP [71-162 aa, 100%]
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	KIF16B	DOMAIN:PX [1155-1266 aa, 37%]
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	ADH6	none
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	UCHL5	DOMAIN:ULD [291-319 aa, 17%]; Region:Interaction with ADRM1 [313-326 aa, 71%]
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SLC35D2	Transmembrane:Helical [85-97 aa, 31%]; Transmembrane:Helical [98-109 aa, 100%]; Transmembrane:Helical [117-129 aa, 62%]
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	PAPD4	none
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	A5SS	In-Frame UniProt Domain Indel	CEP170	Region:Targeting to microtubules [853-1584 aa, 2%]; Region:Interaction with CCDC61 [1015-1460 aa, 4%]; Region:Targeting to centrosomes [1113-1584 aa, 4%]
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	CCDC150	Coiled_Coil [670-885 aa, replaced_C_tail]; Coiled_Coil [913-972 aa, replaced_C_tail]
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	RI	NMD Skipping-Decay Switch	POLR3C	IDR:Disordered_Region [197-228 aa]
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	RI	NMD Skipping-Decay Switch	DNAJC11	none
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	CCDC150	Coiled_Coil [712-940 aa, 28%]
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	NPRL3	none
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	RAP1GDS1	none
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	RI	In-Frame UniProt Domain Indel	NECAP1	MOTIF:WXXF motif 1 [110-111 aa, 100%]; MOTIF:WXXF motif 2 [119-120 aa, 100%]
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	LYRM7	none
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	NHSL1	none
-Unassigned (FWER>0.05)	M10	0.349	Exploratory_Orphan_Module	MXE	NMD Poison-Exon Switch	ATXN3	DOMAIN:Josephin [1-180 aa, 65%]; DOMAIN:UIM 1 [224-243 aa, 100%]; DOMAIN:UIM 2 [244-263 aa, 100%]; DOMAIN:UIM 3 [331-346 aa, 94%]
-Unassigned (FWER>0.05)	M11	0.457	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	MIER2	DOMAIN:ELM2 [195-292 aa, 100%]; DOMAIN:SANT [297-349 aa, 100%]
-Unassigned (FWER>0.05)	M11	0.457	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	IFT22	none
-Unassigned (FWER>0.05)	M11	0.457	Exploratory_Orphan_Module	MXE	NMD Skipping-Decay Switch	MAPKBP1	REPEAT:WD 5 [331-369 aa, 95%]; REPEAT:WD 6 [374-422 aa, 100%]; REPEAT:WD 7 [462-499 aa, 100%]; REPEAT:WD 8 [502-543 aa, 100%]; REPEAT:WD 9 [547-586 aa, 100%]
-Unassigned (FWER>0.05)	M11	0.457	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	TMC7	none
-Unassigned (FWER>0.05)	M11	0.457	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	MPHOSPH9	none
-Unassigned (FWER>0.05)	M11	0.457	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	INPP5K	DOMAIN:5-PPase [7-270 aa, 4%]
-Unassigned (FWER>0.05)	M11	0.457	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	INPP5K	DOMAIN:5-PPase [9-325 aa, 86%]; Region:Required for interaction with GPR78 and PAK1 [318-448 aa, 100%]; Region:Required for ruffle localization [321-448 aa, 100%]
-Unassigned (FWER>0.05)	M11	0.457	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	TATDN1	none
-IGF2BP1	M12	0.035	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	NETO2	DOMAIN:LDL-receptor class A [296-332 aa, 100%]
-IGF2BP1	M12	0.035	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	TMEM175	Transmembrane:Helical; Name=TM3-1 [107-128 aa, 9%]; Transmembrane:Helical; Name=TM4-1 [139-160 aa, 73%]
-IGF2BP1	M12	0.035	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SH3YL1	IDR:Disordered_Region [218-266 aa]
-IGF2BP1	M12	0.035	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	ADCK1	DOMAIN:Protein kinase [155-467 aa, 12%]
-IGF2BP1	M12	0.035	FWER<=0.05_Bridged	RI	In-Frame Peptide Remodeling	TAF1C	none
-IGF2BP1	M12	0.035	FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	CSAD	none
-IGF2BP1	M12	0.035	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	BCORL1	MOTIF:Nuclear localization signal [1273-1281 aa, 100%]
-IGF2BP1	M12	0.035	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	ITSN1	DOMAIN:PH [976-1049 aa, replaced_C_tail]; DOMAIN:C2 [1054-1132 aa, 100%]
-Unassigned (FWER>0.05)	M13	0.16	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	SLC25A17	REPEAT:Solcar 1 [5-70 aa, 79%]; REPEAT:Solcar 2 [75-146 aa, 100%]; REPEAT:Solcar 3 [152-224 aa, 100%]; MOTIF:Peroxisome localization signal [145-152 aa, 100%]; Transmembrane:Helical; Name=1 [8-23 aa, 31%]
-Unassigned (FWER>0.05)	M13	0.16	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	ZRANB3	DOMAIN:Helicase ATP-binding [46-208 aa, 7%]; Region:DNA annealing helicase activity [46-481 aa, 3%]
-Unassigned (FWER>0.05)	M13	0.16	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	MTMR6	DOMAIN:Myotubularin phosphatase [124-499 aa, 2%]
-Unassigned (FWER>0.05)	M13	0.16	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	ZNF852	DOMAIN:KRAB [7-77 aa, 17%]
-Unassigned (FWER>0.05)	M13	0.16	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	IL17RC	none
-Unassigned (FWER>0.05)	M13	0.16	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	DMXL1	REPEAT:WD 12 [2836-2878 aa, 58%]; REPEAT:WD 14 [2884-2923 aa, 100%]; REPEAT:WD 15 [2926-2965 aa, 100%]; REPEAT:WD 16 [2978-3016 aa, 100%]
-Unassigned (FWER>0.05)	M13	0.16	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	NPIPA1	none
-Unassigned (FWER>0.05)	M13	0.16	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	TESK1	DOMAIN:Protein kinase [57-314 aa, 52%]; Region:Required for interaction with YWHAB [419-524 aa, 100%]; Region:Required for interaction with SPRED1 and SPRY... [527-626 aa, 100%]; Region:Required for interaction with PARVA [527-624 aa, 100%]
-Unassigned (FWER>0.05)	M14	0.165	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	CENPI	none
-Unassigned (FWER>0.05)	M14	0.165	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	CSF1	IDR:Disordered_Region [224-488 aa]; Region:O-glycosylated at one site [406-426 aa, 100%]
-Unassigned (FWER>0.05)	M14	0.165	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	RAB11FIP3	none
-Unassigned (FWER>0.05)	M14	0.165	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ANKMY1	REPEAT:ANK 1 [320-351 aa, 100%]; REPEAT:ANK 2 [562-593 aa, 100%]; REPEAT:ANK 3 [597-628 aa, 100%]; REPEAT:ANK 4 [636-671 aa, 100%]; REPEAT:ANK 5 [719-756 aa, 100%]
-Unassigned (FWER>0.05)	M14	0.165	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	CSF1	IDR:Disordered_Region [177-386 aa]; Region:O-glycosylated at one site [321-337 aa, 100%]
-Unassigned (FWER>0.05)	M14	0.165	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	RGS12	DOMAIN:GoLoco [1187-1209 aa, 100%]
-Unassigned (FWER>0.05)	M14	0.165	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	UPK3A	Transmembrane:Helical [208-235 aa, 100%]
-Unassigned (FWER>0.05)	M15	0.374	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	RFWD2	none
-Unassigned (FWER>0.05)	M15	0.374	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	MAP4K2	DOMAIN:Protein kinase [16-273 aa, 52%]; DOMAIN:CNH [482-793 aa, 100%]; Region:PEST1 [294-314 aa, 100%]; Region:PEST2 [344-360 aa, 100%]; Region:PEST3 [405-448 aa, 100%]
-Unassigned (FWER>0.05)	M15	0.374	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	TTC6	none
-Unassigned (FWER>0.05)	M15	0.374	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	SLC44A4	Transmembrane:Helical [598-618 aa, 100%]; Transmembrane:Helical [639-659 aa, 100%]
-Unassigned (FWER>0.05)	M15	0.374	Exploratory_Orphan_Module	A5SS	NMD Skipping-Decay Switch	POLR2G	none
-Unassigned (FWER>0.05)	M15	0.374	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	PSMD11	DOMAIN:PCI [224-392 aa, replaced_C_tail]
-Unassigned (FWER>0.05)	M16	0.781	Exploratory_Orphan_Module	A3SS	NMD Skipping-Decay Switch	PIGT	Transmembrane:Helical [492-513 aa, 100%]
-Unassigned (FWER>0.05)	M16	0.781	Exploratory_Orphan_Module	A3SS	NMD Skipping-Decay Switch	PIGT	Transmembrane:Helical [526-548 aa, 100%]
-Unassigned (FWER>0.05)	M16	0.781	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	RAPGEF2	none
-Unassigned (FWER>0.05)	M16	0.781	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	MICAL3	IDR:Disordered_Region [886-1283 aa]
-Unassigned (FWER>0.05)	M16	0.781	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ERCC3	DOMAIN:Helicase ATP-binding [327-488 aa, 100%]; DOMAIN:Helicase C-terminal [542-702 aa, 100%]; MOTIF:DEVH box [441-444 aa, 100%]
-Unassigned (FWER>0.05)	M16	0.781	Exploratory_Orphan_Module	A5SS	C-Terminal Frameshift	PIGT	none
-Unassigned (FWER>0.05)	M16	0.781	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	EIF4E2	none
-Unassigned (FWER>0.05)	M16	0.781	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	ATXN3	DOMAIN:UIM 2 [101-109 aa, 22%]; DOMAIN:UIM 3 [138-145 aa, 100%]
-Unassigned (FWER>0.05)	M16	0.781	Exploratory_Orphan_Module	A3SS	C-Terminal Frameshift	MANEAL	none
-Unassigned (FWER>0.05)	M16	0.781	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	SMG7	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	RALY	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	CCNE1	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	FAM98C	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	RHBG	Transmembrane:Helical [125-145 aa, 100%]; Transmembrane:Helical [150-170 aa, 100%]; Transmembrane:Helical [179-201 aa, 100%]; Transmembrane:Helical [220-240 aa, 100%]; Transmembrane:Helical [252-272 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	PUF60	Region:Inhibits homodimerization [1-516 aa, 3%]; Region:Inhibits transcriptional repression, interact... [77-559 aa, 4%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	KLC1	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	NMD Skipping-Decay Switch	RHBG	Transmembrane:Helical [135-157 aa, 100%]; Transmembrane:Helical [162-184 aa, 100%]; Transmembrane:Helical [193-217 aa, 100%]; Transmembrane:Helical [238-259 aa, 100%]; Transmembrane:Helical [272-294 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	PTPN3	DOMAIN:FERM [29-312 aa, 76%]; DOMAIN:PDZ [510-582 aa, 100%]; DOMAIN:Tyrosine-protein phosphatase [646-901 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ABCD4	DOMAIN:ABC transmembrane type-1 [39-332 aa, replaced_C_tail]; DOMAIN:ABC transporter [389-603 aa, 100%]; Transmembrane:Helical [190-210 aa, 100%]; Transmembrane:Helical [279-299 aa, 100%]; Transmembrane:Helical [314-334 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	TMEM116	Transmembrane:Helical [15-27 aa, replaced_C_tail]; Transmembrane:Helical [54-67 aa, 100%]; Transmembrane:Helical [87-99 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	STAU2	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	SLCO4A1	DOMAIN:Kazal-like [498-555 aa, 16%]; Transmembrane:Helical; Name=10 [581-603 aa, 100%]; Transmembrane:Helical; Name=11 [613-638 aa, 100%]; Transmembrane:Helical; Name=12 [672-689 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	DMTN	DOMAIN:HP [304-365 aa, 100%]; Region:Interaction with RASGRF2 [202-278 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	FLNB	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	NUSAP1	IDR:Disordered_Region [47-186 aa]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	MGRN1	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	EXOSC9	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	In-Frame Peptide Remodeling	HPN	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	PALM	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	PLXNB1	DOMAIN:IPT/TIG 1 [978-1061 aa, 100%]; DOMAIN:IPT/TIG 2 [1062-1142 aa, 100%]; DOMAIN:IPT/TIG 3 [1145-1257 aa, 100%]; Transmembrane:Helical [1363-1381 aa, 100%]; Coiled_Coil [1378-1407 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	LAMTOR3	Region:Required for interaction with LAMTOR2 [57-70 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	E4F1	ZN_FING:C2H2-type 1 [192-214 aa, replaced_C_tail]; ZN_FING:C2H2-type 2 [220-242 aa, replaced_C_tail]; ZN_FING:C2H2-type 3 [248-272 aa, replaced_C_tail]; ZN_FING:C2H2-type 4 [435-457 aa, 100%]; ZN_FING:C2H2-type 5 [463-485 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	THOP1	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	SMTN	DOMAIN:Calponin-homology (CH) [873-990 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	C21orf2	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	AP5Z1	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	DHRS4	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SLC30A5	Transmembrane:Helical [33-53 aa, 100%]; Transmembrane:Helical [57-77 aa, 62%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	TTLL3	DOMAIN:TTL [179-604 aa, replaced_C_tail]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SP140L	DOMAIN:HSR [33-149 aa, 3%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	LRRC28	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	KDM4C	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ABCC10	DOMAIN:ABC transporter 1 [598-824 aa, replaced_C_tail]; DOMAIN:ABC transmembrane type-1 2 [885-1210 aa, 100%]; DOMAIN:ABC transporter 2 [1246-1479 aa, 100%]; Transmembrane:Helical [875-895 aa, 100%]; Transmembrane:Helical [933-953 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	Frameshift Domain Loss	ZCCHC10	IDR:Disordered_Region [89-192 aa]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	XPA	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	CLDN15	Transmembrane:Helical [116-140 aa, replaced_C_tail]; Transmembrane:Helical [160-182 aa, 100%]; Region:Important for the formation of tight-junction... [146-147 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	AP5Z1	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	RBCK1	ZN_FING:RING-type 2 [447-476 aa, replaced_C_tail]; Region:TRIAD supradomain [278-506 aa, replaced_C_tail]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	MED12	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	HHLA3	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	MXE	NMD Skipping-Decay Switch	MTG2	DOMAIN:Obg [57-184 aa, 52%]; DOMAIN:OBG-type G [185-320 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	ATP5S	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	MBD1	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	ABHD3	DOMAIN:AB hydrolase-1 [140-233 aa, replaced_C_tail]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	ECHDC2	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	MR1	DOMAIN:Ig-like C1-type [203-299 aa, 95%]; Region:Alpha-3 [202-293 aa, 99%]; Region:Connecting peptide [294-302 aa, 11%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	Frameshift Domain Loss	NCKAP5L	IDR:Disordered_Region [1197-1334 aa]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	CELSR3	IDR:Disordered_Region [2888-2927 aa]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	In-Frame Peptide Remodeling	USP21	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	VARS2	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	C-Terminal Frameshift	ACP6	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ALAD	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	ITGA6	MOTIF:GFFKR motif [1042-1046 aa, replaced_C_tail]; Region:Interaction with HPS5 [1040-1046 aa, replaced_C_tail]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	ING4	MOTIF:Bipartite nuclear localization signal [127-148 aa, 5%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ATP5G1	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	MIB2	DOMAIN:HERC2-like 2 [370-444 aa, replaced_C_tail]; REPEAT:ANK 1 [520-552 aa, 100%]; REPEAT:ANK 2 [557-589 aa, 100%]; REPEAT:ANK 3 [594-626 aa, 100%]; REPEAT:ANK 4 [631-667 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	Frameshift Domain Loss	CLDN19	IDR:Disordered_Region [191-224 aa]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	C9orf16	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ACAD11	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	COL4A3BP	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	Frameshift Domain Loss	TJAP1	IDR:Disordered_Region [266-303 aa]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	TNFRSF14	REPEAT:TNFR-Cys 2 [78-119 aa, replaced_C_tail]; REPEAT:TNFR-Cys 3 [121-162 aa, replaced_C_tail]; Transmembrane:Helical [203-223 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Skipping-Decay Switch	RPS9	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	SLC35D2	Transmembrane:Helical [266-288 aa, 48%]; Transmembrane:Helical [293-315 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	ATP2A1	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	NMD Skipping-Decay Switch	PLXNB1	DOMAIN:IPT/TIG 1 [1070-1160 aa, 100%]; DOMAIN:IPT/TIG 2 [1162-1249 aa, 100%]; DOMAIN:IPT/TIG 3 [1252-1375 aa, 100%]; Transmembrane:Helical [1491-1511 aa, 100%]; Coiled_Coil [1507-1539 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	In-Frame Peptide Remodeling	CDK5RAP3	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	NSMF	MOTIF:Nuclear localization signal [247-250 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	MLX	IDR:Disordered_Region [91-145 aa]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	DECR2	MOTIF:Microbody targeting signal [290-292 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	RHBG	Transmembrane:Helical [394-414 aa, 100%]; Region:Interaction with ANK3 [416-424 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	EXOSC9	IDR:Disordered_Region [391-439 aa]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	C-Terminal Frameshift	DMAC2	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	WBP1	MOTIF:PPxY motif 1 [151-155 aa, replaced_C_tail]; MOTIF:PPxY motif 2 [167-172 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	BORA	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	KIAA1217	IDR:Disordered_Region [1136-1174 aa]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	TPD52L2	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	TMEM161A	Transmembrane:Helical [99-119 aa, replaced_C_tail]; Transmembrane:Helical [135-155 aa, 100%]; Transmembrane:Helical [167-187 aa, 100%]; Transmembrane:Helical [225-245 aa, 100%]; Transmembrane:Helical [264-284 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	MOCS1	Region:Molybdenum cofactor biosynthesis protein A [1-383 aa, replaced_C_tail]; Region:Contains a mitochondrial translocation signal [368-463 aa, replaced_C_tail]; Region:Molybdenum cofactor biosynthesis protein C [414-620 aa, replaced_C_tail]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	SMYD2	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	CYB561D2	DOMAIN:Cytochrome b561 [14-217 aa, 86%]; Transmembrane:Helical [47-67 aa, 100%]; Transmembrane:Helical [86-106 aa, 100%]; Transmembrane:Helical [123-143 aa, 100%]; Transmembrane:Helical [163-183 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ADAT1	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ARHGEF40	Region:Interaction with KRT18 [1058-1427 aa, 4%]; Region:Interacts with RAC3 [1076-1510 aa, 22%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	CUL5	DOMAIN:Cullin neddylation [711-772 aa, 90%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	PIP5K1A	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	PLD2	DOMAIN:PX [65-195 aa, replaced_C_tail]; DOMAIN:PH [203-311 aa, 100%]; DOMAIN:PLD phosphodiesterase 1 [437-464 aa, 100%]; DOMAIN:PLD phosphodiesterase 2 [751-778 aa, 100%]; Region:Catalytic [441-788 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	NAA60	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	CENPX	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Skipping-Decay Switch	TXNRD2	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	DUS1L	IDR:Disordered_Region [339-386 aa]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	MXE	NMD Skipping-Decay Switch	AMDHD2	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	CNBP	ZN_FING:CCHC-type 3 [72-89 aa, replaced_C_tail]; ZN_FING:CCHC-type 4 [96-113 aa, 100%]; ZN_FING:CCHC-type 5 [117-134 aa, 100%]; ZN_FING:CCHC-type 6 [135-152 aa, 100%]; ZN_FING:CCHC-type 7 [156-173 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	KDM6A	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	EAF2	Region:Necessary for interaction with ELL [17-104 aa, 42%]; Region:Necessary for transactivation activity [177-260 aa, 100%]; Region:Necessary for interaction with TCEA1 and tran... [246-260 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	USF2	DOMAIN:bHLH [235-290 aa, 100%]; Region:Leucine-zipper [307-328 aa, 100%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	IFI6	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	DUS1L	IDR:Disordered_Region [339-386 aa]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	FLNB	REPEAT:Filamin 15 [1609-1704 aa, 1%]; Region:Hinge 1 [1705-1728 aa, 50%]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ADH6	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	In-Frame Peptide Remodeling	DHRS2	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	HMGN1	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	ACTR3B	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	RNF123	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	PTPRH	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	C-Terminal Frameshift	C19orf60	none
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SPAG9	IDR:Disordered_Region [203-292 aa]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	EPS15L1	REPEAT:14 [749-751 aa, replaced_C_tail]; REPEAT:15 [768-770 aa, 100%]; Region:15 X 3 AA repeats of D-P-F [570-770 aa, replaced_C_tail]
-Unassigned (FWER>0.05)	M2	0.069	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	IRF9	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	CTAGE5	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	HNRNPD	DOMAIN:RRM 1 [97-179 aa, 1%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	RI	NMD Skipping-Decay Switch	TAF1D	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	CD46	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	SLC35B1	Transmembrane:Helical; Name=1 [12-32 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	EFCAB14	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	KHK	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SPATS2L	IDR:Disordered_Region [165-212 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	HMMR	IDR:Disordered_Region [40-81 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	MFF	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	MRPS18C	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	DCAF10	IDR:Disordered_Region [350-396 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	MTSS1L	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	MINDY3	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	SPTAN1	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	SYNE4	DOMAIN:KASH [347-404 aa, replaced_C_tail]; Transmembrane:Helical; Anchor for type IV membrane protein [356-376 aa, replaced_C_tail]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	RI	In-Frame UniProt Domain Indel	RPS9	DOMAIN:S4 RNA-binding [87-146 aa, 18%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	SORBS2	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	CASK	Region:Required for interaction with NRXN1 (via C-te... [482-909 aa, 5%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	EPB41L1	Region:C-terminal (CTD) [699-825 aa, 23%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	BDH2	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	LRCH3	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	SNX14	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	NAV2	IDR:Disordered_Region [1473-1560 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	MFF	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	RAB17	MOTIF:Switch 1 [43-54 aa, 17%]; MOTIF:Switch 2 [75-91 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	CACNB4	IDR:Disordered_Region [346-423 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	RI	Frameshift Domain Loss	SLC17A9	Transmembrane:Helical [369-389 aa, replaced_C_tail]; Transmembrane:Helical [402-422 aa, replaced_C_tail]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	SLC25A14	REPEAT:Solcar 1 [46-142 aa, 7%]; REPEAT:Solcar 2 [151-243 aa, 100%]; REPEAT:Solcar 3 [253-351 aa, 100%]; Transmembrane:Helical; Name=2 [122-139 aa, 22%]; Transmembrane:Helical; Name=3 [153-175 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	APAF1	REPEAT:WD 1-5 [796-836 aa, 32%]; REPEAT:WD 1-6 [838-877 aa, 72%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	ROBO1	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	PPIP5K2	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	GOLGA4	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	ANKRD10	REPEAT:ANK 4 [124-153 aa, replaced_C_tail]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	CLASP1	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	IL17RE	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	EPB41L1	Region:C-terminal (CTD) [746-880 aa, 7%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	ANKRD10	REPEAT:ANK 4 [124-153 aa, replaced_C_tail]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	EPB41L1	Region:C-terminal (CTD) [699-825 aa, 23%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	MXE	NMD Skipping-Decay Switch	MED17	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	ARPP19	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	A3SS	C-Terminal Frameshift	PFN2	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	MLXIP	DOMAIN:bHLH [719-769 aa, 100%]; Region:Transactivation domain [322-445 aa, 90%]; Region:Leucine-zipper [769-790 aa, 100%]; Region:Mediates heterotypic interactions between MLX... [832-881 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	A5SS	In-Frame UniProt Domain Indel	IRF2BP2	IDR:Disordered_Region [342-420 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	IL17RB	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	SLC7A6	Transmembrane:Helical [168-188 aa, replaced_C_tail]; Transmembrane:Helical [195-215 aa, replaced_C_tail]; Transmembrane:Helical [236-256 aa, 100%]; Transmembrane:Helical [267-287 aa, 100%]; Transmembrane:Helical [312-332 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	LRP8	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	CCNT2	Region:Interaction with MDFIC and MDFI [1-300 aa, replaced_C_tail]; Region:Interaction with POLR2A [250-300 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	DLG1	IDR:Disordered_Region [662-693 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	GPN3	DOMAIN:GPN-loop core GTPase [2-293 aa, replaced_C_tail]; MOTIF:Gly-Pro-Asn (GPN)-loop [82-84 aa, 100%]; MOTIF:G3 [121-125 aa, 100%]; MOTIF:G4 [198-201 aa, 100%]; MOTIF:G5 [266-268 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	MUM1	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	AP1G1	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	NAT9	DOMAIN:N-acetyltransferase [35-180 aa, replaced_C_tail]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	INTS9	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	ARHGAP17	IDR:Disordered_Region [511-881 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	GPS2	IDR:Disordered_Region [177-208 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	EPB41L1	Region:C-terminal (CTD) [698-824 aa, 22%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	EIF4A2	DOMAIN:Helicase C-terminal [246-407 aa, replaced_C_tail]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	DLG1	IDR:Disordered_Region [662-693 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	DROSHA	IDR:Disordered_Region [126-395 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	STX16-NPEPL1	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	EPB41L1	Region:C-terminal (CTD) [746-881 aa, 8%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SECISBP2L	IDR:Disordered_Region [320-387 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	A5SS	In-Frame Peptide Remodeling	MAP4K4	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	MFF	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	BAZ2B	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	TCERG1	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	METTL17	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	ITGB3BP	MOTIF:LXXIL motif [203-208 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	PHACTR4	IDR:Disordered_Region [1-37 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	DLG1	IDR:Disordered_Region [662-693 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	KIF13A	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	ADGRG6	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	PDK1	DOMAIN:Histidine kinase [163-393 aa, 51%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	ZNF232	ZN_FING:C2H2-type 1 [303-325 aa, 100%]; ZN_FING:C2H2-type 2 [331-353 aa, 100%]; ZN_FING:C2H2-type 3 [359-381 aa, 100%]; ZN_FING:C2H2-type 4 [387-409 aa, 100%]; ZN_FING:C2H2-type 5 [415-437 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	CAPN7	Region:Domain III [541-701 aa, 94%]; Region:Domain N [702-813 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	SREK1	DOMAIN:RRM [81-174 aa, replaced_C_tail]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	YIPF1	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	EWSR1	DOMAIN:RRM [361-447 aa, 100%]; ZN_FING:RanBP2-type [518-549 aa, 100%]; MOTIF:Nuclear localization signal [639-656 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	BPHL	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	MED23	IDR:Disordered_Region [1343-1368 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	EXOC7	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	NPHP3	REPEAT:TPR 2 [885-918 aa, 100%]; REPEAT:TPR 3 [920-942 aa, 100%]; REPEAT:TPR 4 [943-976 aa, 100%]; REPEAT:TPR 5 [985-1018 aa, 100%]; REPEAT:TPR 6 [1027-1060 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	REXO5	DOMAIN:Exonuclease [228-376 aa, 100%]; DOMAIN:RRM 1 [505-579 aa, 100%]; DOMAIN:RRM 2 [600-679 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	OSBPL3	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	FGFR1OP	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	NCOR1	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	CLSTN1	DOMAIN:Cadherin 1 [38-164 aa, 8%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	MAGI1	DOMAIN:WW 2 [352-384 aa, 27%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	Frameshift Domain Loss	SUPT20H	IDR:Disordered_Region [786-811 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	PDLIM7	DOMAIN:LIM zinc-binding 1 [280-338 aa, 100%]; DOMAIN:LIM zinc-binding 2 [339-398 aa, 100%]; DOMAIN:LIM zinc-binding 3 [399-457 aa, 100%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	NAGK	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	MXE	In-Frame Peptide Remodeling	CDC45	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	ZNF655	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	DROSHA	IDR:Disordered_Region [127-397 aa]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	MELK	DOMAIN:Protein kinase [10-234 aa, 21%]
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	TVP23C-CDRT4	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	LSM14B	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	C-Terminal Frameshift	ABCD4	none
-PTBP1	M3	0.021	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	NDRG2	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A5SS	Frameshift Domain Loss	PGAP2	Transmembrane:Helical [216-239 aa, 12%]; Transmembrane:Helical [244-267 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	CLINT1	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	MINK1	IDR:Disordered_Region [395-887 aa]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A5SS	In-Frame UniProt Domain Indel	ZMYND8	Region:Required for interaction with CCNT1 [1-850 aa, 0%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A3SS	Frameshift Domain Loss	ERI2	ZN_FING:GRF-type [597-643 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	STIL	Region:Interaction with RBM14 [1-1018 aa, 2%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	BPTF	IDR:Disordered_Region [555-758 aa]; Region:Interaction with KEAP1 [627-734 aa, 54%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	RBCK1	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	SLC22A7	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	MTR	DOMAIN:B12-binding N-terminal [662-759 aa, 52%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A3SS	C-Terminal Frameshift	METTL15	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A3SS	Frameshift Domain Loss	RNF181	ZN_FING:RING-type [93-143 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	SHF	DOMAIN:SH2 [182-236 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	NGLY1	DOMAIN:PAW [454-654 aa, 58%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	RCOR3	DOMAIN:SANT 2 [318-375 aa, replaced_C_tail]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	DRG2	DOMAIN:OBG-type G [52-236 aa, 44%]; DOMAIN:TGS [236-297 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	RWDD3	DOMAIN:RWD [5-83 aa, 70%]; Region:Interaction with UBE2I/UBC9 [73-74 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	SLC35F5	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	CAMK2G	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	YAP1	DOMAIN:WW 2 [230-263 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	SHF	DOMAIN:SH2 [280-363 aa, 95%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	IGF2BP2	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	TPCN1	IDR:Disordered_Region [753-786 aa]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	NGLY1	DOMAIN:PAW [387-558 aa, 12%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	AP1G2	DOMAIN:GAE [665-780 aa, 100%]; Region:Essential for ubiquitin-binding [369-379 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	STIL	Region:Interaction with RBM14 [1-1018 aa, 2%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	SYTL2	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	MTERF4	REPEAT:MTERF 1 [142-172 aa, 100%]; REPEAT:MTERF 2 [177-204 aa, 100%]; REPEAT:MTERF 3 [209-239 aa, 100%]; REPEAT:MTERF 4 [245-270 aa, 100%]; REPEAT:MTERF 5 [290-318 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A3SS	C-Terminal Frameshift	ELAC1	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	PRRC2B	IDR:Disordered_Region [2138-2229 aa]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	APTX	DOMAIN:FHA-like [38-87 aa, 86%]; DOMAIN:HIT [182-287 aa, 100%]; ZN_FING:C2H2-type [331-342 aa, 100%]; MOTIF:Nuclear localization signal [126-131 aa, 100%]; MOTIF:Histidine triad motif [272-276 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	ANAPC16	IDR:Disordered_Region [1-29 aa]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	IMMT	IDR:Disordered_Region [116-143 aa]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ZC3H18	Coiled_Coil [399-464 aa, 58%]; Coiled_Coil [921-950 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	CHFR	IDR:Disordered_Region [142-267 aa]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	CNEP1R1	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	HUWE1	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	CCDC32	IDR:Disordered_Region [159-185 aa]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	DMKN	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	EPB41L5	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A5SS	NMD Skipping-Decay Switch	AP1G2	DOMAIN:GAE [713-837 aa, 100%]; Region:Essential for ubiquitin-binding [396-407 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	TBC1D23	Region:May mediate the interaction with WASHC1 [514-699 aa, 8%]; Region:May mediate the interaction with C17orf75, FA... [514-573 aa, 25%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A5SS	In-Frame UniProt Domain Indel	TRIM24	IDR:Disordered_Region [476-550 aa]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	DPH7	REPEAT:WD 1 [79-130 aa, replaced_C_tail]; REPEAT:WD 2 [131-185 aa, replaced_C_tail]; REPEAT:WD 3 [186-229 aa, 100%]; REPEAT:WD 4 [230-273 aa, 100%]; REPEAT:WD 5 [274-313 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	FOXP4	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	AP1G2	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	SLC2A9	Transmembrane:Helical; Name=2 [108-128 aa, 100%]; Transmembrane:Helical; Name=3 [141-161 aa, 100%]; Transmembrane:Helical; Name=4 [172-192 aa, 100%]; Transmembrane:Helical; Name=5 [201-221 aa, 100%]; Transmembrane:Helical; Name=6 [232-252 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SLC38A9	Transmembrane:Helical; Name=9 [480-500 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	C1orf43	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	MLXIPL	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	SCMH1	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	RNF185	ZN_FING:RING-type [39-80 aa, 100%]; Transmembrane:Helical [131-151 aa, 100%]; Transmembrane:Helical [172-192 aa, 100%]; Region:Required for ubiquitin ligase activity and pr... [29-80 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	CHFR	IDR:Disordered_Region [142-267 aa]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	FBXO44	DOMAIN:FBA [71-252 aa, 18%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	TNRC18	Coiled_Coil [1481-1516 aa, 14%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	CLTCL1	REPEAT:CHCR 5 [1128-1269 aa, 86%]; REPEAT:CHCR 6 [1274-1420 aa, 100%]; REPEAT:CHCR 7 [1423-1566 aa, 100%]; Region:Heavy chain arm [524-1640 aa, 44%]; Region:Proximal segment [639-1640 aa, 49%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	SLC7A2	Transmembrane:Helical [410-431 aa, 100%]; Transmembrane:Helical [435-457 aa, 13%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	SLC35F5	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	CPNE1	DOMAIN:C2 2 [123-245 aa, replaced_C_tail]; DOMAIN:VWFA [285-505 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	NECAB3	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	WASF3	Coiled_Coil [162-206 aa, 58%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	A3SS	NMD Skipping-Decay Switch	MPHOSPH9	Coiled_Coil [609-804 aa, 100%]; Coiled_Coil [1109-1174 aa, 100%]; Region:Required for its centrosomal localization [401-800 aa, 100%]; Region:Interaction with CEP97 [451-500 aa, 100%]; Region:Interaction with KIF24 [801-1031 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	CPT1B	none
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	TMPRSS3	DOMAIN:Peptidase S1 [217-449 aa, 100%]
-Unassigned (FWER>0.05)	M4	0.299	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	ANKHD1	Coiled_Coil [775-852 aa, 100%]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	MAP3K13	IDR:Disordered_Region [76-96 aa]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	LETMD1	DOMAIN:Letm1 RBD [122-236 aa, 8%]; Transmembrane:Helical [90-104 aa, 87%]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	SLC43A1	none
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	CASC4	none
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	FBXO38	IDR:Disordered_Region [620-666 aa]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	FBXO38	IDR:Disordered_Region [642-718 aa]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	ANAPC5	REPEAT:TPR 4 [338-378 aa, 10%]; REPEAT:TPR 5 [379-413 aa, 26%]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	PLEKHG2	IDR:Disordered_Region [436-540 aa]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ANKRD16	REPEAT:ANK 8 [273-302 aa, 63%]; REPEAT:ANK 9 [306-335 aa, 100%]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ARHGEF7	DOMAIN:PH [473-578 aa, 51%]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	MLXIPL	DOMAIN:bHLH [549-595 aa, 100%]; Region:Leucine-zipper [595-613 aa, 100%]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	RMDN1	REPEAT:TPR 1 [168-204 aa, 76%]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	ZNF821	ZN_FING:C2H2-type 1 [116-140 aa, 4%]; ZN_FING:C2H2-type 2 [150-172 aa, 100%]; Coiled_Coil [257-366 aa, 100%]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	STAG1	DOMAIN:SCD [296-381 aa, 100%]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	NQO2	none
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	ZFYVE19	MOTIF:MIM1-B [326-339 aa, 100%]; Coiled_Coil [311-375 aa, 51%]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	SEZ6L2	IDR:Disordered_Region [65-152 aa]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	QARS	none
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	SNAP47	DOMAIN:t-SNARE coiled-coil homology 1 [154-216 aa, 100%]; DOMAIN:t-SNARE coiled-coil homology 2 [401-463 aa, 100%]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	BPTF	none
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	ABCD4	none
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	ATXN3	none
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	SUGCT	none
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	ZSCAN31	DOMAIN:SCAN box [39-121 aa, 100%]
-Unassigned (FWER>0.05)	M5	0.704	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	PLPP1	Transmembrane:Helical [54-74 aa, replaced_C_tail]; Transmembrane:Helical [95-115 aa, replaced_C_tail]; Transmembrane:Helical [165-185 aa, 100%]; Transmembrane:Helical [200-220 aa, 100%]; Transmembrane:Helical [230-250 aa, 100%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	SYNE4	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	MXE	NMD Poison-Exon Switch	ACADM	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	SEC24B	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	DQX1	DOMAIN:Helicase ATP-binding [42-164 aa, 66%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	ARHGEF12	Coiled_Coil [194-262 aa, 58%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	ZNF558	DOMAIN:KRAB [43-114 aa, replaced_C_tail]; ZN_FING:C2H2-type 1 [152-174 aa, 100%]; ZN_FING:C2H2-type 2 [180-202 aa, 100%]; ZN_FING:C2H2-type 3 [208-230 aa, 100%]; ZN_FING:C2H2-type 4 [236-258 aa, 100%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	A5SS	In-Frame UniProt Domain Indel	PCNT	Coiled_Coil [2536-3086 aa, 14%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	ABCG8	DOMAIN:ABC transporter [38-255 aa, 67%]; DOMAIN:ABC transmembrane type-2 [335-542 aa, 100%]; Transmembrane:Helical; Name=1 [340-356 aa, 100%]; Transmembrane:Helical; Name=2 [365-382 aa, 100%]; Transmembrane:Helical; Name=3 [406-423 aa, 100%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	KANK4	Coiled_Coil [343-404 aa, 100%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	KIAA1191	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	CYP4F11	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	GLYCTK	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	GLYCTK	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	STX16-NPEPL1	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	AFMID	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	PPP4R3A	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	CHD3	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	BTN2A2	DOMAIN:Ig-like V-type [26-113 aa, replaced_C_tail]; DOMAIN:Ig-like C2-type [119-182 aa, 100%]; DOMAIN:B30.2/SPRY [240-391 aa, 100%]; Transmembrane:Helical [207-223 aa, 100%]; Coiled_Coil [223-250 aa, 100%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	APOC1	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	APOC1	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	BTN2A2	DOMAIN:Ig-like V-type [34-145 aa, 100%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	TBCD	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SEMA6C	Transmembrane:Helical [349-361 aa, 100%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ACADM	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	A5SS	In-Frame UniProt Domain Indel	KAT6B	IDR:Disordered_Region [360-409 aa]; Region:Negatively regulates HAT activity [361-717 aa, 82%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	IL17RC	DOMAIN:SEFIR [583-735 aa, 100%]; Transmembrane:Helical [539-559 aa, 100%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ACADM	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	GRAMD1A	DOMAIN:VASt [367-538 aa, 100%]; Transmembrane:Helical [610-630 aa, 100%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	AKT2	DOMAIN:Protein kinase [138-372 aa, replaced_C_tail]; DOMAIN:AGC-kinase C-terminal [373-438 aa, 100%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	UIMC1	ZN_FING:UBZ4-type [502-529 aa, 100%]; Region:Necessary for interaction with NR6A1 N-terminus [100-200 aa, 46%]; Region:AIR [270-400 aa, 100%]; Region:Necessary for interaction with NR6A1 C-terminus [400-500 aa, 100%]; Region:Zinc-finger-like region [505-582 aa, 100%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SCN1A	REPEAT:III [1200-1514 aa, 30%]; Transmembrane:Helical; Name=S5 of repeat III [1346-1369 aa, 100%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	PATL1	Region:Involved in nuclear foci localization [1-397 aa, 8%]; Region:Region N; interaction with decapping machinery [85-388 aa, 10%]; Region:Involved in RNA-binding [223-397 aa, 17%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	WASHC2C	MOTIF:LFa 5 [537-548 aa, 75%]; Region:Sufficient for interaction with CCDC93 [356-600 aa, 12%]; Region:Interaction with VPS35 [357-1339 aa, 3%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	DEDD2	DOMAIN:DED [25-104 aa, 100%]; MOTIF:Nuclear localization signal [104-109 aa, 100%]; MOTIF:Bipartite nuclear localization signal [155-173 aa, 100%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	AFMID	none
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	DBNL	DOMAIN:ADF-H [4-133 aa, 38%]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	VWCE	DOMAIN:VWFC 5 [588-642 aa, replaced_C_tail]; DOMAIN:VWFC 6 [643-696 aa, replaced_C_tail]
-Unassigned (FWER>0.05)	M6	0.134	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ACADM	none
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	KIAA1217	Coiled_Coil [557-581 aa, 88%]
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	COL27A1	DOMAIN:Collagen-like 9 [1126-1185 aa, 28%]; Region:Triple-helical region [625-1618 aa, 2%]
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	BPTF	Coiled_Coil [2004-2032 aa, 100%]
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	PHKB	Region:Calmodulin-binding [7-29 aa, replaced_C_tail]; Region:Calmodulin-binding [768-795 aa, 100%]; Region:Calmodulin-binding [920-951 aa, 100%]
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	ZCCHC10	none
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	TMEM150A	Transmembrane:Helical [76-96 aa, 100%]; Transmembrane:Helical [109-129 aa, 100%]; Transmembrane:Helical [141-161 aa, 100%]; Transmembrane:Helical [179-199 aa, 100%]; Transmembrane:Helical [212-232 aa, 100%]
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	RPRD2	DOMAIN:CID [19-149 aa, 3%]
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SEC31A	Region:Interaction with PDCD6 [800-1113 aa, 4%]
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	ZCCHC6	none
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	MAX	IDR:Disordered_Region [1-40 aa]
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	PDHB	none
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	PHKB	Region:Calmodulin-binding [7-29 aa, replaced_C_tail]; Region:Calmodulin-binding [768-795 aa, 100%]; Region:Calmodulin-binding [920-951 aa, 100%]
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	MTMR2	DOMAIN:GRAM [68-139 aa, 100%]; DOMAIN:Myotubularin phosphatase [205-580 aa, 100%]; Coiled_Coil [593-627 aa, 100%]
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	RPAIN	ZN_FING:RIP-type [93-143 aa, 76%]; Region:Mediates nuclear export [111-122 aa, 100%]
-Unassigned (FWER>0.05)	M7	0.181	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	CDC25C	DOMAIN:Rhodanese [321-428 aa, 100%]; Region:HIV-1 Vpr binding site [334-379 aa, 100%]
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	PPIL3	DOMAIN:PPIase cyclophilin-type [1-77 aa, replaced_C_tail]
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	RUSC1	DOMAIN:SH3 [745-796 aa, 100%]
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	RUSC1	DOMAIN:RUN [522-666 aa, 31%]; Region:Interaction with IKBKG [606-672 aa, 76%]
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	SEC31A	none
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	A5SS	In-Frame UniProt Domain Indel	TTPAL	DOMAIN:CRAL-TRIO [117-282 aa, 20%]
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	BANP	DOMAIN:BEN [185-263 aa, 100%]; Coiled_Coil [43-74 aa, 100%]; Region:Interaction with CUX1 and HDAC1 [124-279 aa, 100%]; Region:DNA-binding [279-321 aa, 100%]
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	PARL	Transmembrane:Helical [208-230 aa, 100%]
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	PPIL3	DOMAIN:PPIase cyclophilin-type [2-154 aa, 84%]
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ZMYM5	ZN_FING:MYM-type 1 [265-299 aa, 100%]; ZN_FING:MYM-type 2 [311-351 aa, 100%]; ZN_FING:MYM-type 3 [358-393 aa, 100%]; ZN_FING:MYM-type 4 [404-431 aa, 100%]
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	SMG7	none
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	TMX2	DOMAIN:Thioredoxin [99-234 aa, 100%]; MOTIF:Di-lysine motif [255-258 aa, 100%]; Transmembrane:Helical [90-109 aa, 100%]
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	SYNC	DOMAIN:IF rod [168-463 aa, 3%]; Region:Coil 2 [350-458 aa, 5%]; Region:Tail [459-482 aa, 100%]
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	ZNF691	IDR:Disordered_Region [1-90 aa]
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	RAPGEF2	none
-Unassigned (FWER>0.05)	M8	0.156	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	BANP	Coiled_Coil [53-90 aa, 100%]
-RBM42	M9	0.029	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	PGAP3	Transmembrane:Helical [170-190 aa, replaced_C_tail]; Transmembrane:Helical [194-214 aa, 100%]; Transmembrane:Helical [225-245 aa, 100%]; Transmembrane:Helical [258-278 aa, 100%]; Transmembrane:Helical [280-299 aa, 100%]
-RBM42	M9	0.029	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	JAML	Transmembrane:Helical [276-296 aa, 100%]
-RBM42	M9	0.029	FWER<=0.05_Bridged	MXE	Frameshift Domain Loss	MFSD8	Transmembrane:Helical [188-197 aa, 100%]; Transmembrane:Helical [206-215 aa, 100%]; Transmembrane:Helical [220-229 aa, 100%]
-RBM42	M9	0.029	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	EML6	REPEAT:WD 29 [1880-1919 aa, 100%]; REPEAT:WD 30 [1925-1958 aa, 100%]
-RBM42	M9	0.029	FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	ADPRM	none
-RBM42	M9	0.029	FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	PSMD6	none
-RBM42	M9	0.029	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	METTL1	Region:AlphaC helix [164-172 aa, 100%]; Region:Alpha6 helix [238-246 aa, 100%]
-RBM42	M9	0.029	FWER<=0.05_Bridged	MXE	NMD Skipping-Decay Switch	EXOSC1	DOMAIN:S1 motif [66-147 aa, 52%]
-RBM42	M9	0.029	FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	GLYCTK	none
-RBM42	M9	0.029	FWER<=0.05_Bridged	A3SS	In-Frame Peptide Remodeling	ELF2	none
-RBM42	M9	0.029	FWER<=0.05_Bridged	SE	C-Terminal Frameshift	AFMID	none
-RBM42	M9	0.029	FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	WDR73	REPEAT:WD 1 [73-113 aa, replaced_C_tail]; REPEAT:WD 2 [121-163 aa, replaced_C_tail]; REPEAT:WD 3 [167-205 aa, 100%]; REPEAT:WD 4 [214-255 aa, 100%]; REPEAT:WD 5 [266-305 aa, 100%]
-RBM42	M9	0.029	FWER<=0.05_Bridged	RI	C-Terminal Frameshift	NDUFS7	none
-RBM42	M9	0.029	FWER<=0.05_Bridged	MXE	NMD Poison-Exon Switch	MFSD8	Transmembrane:Helical [192-210 aa, replaced_C_tail]; Transmembrane:Helical [242-260 aa, 100%]; Transmembrane:Helical [276-294 aa, 100%]; Transmembrane:Helical [306-324 aa, 100%]; Transmembrane:Helical [374-392 aa, 100%]
-RBM42	M9	0.029	FWER<=0.05_Bridged	MXE	NMD Skipping-Decay Switch	HSF4	Region:Interactions with DUSP26, MAPK1 and MAPK2 [224-294 aa, 72%]; Region:Hydrophobic repeat HR-C [332-355 aa, 100%]
-RBM42	M9	0.029	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	HSF4	Region:Interactions with DUSP26, MAPK1 and MAPK2 [245-322 aa, 100%]; Region:Hydrophobic repeat HR-C [364-389 aa, 100%]
-RBM42	M9	0.029	FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	ATPAF2	none
-RBM42	M9	0.029	FWER<=0.05_Bridged	RI	Frameshift Domain Loss	TRMU	IDR:Disordered_Region [353-376 aa]
-RBM42	M9	0.029	FWER<=0.05_Bridged	MXE	In-Frame Peptide Remodeling	EPS15	none
+regulator	module	module_min_P_FWER	study_min_P_FWER	bridge_tier	event_type	proteome_fate	gene_symbol	disrupted_domain
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	CTAGE5	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	HNRNPD	DOMAIN:RRM 1 [97-179 aa, 1%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	RI	NMD Skipping-Decay Switch	TAF1D	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	CD46	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	SLC35B1	Transmembrane:Helical; Name=1 [12-32 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	EFCAB14	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	KHK	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SPATS2L	IDR:Disordered_Region [157-201 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	HMMR	IDR:Disordered_Region [40-81 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	MFF	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	MRPS18C	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	DCAF10	IDR:Disordered_Region [350-396 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	MTSS1L	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	MINDY3	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	SPTAN1	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	SYNE4	DOMAIN:KASH [347-404 aa, replaced_C_tail]; Transmembrane:Helical; Anchor for type IV membrane protein [356-376 aa, replaced_C_tail]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	RI	In-Frame UniProt Domain Indel	RPS9	DOMAIN:S4 RNA-binding [87-146 aa, 18%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	SORBS2	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	CASK	DOMAIN:SH3 [595-665 aa, 11%]; Region:Required for interaction with NRXN1 (via C-te... [482-909 aa, 5%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	EPB41L1	Region:C-terminal (CTD) [690-825 aa, 21%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	BDH2	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	LRCH3	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	SNX14	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	NAV2	IDR:Disordered_Region [1473-1560 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	MFF	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	RAB17	MOTIF:Switch 1 [43-54 aa, 17%]; MOTIF:Switch 2 [75-91 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	CACNB4	IDR:Disordered_Region [328-423 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	RI	Frameshift Domain Loss	SLC17A9	Transmembrane:Helical [369-389 aa, replaced_C_tail]; Transmembrane:Helical [402-422 aa, replaced_C_tail]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	SLC25A14	REPEAT:Solcar 2 [151-243 aa, 100%]; REPEAT:Solcar 3 [261-351 aa, 100%]; Transmembrane:Helical; Name=3 [141-161 aa, 100%]; Transmembrane:Helical; Name=4 [216-234 aa, 100%]; Transmembrane:Helical; Name=5 [268-284 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	APAF1	REPEAT:WD 1-5 [796-836 aa, 32%]; REPEAT:WD 1-6 [838-877 aa, 72%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	ROBO1	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	PPIP5K2	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	GOLGA4	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	ANKRD10	REPEAT:ANK 4 [124-153 aa, replaced_C_tail]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	CLASP1	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	IL17RE	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	EPB41L1	Region:C-terminal (CTD) [745-880 aa, 8%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	ANKRD10	REPEAT:ANK 4 [124-153 aa, replaced_C_tail]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	EPB41L1	Region:C-terminal (CTD) [690-825 aa, 21%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	MXE	NMD Skipping-Decay Switch	MED17	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	ARPP19	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	A3SS	C-Terminal Frameshift	PFN2	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	MLXIP	DOMAIN:bHLH [719-769 aa, 100%]; Region:Transactivation domain [322-445 aa, 90%]; Region:Leucine-zipper [769-790 aa, 100%]; Region:Mediates heterotypic interactions between MLX... [832-881 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	A5SS	In-Frame UniProt Domain Indel	IRF2BP2	IDR:Disordered_Region [342-420 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	IL17RB	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	SLC7A6	Transmembrane:Helical [168-188 aa, replaced_C_tail]; Transmembrane:Helical [195-215 aa, replaced_C_tail]; Transmembrane:Helical [236-256 aa, 100%]; Transmembrane:Helical [267-287 aa, 100%]; Transmembrane:Helical [312-332 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	LRP8	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	CCNT2	Region:Interaction with MDFIC and MDFI [1-300 aa, replaced_C_tail]; Region:Interaction with POLR2A [250-300 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	DLG1	IDR:Disordered_Region [670-701 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	GPN3	DOMAIN:GPN-loop core GTPase [2-293 aa, replaced_C_tail]; MOTIF:Gly-Pro-Asn (GPN)-loop [72-74 aa, 100%]; MOTIF:G3 [106-110 aa, 100%]; MOTIF:G4 [198-201 aa, 100%]; MOTIF:G5 [273-275 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	MUM1	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	AP1G1	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	NAT9	DOMAIN:N-acetyltransferase [35-180 aa, replaced_C_tail]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	INTS9	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	ARHGAP17	IDR:Disordered_Region [511-881 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	GPS2	IDR:Disordered_Region [177-208 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	EPB41L1	Region:C-terminal (CTD) [689-824 aa, 21%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	EIF4A2	DOMAIN:Helicase C-terminal [246-407 aa, replaced_C_tail]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	DLG1	IDR:Disordered_Region [662-693 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	DROSHA	IDR:Disordered_Region [130-406 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	STX16-NPEPL1	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	EPB41L1	Region:C-terminal (CTD) [746-881 aa, 8%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SECISBP2L	IDR:Disordered_Region [320-387 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	A5SS	In-Frame Peptide Remodeling	MAP4K4	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	MFF	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	BAZ2B	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	TCERG1	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	METTL17	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	ITGB3BP	MOTIF:LXXIL motif [204-208 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	PHACTR4	IDR:Disordered_Region [1-37 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	DLG1	IDR:Disordered_Region [662-693 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	KIF13A	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	ADGRG6	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	PDK1	DOMAIN:Histidine kinase [163-393 aa, 51%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	ZNF232	ZN_FING:C2H2-type 1 [303-325 aa, 100%]; ZN_FING:C2H2-type 2 [331-353 aa, 100%]; ZN_FING:C2H2-type 3 [359-381 aa, 100%]; ZN_FING:C2H2-type 4 [387-409 aa, 100%]; ZN_FING:C2H2-type 5 [415-437 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	CAPN7	Region:Domain III [541-701 aa, 94%]; Region:Domain N [702-813 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	SREK1	DOMAIN:RRM [66-142 aa, replaced_C_tail]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	YIPF1	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	EWSR1	DOMAIN:RRM [361-447 aa, 100%]; ZN_FING:RanBP2-type [523-554 aa, 100%]; MOTIF:Nuclear localization signal [644-661 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	BPHL	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	MED23	IDR:Disordered_Region [1343-1368 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	EXOC7	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	NPHP3	REPEAT:TPR 2 [885-918 aa, 100%]; REPEAT:TPR 3 [920-942 aa, 100%]; REPEAT:TPR 4 [943-976 aa, 100%]; REPEAT:TPR 5 [985-1018 aa, 100%]; REPEAT:TPR 6 [1027-1060 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	REXO5	DOMAIN:Exonuclease [228-376 aa, 100%]; DOMAIN:RRM 1 [505-579 aa, 100%]; DOMAIN:RRM 2 [600-679 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	OSBPL3	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	FGFR1OP	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	NCOR1	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	CLSTN1	DOMAIN:Cadherin 1 [38-164 aa, 8%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	MAGI1	DOMAIN:WW 2 [359-392 aa, 6%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	SUPT20H	IDR:Disordered_Region [787-811 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	PDLIM7	DOMAIN:LIM zinc-binding 1 [280-338 aa, 100%]; DOMAIN:LIM zinc-binding 2 [339-398 aa, 100%]; DOMAIN:LIM zinc-binding 3 [399-457 aa, 100%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	NAGK	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	MXE	In-Frame Peptide Remodeling	CDC45	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	ZNF655	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	DROSHA	IDR:Disordered_Region [130-406 aa]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	MELK	DOMAIN:Protein kinase [11-263 aa, 19%]
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	TVP23C-CDRT4	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	LSM14B	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	Dual-PTC NMD Background	ABCD4	none
+PTBP1	M3	0.021	0.3524	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	NDRG2	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	RALY	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	CCNE1	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	FAM98C	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	RHBG	Transmembrane:Helical [125-145 aa, 100%]; Transmembrane:Helical [150-170 aa, 100%]; Transmembrane:Helical [179-201 aa, 100%]; Transmembrane:Helical [220-240 aa, 100%]; Transmembrane:Helical [252-272 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	PUF60	Region:Inhibits homodimerization [1-516 aa, 3%]; Region:Inhibits transcriptional repression, interact... [77-559 aa, 4%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	KLC1	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	NMD Skipping-Decay Switch	RHBG	Transmembrane:Helical [125-145 aa, 100%]; Transmembrane:Helical [150-170 aa, 100%]; Transmembrane:Helical [179-201 aa, 100%]; Transmembrane:Helical [220-240 aa, 100%]; Transmembrane:Helical [272-294 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	PTPN3	DOMAIN:FERM [29-312 aa, 76%]; DOMAIN:PDZ [510-582 aa, 100%]; DOMAIN:Tyrosine-protein phosphatase [646-901 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ABCD4	DOMAIN:ABC transmembrane type-1 [39-332 aa, replaced_C_tail]; DOMAIN:ABC transporter [389-603 aa, 100%]; Transmembrane:Helical [190-210 aa, 100%]; Transmembrane:Helical [279-299 aa, 100%]; Transmembrane:Helical [314-334 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	TMEM116	Transmembrane:Helical [24-44 aa, 100%]; Transmembrane:Helical [88-108 aa, 100%]; Transmembrane:Helical [87-99 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	STAU2	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	SLCO4A1	DOMAIN:Kazal-like [498-555 aa, 16%]; Transmembrane:Helical; Name=10 [581-603 aa, 100%]; Transmembrane:Helical; Name=11 [613-638 aa, 100%]; Transmembrane:Helical; Name=12 [672-689 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	DMTN	DOMAIN:HP [297-365 aa, 100%]; Region:Interaction with RASGRF2 [202-278 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	FLNB	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	NUSAP1	IDR:Disordered_Region [47-186 aa]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	MGRN1	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	EXOSC9	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	In-Frame Peptide Remodeling	HPN	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	PALM	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	PLXNB1	DOMAIN:IPT/TIG 1 [1070-1160 aa, 100%]; DOMAIN:IPT/TIG 2 [1062-1142 aa, 100%]; DOMAIN:IPT/TIG 3 [1145-1257 aa, 100%]; Transmembrane:Helical [1308-1328 aa, 100%]; Coiled_Coil [1324-1356 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	LAMTOR3	Region:Required for interaction with LAMTOR2 [57-70 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	E4F1	ZN_FING:C2H2-type 1 [192-214 aa, replaced_C_tail]; ZN_FING:C2H2-type 2 [220-242 aa, replaced_C_tail]; ZN_FING:C2H2-type 3 [248-272 aa, replaced_C_tail]; ZN_FING:C2H2-type 4 [435-457 aa, 100%]; ZN_FING:C2H2-type 5 [463-485 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	THOP1	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	SMTN	DOMAIN:Calponin-homology (CH) [884-991 aa, 100%]; Coiled_Coil [688-715 aa, replaced_C_tail]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	C21orf2	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	AP5Z1	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	DHRS4	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SLC30A5	Transmembrane:Helical [33-53 aa, 100%]; Transmembrane:Helical [57-77 aa, 62%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	TTLL3	DOMAIN:TTL [179-604 aa, replaced_C_tail]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SP140L	DOMAIN:HSR [33-149 aa, 3%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	LRRC28	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	KDM4C	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ABCC10	DOMAIN:ABC transporter 1 [598-824 aa, replaced_C_tail]; DOMAIN:ABC transmembrane type-1 2 [885-1210 aa, 100%]; DOMAIN:ABC transporter 2 [1246-1479 aa, 100%]; Transmembrane:Helical [875-895 aa, 100%]; Transmembrane:Helical [933-953 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	Frameshift Domain Loss	ZCCHC10	IDR:Disordered_Region [89-192 aa]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	XPA	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	CLDN15	Transmembrane:Helical [116-140 aa, replaced_C_tail]; Transmembrane:Helical [160-182 aa, 100%]; Region:Important for the formation of tight-junction... [146-147 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	AP5Z1	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	RBCK1	ZN_FING:RING-type 2 [447-476 aa, replaced_C_tail]; Region:TRIAD supradomain [278-506 aa, replaced_C_tail]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	MED12	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	HHLA3	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	MXE	NMD Skipping-Decay Switch	MTG2	DOMAIN:Obg [57-184 aa, 52%]; DOMAIN:OBG-type G [185-320 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	ATP5S	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	MBD1	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	ABHD3	DOMAIN:AB hydrolase-1 [140-233 aa, replaced_C_tail]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	ECHDC2	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	MR1	DOMAIN:Ig-like C1-type [203-299 aa, 95%]; Region:Alpha-3 [202-293 aa, 99%]; Region:Connecting peptide [294-302 aa, 11%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	Frameshift Domain Loss	NCKAP5L	IDR:Disordered_Region [1197-1334 aa]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	CELSR3	IDR:Disordered_Region [2888-2927 aa]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	In-Frame Peptide Remodeling	USP21	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	VARS2	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	C-Terminal Frameshift	ACP6	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ALAD	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	ITGA6	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	ING4	MOTIF:Bipartite nuclear localization signal [127-148 aa, 5%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ATP5G1	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	MIB2	REPEAT:ANK 1 [464-493 aa, replaced_C_tail]; REPEAT:ANK 2 [557-589 aa, 100%]; REPEAT:ANK 3 [594-626 aa, 100%]; REPEAT:ANK 4 [631-667 aa, 100%]; REPEAT:ANK 5 [671-704 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	Frameshift Domain Loss	CLDN19	IDR:Disordered_Region [191-224 aa]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	C9orf16	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ACAD11	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	COL4A3BP	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	Frameshift Domain Loss	TJAP1	IDR:Disordered_Region [266-303 aa]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	TNFRSF14	REPEAT:TNFR-Cys 2 [78-119 aa, replaced_C_tail]; REPEAT:TNFR-Cys 3 [121-162 aa, replaced_C_tail]; Transmembrane:Helical [203-223 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Skipping-Decay Switch	RPS9	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	SLC35D2	Transmembrane:Helical [266-288 aa, 48%]; Transmembrane:Helical [293-315 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	ATP2A1	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	NMD Skipping-Decay Switch	PLXNB1	DOMAIN:IPT/TIG 1 [1070-1160 aa, 100%]; DOMAIN:IPT/TIG 2 [1162-1249 aa, 100%]; DOMAIN:IPT/TIG 3 [1252-1375 aa, 100%]; Transmembrane:Helical [1491-1511 aa, 100%]; Coiled_Coil [1507-1539 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	Dual-PTC NMD Background	CDK5RAP3	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	NSMF	MOTIF:Nuclear localization signal [247-250 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	MLX	IDR:Disordered_Region [91-145 aa]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	DECR2	MOTIF:Microbody targeting signal [290-292 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	RHBG	Transmembrane:Helical [394-414 aa, 100%]; Region:Interaction with ANK3 [416-424 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	EXOSC9	IDR:Disordered_Region [391-439 aa]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	C-Terminal Frameshift	DMAC2	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	WBP1	MOTIF:PPxY motif 1 [124-127 aa, replaced_C_tail]; MOTIF:PPxY motif 2 [137-141 aa, replaced_C_tail]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	BORA	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	KIAA1217	IDR:Disordered_Region [1108-1374 aa]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	TPD52L2	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	TMEM161A	Transmembrane:Helical [99-119 aa, replaced_C_tail]; Transmembrane:Helical [135-155 aa, 100%]; Transmembrane:Helical [167-187 aa, 100%]; Transmembrane:Helical [225-245 aa, 100%]; Transmembrane:Helical [264-284 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	MOCS1	Region:Molybdenum cofactor biosynthesis protein A [1-383 aa, replaced_C_tail]; Region:Contains a mitochondrial translocation signal [368-463 aa, replaced_C_tail]; Region:Molybdenum cofactor biosynthesis protein C [398-620 aa, replaced_C_tail]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	SMYD2	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	CYB561D2	DOMAIN:Cytochrome b561 [14-217 aa, 86%]; Transmembrane:Helical [47-67 aa, 100%]; Transmembrane:Helical [86-106 aa, 100%]; Transmembrane:Helical [123-143 aa, 100%]; Transmembrane:Helical [163-183 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ADAT1	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ARHGEF40	Region:Interaction with KRT18 [1058-1427 aa, 4%]; Region:Interacts with RAC3 [1076-1510 aa, 22%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	CUL5	DOMAIN:Cullin neddylation [711-772 aa, 90%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	PIP5K1A	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	PLD2	DOMAIN:PX [65-195 aa, replaced_C_tail]; DOMAIN:PH [203-311 aa, 100%]; DOMAIN:PLD phosphodiesterase 1 [437-464 aa, 100%]; DOMAIN:PLD phosphodiesterase 2 [751-778 aa, 100%]; Region:Catalytic [441-788 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	NAA60	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	CENPX	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Skipping-Decay Switch	TXNRD2	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	DUS1L	IDR:Disordered_Region [339-386 aa]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	MXE	NMD Skipping-Decay Switch	AMDHD2	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	CNBP	ZN_FING:CCHC-type 3 [72-89 aa, replaced_C_tail]; ZN_FING:CCHC-type 4 [96-113 aa, 100%]; ZN_FING:CCHC-type 5 [119-136 aa, 100%]; ZN_FING:CCHC-type 6 [137-154 aa, 100%]; ZN_FING:CCHC-type 7 [158-175 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	KDM6A	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	EAF2	Region:Necessary for interaction with ELL [17-104 aa, 42%]; Region:Necessary for transactivation activity [177-260 aa, 100%]; Region:Necessary for interaction with TCEA1 and tran... [246-260 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	USF2	DOMAIN:bHLH [235-290 aa, 100%]; Region:Leucine-zipper [307-328 aa, 100%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	IFI6	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	DUS1L	IDR:Disordered_Region [339-386 aa]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	FLNB	REPEAT:Filamin 15 [1609-1704 aa, 1%]; Region:Hinge 1 [1694-1717 aa, 54%]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ADH6	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	Dual-PTC NMD Background	DHRS2	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	HMGN1	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	ACTR3B	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	RNF123	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	PTPRH	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	C-Terminal Frameshift	C19orf60	none
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SPAG9	IDR:Disordered_Region [203-292 aa]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	EPS15L1	REPEAT:15 [766-768 aa, 100%]; Region:15 X 3 AA repeats of D-P-F [551-768 aa, replaced_C_tail]
+Unassigned (module FWER>0.05)	M2	0.069	0.733	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	IRF9	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A5SS	Frameshift Domain Loss	PGAP2	Transmembrane:Helical [227-247 aa, 52%]; Transmembrane:Helical [251-271 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	CLINT1	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	MINK1	IDR:Disordered_Region [395-887 aa]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A5SS	In-Frame UniProt Domain Indel	ZMYND8	Region:Required for interaction with CCNT1 [1-850 aa, 0%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A3SS	Frameshift Domain Loss	ERI2	ZN_FING:GRF-type [597-643 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	STIL	Region:Interaction with RBM14 [1-1018 aa, 2%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	BPTF	IDR:Disordered_Region [567-774 aa]; Region:Interaction with KEAP1 [640-749 aa, 41%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	RBCK1	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	SLC22A7	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	MTR	DOMAIN:B12-binding N-terminal [662-759 aa, 52%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A3SS	C-Terminal Frameshift	METTL15	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A3SS	Frameshift Domain Loss	RNF181	ZN_FING:RING-type [93-143 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	SHF	DOMAIN:SH2 [139-234 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	NGLY1	DOMAIN:PAW [454-654 aa, 58%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	RCOR3	DOMAIN:SANT 2 [318-375 aa, replaced_C_tail]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	DRG2	DOMAIN:OBG-type G [52-236 aa, 44%]; DOMAIN:TGS [222-297 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	RWDD3	DOMAIN:RWD [7-114 aa, 80%]; Region:Interaction with UBE2I/UBC9 [100-102 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	SLC35F5	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	Dual-PTC NMD Background	CAMK2G	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	YAP1	DOMAIN:WW 2 [230-263 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	SHF	DOMAIN:SH2 [267-362 aa, 82%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	IGF2BP2	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	TPCN1	IDR:Disordered_Region [752-786 aa]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	NGLY1	DOMAIN:PAW [358-558 aa, 10%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	AP1G2	DOMAIN:GAE [665-780 aa, 100%]; Region:Essential for ubiquitin-binding [369-379 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	STIL	Region:Interaction with RBM14 [1-1018 aa, 2%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	SYTL2	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	MTERF4	REPEAT:MTERF 1 [142-172 aa, 100%]; REPEAT:MTERF 2 [177-204 aa, 100%]; REPEAT:MTERF 3 [209-239 aa, 100%]; REPEAT:MTERF 4 [245-270 aa, 100%]; REPEAT:MTERF 5 [290-318 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A3SS	C-Terminal Frameshift	ELAC1	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	PRRC2B	IDR:Disordered_Region [2138-2229 aa]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	APTX	DOMAIN:FHA-like [38-87 aa, 86%]; DOMAIN:HIT [182-287 aa, 100%]; ZN_FING:C2H2-type [317-339 aa, 100%]; MOTIF:Nuclear localization signal [126-131 aa, 100%]; MOTIF:Histidine triad motif [258-262 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	ANAPC16	IDR:Disordered_Region [1-29 aa]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	IMMT	IDR:Disordered_Region [116-143 aa]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ZC3H18	Coiled_Coil [399-464 aa, 58%]; Coiled_Coil [945-974 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	CHFR	IDR:Disordered_Region [142-267 aa]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	CNEP1R1	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	HUWE1	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	CCDC32	IDR:Disordered_Region [159-185 aa]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	DMKN	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	EPB41L5	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A5SS	NMD Skipping-Decay Switch	AP1G2	DOMAIN:GAE [722-837 aa, 100%]; Region:Essential for ubiquitin-binding [369-379 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	TBC1D23	Region:May mediate the interaction with WASHC1 [514-699 aa, 8%]; Region:May mediate the interaction with C17orf75, FA... [514-573 aa, 25%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A5SS	In-Frame UniProt Domain Indel	TRIM24	IDR:Disordered_Region [476-550 aa]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	DPH7	REPEAT:WD 1 [79-130 aa, replaced_C_tail]; REPEAT:WD 2 [131-185 aa, replaced_C_tail]; REPEAT:WD 3 [186-229 aa, 100%]; REPEAT:WD 4 [230-273 aa, 100%]; REPEAT:WD 5 [274-313 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	FOXP4	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	AP1G2	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	SLC2A9	Transmembrane:Helical; Name=2 [108-128 aa, 100%]; Transmembrane:Helical; Name=3 [141-161 aa, 100%]; Transmembrane:Helical; Name=4 [172-192 aa, 100%]; Transmembrane:Helical; Name=5 [201-221 aa, 100%]; Transmembrane:Helical; Name=6 [232-252 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SLC38A9	Transmembrane:Helical; Name=9 [480-500 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	C1orf43	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	MLXIPL	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	SCMH1	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	RNF185	ZN_FING:RING-type [39-80 aa, 100%]; Transmembrane:Helical [131-151 aa, 100%]; Transmembrane:Helical [172-192 aa, 100%]; Region:Required for ubiquitin ligase activity and pr... [29-80 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	CHFR	IDR:Disordered_Region [142-267 aa]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	FBXO44	DOMAIN:FBA [71-252 aa, 18%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	TNRC18	Coiled_Coil [1481-1516 aa, 14%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	CLTCL1	REPEAT:CHCR 5 [1128-1269 aa, 86%]; REPEAT:CHCR 6 [1274-1420 aa, 100%]; REPEAT:CHCR 7 [1423-1566 aa, 100%]; Region:Heavy chain arm [524-1640 aa, 44%]; Region:Proximal segment [639-1640 aa, 49%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	SLC7A2	Transmembrane:Helical [410-431 aa, 100%]; Transmembrane:Helical [435-457 aa, 13%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	SLC35F5	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	CPNE1	DOMAIN:C2 2 [123-245 aa, replaced_C_tail]; DOMAIN:VWFA [285-505 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	NECAB3	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	WASF3	Coiled_Coil [162-206 aa, 58%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	A3SS	NMD Skipping-Decay Switch	MPHOSPH9	Coiled_Coil [609-804 aa, 100%]; Coiled_Coil [1109-1174 aa, 100%]; Region:Required for its centrosomal localization [401-800 aa, 100%]; Region:Interaction with CEP97 [451-500 aa, 100%]; Region:Interaction with KIF24 [801-1031 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	CPT1B	none
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	TMPRSS3	DOMAIN:Peptidase S1 [217-449 aa, 100%]
+Unassigned (module FWER>0.05)	M4	0.299	0.9932	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	ANKHD1	Coiled_Coil [775-852 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	RI	In-Frame UniProt Domain Indel	INVS	IDR:Disordered_Region [589-833 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A3SS	In-Frame UniProt Domain Indel	ITGB1BP1	DOMAIN:PID [58-184 aa, 45%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	RBM39	DOMAIN:RRM 1 [153-230 aa, 100%]; DOMAIN:RRM 2 [250-328 aa, 100%]; DOMAIN:RRM 3 [445-508 aa, 100%]; Region:Interaction with JUN [291-406 aa, 100%]; Region:Activating domain [291-355 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	ITGB1BP1	DOMAIN:PID [58-200 aa, 35%]; Region:Interaction with KRIT1 [136-139 aa, 100%]; Region:Interaction with ITGB1 [139-141 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	SRSF2	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	RI	C-Terminal Frameshift	C21orf59	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	FYN	DOMAIN:SH2 [149-246 aa, 13%]; DOMAIN:Protein kinase [271-524 aa, 7%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	EMC9	DOMAIN:MPN [4-139 aa, replaced_C_tail]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	MYO1B	DOMAIN:IQ 5 [779-808 aa, 30%]; DOMAIN:IQ 6 [808-837 aa, 50%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A5SS	In-Frame UniProt Domain Indel	TTC31	IDR:Disordered_Region [253-294 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	ZNF625-ZNF20	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	FN1	DOMAIN:Fibronectin type-III 12 [1635-1726 aa, 5%]; DOMAIN:Fibronectin type-III 13 [1727-1814 aa, 98%]; Region:Heparin-binding 2 [1812-2082 aa, 0%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	ACIN1	IDR:Disordered_Region [159-460 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	FAM45A	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	INO80E	IDR:Disordered_Region [63-236 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	EMC9	DOMAIN:MPN [4-139 aa, replaced_C_tail]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A3SS	In-Frame Peptide Remodeling	VEZT	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	PHPT1	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	RBM39	DOMAIN:RRM 1 [153-230 aa, 100%]; DOMAIN:RRM 2 [250-328 aa, 100%]; DOMAIN:RRM 3 [445-508 aa, 100%]; Region:Interaction with JUN [291-406 aa, 100%]; Region:Activating domain [291-355 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	SRRM2	Coiled_Coil [60-92 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	VEZT	Transmembrane:Helical [139-159 aa, 100%]; Transmembrane:Helical [162-182 aa, 100%]; Coiled_Coil [430-462 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	CCDC57	Coiled_Coil [214-422 aa, 9%]; Coiled_Coil [456-483 aa, 100%]; Coiled_Coil [428-450 aa, 100%]; Region:Centrosomal targeting domain [1-502 aa, 20%]; Region:Microtubule binding domain [442-751 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	USP8	IDR:Disordered_Region [475-648 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	CCNL2	Region:Cyclin-like 2 [198-282 aa, replaced_C_tail]; Region:RS [385-423 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	PITPNM2	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	METTL6	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	FKBP7	DOMAIN:PPIase FKBP-type [53-145 aa, 23%]; DOMAIN:EF-hand 1 [144-179 aa, 100%]; DOMAIN:EF-hand 2 [188-221 aa, 100%]; MOTIF:Retention in the endoplasmic reticulum [218-221 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	ZNF283	DOMAIN:KRAB [73-152 aa, 100%]; ZN_FING:C2H2-type 1 [205-227 aa, 100%]; ZN_FING:C2H2-type 2 [233-255 aa, 100%]; ZN_FING:C2H2-type 3 [261-283 aa, 100%]; ZN_FING:C2H2-type 4 [289-311 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	TCF3	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	C-Terminal Frameshift	ATP5S	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	POC1A	Coiled_Coil [369-397 aa, 24%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	FANCA	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Dual-PTC NMD Background	FAM45A	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	CCNL2	Region:Cyclin-like 2 [198-282 aa, replaced_C_tail]; Region:RS [385-423 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	RBM39	DOMAIN:RRM 1 [153-230 aa, 100%]; DOMAIN:RRM 2 [250-328 aa, 100%]; DOMAIN:RRM 3 [445-508 aa, 100%]; Region:Interaction with JUN [291-406 aa, 100%]; Region:Activating domain [291-355 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	CARD8	IDR:Disordered_Region [1-28 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	TCF3	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	SETMAR	DOMAIN:Pre-SET [73-136 aa, 100%]; DOMAIN:SET [139-263 aa, 100%]; DOMAIN:Post-SET [283-299 aa, 100%]; DNA_BIND:H-T-H motif [290-315 aa, 100%]; DNA_BIND:H-T-H motif [341-357 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	PITPNM2	MOTIF:FFAT [341-349 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	BECN1	Region:Evolutionary conserved domain (ECD) [167-306 aa, replaced_C_tail]; Region:Required for membrane-association [281-306 aa, replaced_C_tail]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	F2	DOMAIN:Peptidase S1 [364-618 aa, 50%]; Region:High affinity receptor-binding region which i... [551-573 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Dual-PTC NMD Background	SLC22A3	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	RDH5	Transmembrane:Helical [1-21 aa, 95%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	EXOC1	IDR:Disordered_Region [439-495 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	MXE	NMD Poison-Exon Switch	RALY	DOMAIN:RRM [21-92 aa, replaced_C_tail]; Coiled_Coil [144-169 aa, 100%]; Region:Epitope (recognized by BKRF1 antibodies) [161-187 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	TINAGL1	DOMAIN:SMB [50-98 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	HNRNPD	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	TMEM53	Transmembrane:Helical [124-139 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	RDH5	Transmembrane:Helical [1-21 aa, 95%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	FGFR1	DOMAIN:Ig-like C2-type 1 [25-119 aa, 59%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	KANK4	REPEAT:ANK 3 [895-924 aa, 100%]; REPEAT:ANK 4 [928-958 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	KIF2C	Region:Globular [2-254 aa, 17%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	GAK	IDR:Disordered_Region [749-788 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	VEZT	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	NCK2	DOMAIN:SH3 2 [111-170 aa, 100%]; DOMAIN:SH3 3 [195-257 aa, 100%]; DOMAIN:SH2 [285-380 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	MXE	NMD Poison-Exon Switch	VEZT	Transmembrane:Helical [139-159 aa, 100%]; Transmembrane:Helical [162-182 aa, 100%]; Coiled_Coil [430-462 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	NCOA1	MOTIF:LXXLL motif 7 [1435-1439 aa, replaced_C_tail]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	CDCA7	ZN_FING:Hemimethylation-sensing zinc finger (HMZF) [343-450 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	BCOR	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	ARFGAP2	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	MYLK	DOMAIN:Ig-like C2-type 3 [414-503 aa, 74%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	C20orf24	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	NCBP2	DOMAIN:RRM [26-78 aa, replaced_C_tail]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	FYN	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	MXE	NMD Skipping-Decay Switch	VEZT	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	MTERF4	REPEAT:MTERF 3 [209-239 aa, 13%]; REPEAT:MTERF 4 [245-270 aa, 100%]; REPEAT:MTERF 5 [290-318 aa, 100%]; Region:Dimerization with NSUN4 [310-327 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	SPPL2A	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	RBM5	DOMAIN:RRM 2 [231-315 aa, 100%]; DOMAIN:G-patch [743-789 aa, 100%]; ZN_FING:RanBP2-type [181-210 aa, 70%]; ZN_FING:C2H2-type [647-677 aa, 100%]; Region:Required for interaction with U2AF2 [321-809 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	MYO1B	DOMAIN:IQ 4 [779-808 aa, 30%]; DOMAIN:IQ 5 [808-837 aa, 70%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	STK19	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	PRR3	ZN_FING:C3H1-type [155-183 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	MELK	DOMAIN:Protein kinase [11-263 aa, 19%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	IL17RB	DOMAIN:SEFIR [331-477 aa, 100%]; Transmembrane:Helical [293-313 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	CDK5RAP2	IDR:Disordered_Region [1646-1706 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	BCLAF1	IDR:Disordered_Region [810-840 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	BCLAF1	IDR:Disordered_Region [637-796 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	EHMT2	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	CABIN1	REPEAT:TPR 2 [90-123 aa, 82%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	NECAP2	MOTIF:WXXF motif 1 [216-219 aa, 100%]; MOTIF:WXXF motif 2 [236-239 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A5SS	In-Frame UniProt Domain Indel	ZSCAN26	DOMAIN:SCAN box [51-133 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	AFMID	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	IFT46	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	CLK2	DOMAIN:Protein kinase [163-479 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A5SS	In-Frame UniProt Domain Indel	ZSCAN26	DOMAIN:SCAN box [51-133 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	ZNF76	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	SETX	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	SETD4	DOMAIN:SET [48-273 aa, replaced_C_tail]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	MTERF4	REPEAT:MTERF 5 [238-266 aa, 100%]; Region:Dimerization with NSUN4 [258-275 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	INTS3	IDR:Disordered_Region [976-1042 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A3SS	In-Frame UniProt Domain Indel	FKBP1B	DOMAIN:PPIase FKBP-type [20-108 aa, replaced_C_tail]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	CTTN	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	FIP1L1	Region:Necessary for stimulating PAPOLA activity [1-356 aa, 4%]; Region:Sufficient for interaction with PAPOLA [1-111 aa, 14%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SGO1	MOTIF:D-box 1 [192-200 aa, 100%]; MOTIF:KEN box [310-312 aa, 100%]; Coiled_Coil [273-313 aa, 100%]; Region:Necessary for interaction with PPP2CA and PPP... [1-176 aa, 10%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	RI	Frameshift Domain Loss	STEAP2	Transmembrane:Helical [432-452 aa, 38%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	TRO	REPEAT:58 [656-665 aa, replaced_C_tail]; REPEAT:59 [666-675 aa, replaced_C_tail]; REPEAT:60 [676-685 aa, replaced_C_tail]; REPEAT:61 [686-695 aa, 100%]; REPEAT:62 [696-705 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	MXE	NMD Poison-Exon Switch	KIF1C	DOMAIN:Kinesin motor [5-348 aa, replaced_C_tail]; DOMAIN:FHA [523-590 aa, 100%]; Coiled_Coil [359-388 aa, 100%]; Coiled_Coil [438-479 aa, 100%]; Coiled_Coil [587-625 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	GUSB	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	AK2	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	CAMK2G	IDR:Disordered_Region [374-421 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SIN3B	Region:Interaction with NCOR1 [284-540 aa, 12%]; Region:Interaction with SUDS3 and HDAC1 [392-591 aa, 16%]; Region:Middle-domain [394-430 aa, 22%]; Region:Gate loop [430-446 aa, 100%]; Region:HDAC-interacting domain [446-572 aa, 7%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	CAMK2G	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	ITIH1	Region:Hyaluronan-binding [387-911 aa, 26%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	ABCD4	DOMAIN:ABC transporter [389-603 aa, 74%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SCOC	Coiled_Coil [78-146 aa, 41%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	AFMID	MOTIF:HGGXW [95-99 aa, replaced_C_tail]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	MRPS22	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	CARD8	IDR:Disordered_Region [1-28 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	DLG1	DOMAIN:Guanylate kinase-like [736-911 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	PAM	Transmembrane:Helical [864-887 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	UBXN2B	DOMAIN:SEP [141-206 aa, 42%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	YBX3	IDR:Disordered_Region [181-372 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	C-Terminal Frameshift	NSL1	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	MXE	Frameshift Domain Loss	BORA	IDR:Disordered_Region [1-27 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	ARID5B	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	MXE	NMD Skipping-Decay Switch	DGUOK	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A5SS	In-Frame Peptide Remodeling	SLC39A11	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	CLK2	DOMAIN:Protein kinase [163-479 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	PLEKHA6	IDR:Disordered_Region [1005-1048 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	AP1M2	DOMAIN:MHD [168-421 aa, 17%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	CAMTA2	DOMAIN:IPT/TIG [537-615 aa, 100%]; DOMAIN:IQ 1 [1088-1117 aa, 100%]; DOMAIN:IQ 2 [1141-1170 aa, 100%]; REPEAT:ANK 1 [735-769 aa, 100%]; REPEAT:ANK 2 [782-813 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	TAF5	REPEAT:WD 2 [541-580 aa, 62%]; REPEAT:WD 3 [583-624 aa, 67%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	CDK5RAP3	MOTIF:Shuffled ATG8-binding motif 1 [267-270 aa, 100%]; MOTIF:Shuffled ATG8-binding motif 2 [292-295 aa, 100%]; MOTIF:Shuffled ATG8-binding motif 3 [310-313 aa, 100%]; Region:Required for interaction with UFL1 and mediat... [269-506 aa, 100%]; Region:RPL10a-binding domain (RBD) [380-395 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	NT5C	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	BTAF1	DOMAIN:Helicase ATP-binding [1278-1453 aa, 100%]; DOMAIN:Helicase C-terminal [1636-1790 aa, 100%]; REPEAT:HEAT 1 [385-422 aa, 100%]; REPEAT:HEAT 2 [426-463 aa, 100%]; REPEAT:HEAT 3 [513-550 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	CDCA7	ZN_FING:Hemimethylation-sensing zinc finger (HMZF) [343-450 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	DAP3	IDR:Disordered_Region [39-67 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A5SS	Frameshift Domain Loss	TRO	REPEAT:1 [751-760 aa, 100%]; REPEAT:2 [769-778 aa, 100%]; REPEAT:3 [779-786 aa, 100%]; REPEAT:4 [787-796 aa, 100%]; REPEAT:5 [805-814 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	MFF	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A3SS	In-Frame Peptide Remodeling	ROBO1	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	LUC7L3	Coiled_Coil [124-181 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	PPP4C	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A5SS	In-Frame UniProt Domain Indel	UPF1	Region:Sufficient for interaction with RENT2 [1-415 aa, 3%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	ASB1	REPEAT:ANK 1 [36-68 aa, 15%]; REPEAT:ANK 2 [77-106 aa, 100%]; REPEAT:ANK 3 [110-139 aa, 100%]; REPEAT:ANK 4 [143-172 aa, 73%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	UBE2V1	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	C-Terminal Frameshift	GANC	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	MXE	Frameshift Domain Loss	CLN3	MOTIF:Lysosomal targeting motif [144-145 aa, 100%]; Transmembrane:Helical [38-58 aa, 100%]; Transmembrane:Helical [128-148 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	SCN9A	DOMAIN:IQ [1878-1907 aa, 100%]; REPEAT:IV [1486-1784 aa, 98%]; Transmembrane:Helical; Name=S1 of repeat IV [1504-1523 aa, 100%]; Transmembrane:Helical; Name=S2 of repeat IV [1535-1556 aa, 100%]; Transmembrane:Helical; Name=S3 of repeat IV [1566-1587 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	PAM	Transmembrane:Helical [863-886 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	F11	DOMAIN:Peptidase S1 [388-623 aa, 14%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	TUBD1	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	SERPINA11	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	LSM14A	IDR:Disordered_Region [147-288 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	TTC31	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	ATXN1	DOMAIN:AXH [562-693 aa, 100%]; MOTIF:Nuclear localization signal [794-797 aa, 100%]; Region:Self-association [494-604 aa, 100%]; Region:Interaction with USP7 [538-815 aa, 100%]; Region:RNA-binding [540-766 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	MXE	NMD Skipping-Decay Switch	LSM14B	DOMAIN:DFDF [257-296 aa, 100%]; MOTIF:FFD box [336-352 aa, 100%]; MOTIF:TFG box [356-376 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	LIMS2	DOMAIN:LIM zinc-binding 5 [280-339 aa, replaced_C_tail]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	PAM	Transmembrane:Helical [865-888 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	SLC17A9	Transmembrane:Helical [276-296 aa, replaced_C_tail]; Transmembrane:Helical [316-336 aa, 100%]; Transmembrane:Helical [369-389 aa, 100%]; Transmembrane:Helical [402-422 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	GIPC1	IDR:Disordered_Region [1-54 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	MXE	In-Frame UniProt Domain Indel	CRELD2	REPEAT:FU 2 [225-274 aa, 64%]; MOTIF:CXXC [235-238 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	NMD Skipping-Decay Switch	PPP6R2	IDR:Disordered_Region [408-436 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	MXE	NMD Poison-Exon Switch	HMGN1	IDR:Disordered_Region [1-48 aa]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	TIA1	DOMAIN:RRM 3 [214-286 aa, replaced_C_tail]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	DNM1L	Region:Interaction with GSK3B [448-685 aa, 11%]; Region:B domain [504-571 aa, 38%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SLC38A9	Transmembrane:Helical; Name=4 [284-300 aa, 100%]; Transmembrane:Helical; Name=5 [310-334 aa, 32%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A3SS	In-Frame Peptide Remodeling	FAM219A	none
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	A3SS	Frameshift Domain Loss	C1RL	DOMAIN:Sushi [165-230 aa, replaced_C_tail]; DOMAIN:Peptidase S1 [224-442 aa, replaced_C_tail]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	ZNF394	DOMAIN:KRAB [155-230 aa, 100%]; ZN_FING:C2H2-type 1 [358-380 aa, 100%]; ZN_FING:C2H2-type 2 [386-408 aa, 100%]; ZN_FING:C2H2-type 3 [414-436 aa, 100%]; ZN_FING:C2H2-type 4 [442-463 aa, 100%]
+SRSF1 (SRSF9 motif)	M1	0.001	0.0034	PerModule_FWER<=0.05_Bridged	SE	Frameshift Domain Loss	AHI1	IDR:Disordered_Region [1115-1196 aa]
+Unassigned (module FWER>0.05)	M16	0.781	1.0	Exploratory_Orphan_Module	A3SS	NMD Skipping-Decay Switch	PIGT	Transmembrane:Helical [489-511 aa, 100%]
+Unassigned (module FWER>0.05)	M16	0.781	1.0	Exploratory_Orphan_Module	A3SS	NMD Skipping-Decay Switch	PIGT	Transmembrane:Helical [534-556 aa, 100%]
+Unassigned (module FWER>0.05)	M16	0.781	1.0	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	RAPGEF2	none
+Unassigned (module FWER>0.05)	M16	0.781	1.0	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	MICAL3	IDR:Disordered_Region [886-1283 aa]
+Unassigned (module FWER>0.05)	M16	0.781	1.0	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	ERCC3	DOMAIN:Helicase ATP-binding [327-488 aa, 100%]; DOMAIN:Helicase C-terminal [548-708 aa, 100%]; MOTIF:DEVH box [447-450 aa, 100%]
+Unassigned (module FWER>0.05)	M16	0.781	1.0	Exploratory_Orphan_Module	A5SS	Dual-PTC NMD Background	PIGT	none
+Unassigned (module FWER>0.05)	M16	0.781	1.0	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	EIF4E2	none
+Unassigned (module FWER>0.05)	M16	0.781	1.0	Exploratory_Orphan_Module	MXE	Dual-PTC NMD Background	ATXN3	none
+Unassigned (module FWER>0.05)	M16	0.781	1.0	Exploratory_Orphan_Module	A3SS	C-Terminal Frameshift	MANEAL	none
+Unassigned (module FWER>0.05)	M16	0.781	1.0	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	SMG7	none
+Unassigned (module FWER>0.05)	M11	0.457	0.9996	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	MIER2	DOMAIN:ELM2 [195-292 aa, 100%]; DOMAIN:SANT [297-349 aa, 100%]
+Unassigned (module FWER>0.05)	M11	0.457	0.9996	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	IFT22	none
+Unassigned (module FWER>0.05)	M11	0.457	0.9996	Exploratory_Orphan_Module	MXE	NMD Skipping-Decay Switch	MAPKBP1	REPEAT:WD 5 [342-381 aa, 100%]; REPEAT:WD 6 [387-436 aa, 100%]; REPEAT:WD 7 [477-516 aa, 100%]; REPEAT:WD 8 [519-561 aa, 100%]; REPEAT:WD 9 [565-606 aa, 100%]
+Unassigned (module FWER>0.05)	M11	0.457	0.9996	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	TMC7	none
+Unassigned (module FWER>0.05)	M11	0.457	0.9996	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	MPHOSPH9	none
+Unassigned (module FWER>0.05)	M11	0.457	0.9996	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	INPP5K	DOMAIN:5-PPase [7-270 aa, 4%]
+Unassigned (module FWER>0.05)	M11	0.457	0.9996	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	INPP5K	DOMAIN:5-PPase [9-325 aa, 86%]; Region:Required for interaction with GPR78 and PAK1 [318-448 aa, 100%]; Region:Required for ruffle localization [321-448 aa, 100%]
+Unassigned (module FWER>0.05)	M11	0.457	0.9996	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	TATDN1	none
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	PGAP3	Transmembrane:Helical [170-190 aa, replaced_C_tail]; Transmembrane:Helical [194-214 aa, 100%]; Transmembrane:Helical [225-245 aa, 100%]; Transmembrane:Helical [258-278 aa, 100%]; Transmembrane:Helical [280-299 aa, 100%]
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	JAML	Transmembrane:Helical [276-296 aa, 100%]
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	MXE	Frameshift Domain Loss	MFSD8	Transmembrane:Helical [174-194 aa, 48%]; Transmembrane:Helical [212-232 aa, 100%]; Transmembrane:Helical [170-190 aa, 29%]; Transmembrane:Helical [201-221 aa, 100%]
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	EML6	REPEAT:WD 29 [1880-1919 aa, 100%]; REPEAT:WD 30 [1925-1958 aa, 100%]
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	ADPRM	none
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	SE	In-Frame Peptide Remodeling	PSMD6	none
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	METTL1	Region:AlphaC helix [164-172 aa, 100%]; Region:Alpha6 helix [238-246 aa, 100%]
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	MXE	NMD Skipping-Decay Switch	EXOSC1	DOMAIN:S1 motif [66-147 aa, 52%]
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	A3SS	NMD Poison-Exon Switch	GLYCTK	none
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	A3SS	In-Frame Peptide Remodeling	ELF2	none
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	SE	C-Terminal Frameshift	AFMID	none
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	RI	NMD Poison-Exon Switch	WDR73	REPEAT:WD 1 [73-113 aa, replaced_C_tail]; REPEAT:WD 2 [121-163 aa, replaced_C_tail]; REPEAT:WD 3 [167-205 aa, 100%]; REPEAT:WD 4 [214-255 aa, 100%]; REPEAT:WD 5 [266-305 aa, 100%]
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	RI	C-Terminal Frameshift	NDUFS7	none
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	MXE	NMD Poison-Exon Switch	MFSD8	Transmembrane:Helical [174-194 aa, replaced_C_tail]; Transmembrane:Helical [212-232 aa, replaced_C_tail]; Transmembrane:Helical [242-260 aa, 100%]; Transmembrane:Helical [276-294 aa, 100%]; Transmembrane:Helical [289-309 aa, 100%]
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	MXE	NMD Skipping-Decay Switch	HSF4	Region:Interactions with DUSP26, MAPK1 and MAPK2 [224-294 aa, 72%]; Region:Hydrophobic repeat HR-C [321-346 aa, 100%]
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	HSF4	Region:Interactions with DUSP26, MAPK1 and MAPK2 [245-322 aa, 100%]; Region:Hydrophobic repeat HR-C [364-389 aa, 100%]
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	ATPAF2	none
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	RI	Frameshift Domain Loss	TRMU	IDR:Disordered_Region [350-376 aa]
+RBM42	M9	0.029	0.3374	PerModule_FWER<=0.05_Bridged	MXE	In-Frame Peptide Remodeling	EPS15	none
+Unassigned (module FWER>0.05)	M13	0.16	0.9462	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	SLC25A17	REPEAT:Solcar 1 [7-92 aa, 86%]; REPEAT:Solcar 2 [75-146 aa, 100%]; REPEAT:Solcar 3 [127-221 aa, 100%]; MOTIF:Peroxisome localization signal [145-152 aa, 100%]; Transmembrane:Helical; Name=1 [10-30 aa, 57%]
+Unassigned (module FWER>0.05)	M13	0.16	0.9462	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	ZRANB3	DOMAIN:Helicase ATP-binding [46-208 aa, 7%]; Region:DNA annealing helicase activity [46-481 aa, 3%]
+Unassigned (module FWER>0.05)	M13	0.16	0.9462	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	MTMR6	DOMAIN:Myotubularin phosphatase [124-499 aa, 2%]
+Unassigned (module FWER>0.05)	M13	0.16	0.9462	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	ZNF852	DOMAIN:KRAB [8-82 aa, 15%]
+Unassigned (module FWER>0.05)	M13	0.16	0.9462	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	IL17RC	none
+Unassigned (module FWER>0.05)	M13	0.16	0.9462	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	DMXL1	REPEAT:WD 12 [2857-2899 aa, 100%]; REPEAT:WD 14 [2905-2944 aa, 100%]; REPEAT:WD 15 [2947-2986 aa, 100%]; REPEAT:WD 16 [2999-3037 aa, 100%]
+Unassigned (module FWER>0.05)	M13	0.16	0.9462	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	NPIPA1	none
+Unassigned (module FWER>0.05)	M13	0.16	0.9462	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	TESK1	DOMAIN:Protein kinase [57-314 aa, 52%]; Region:Required for interaction with YWHAB [419-524 aa, 100%]; Region:Required for interaction with SPRED1 and SPRY... [527-626 aa, 100%]; Region:Required for interaction with PARVA [527-624 aa, 100%]
+Unassigned (module FWER>0.05)	M14	0.165	0.9326	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	CENPI	none
+Unassigned (module FWER>0.05)	M14	0.165	0.9326	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	CSF1	IDR:Disordered_Region [224-488 aa]; Region:O-glycosylated at one site [406-426 aa, 100%]
+Unassigned (module FWER>0.05)	M14	0.165	0.9326	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	RAB11FIP3	none
+Unassigned (module FWER>0.05)	M14	0.165	0.9326	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ANKMY1	REPEAT:ANK 1 [292-321 aa, 100%]; REPEAT:ANK 2 [562-593 aa, 100%]; REPEAT:ANK 3 [597-628 aa, 100%]; REPEAT:ANK 4 [636-671 aa, 100%]; REPEAT:ANK 5 [746-780 aa, 100%]
+Unassigned (module FWER>0.05)	M14	0.165	0.9326	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	CSF1	IDR:Disordered_Region [177-386 aa]; Region:O-glycosylated at one site [290-310 aa, 100%]
+Unassigned (module FWER>0.05)	M14	0.165	0.9326	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	RGS12	DOMAIN:GoLoco [1187-1209 aa, 100%]
+Unassigned (module FWER>0.05)	M14	0.165	0.9326	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	UPK3A	Transmembrane:Helical [208-235 aa, 100%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SYNE4	IDR:Disordered_Region [164-234 aa]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	MXE	NMD Poison-Exon Switch	ACADM	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	SEC24B	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	DQX1	DOMAIN:Helicase ATP-binding [57-225 aa, 39%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	ARHGEF12	Coiled_Coil [194-262 aa, 58%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	ZNF558	DOMAIN:KRAB [43-114 aa, replaced_C_tail]; ZN_FING:C2H2-type 1 [152-174 aa, 100%]; ZN_FING:C2H2-type 2 [180-202 aa, 100%]; ZN_FING:C2H2-type 3 [208-230 aa, 100%]; ZN_FING:C2H2-type 4 [236-258 aa, 100%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	A5SS	In-Frame UniProt Domain Indel	PCNT	Coiled_Coil [2536-3086 aa, 14%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	ABCG8	DOMAIN:ABC transporter [47-313 aa, 77%]; DOMAIN:ABC transmembrane type-2 [335-542 aa, 100%]; Transmembrane:Helical; Name=1 [340-356 aa, 100%]; Transmembrane:Helical; Name=2 [324-344 aa, 100%]; Transmembrane:Helical; Name=3 [374-394 aa, 100%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	KANK4	Coiled_Coil [343-404 aa, 100%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	KIAA1191	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	CYP4F11	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	GLYCTK	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	GLYCTK	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	STX16-NPEPL1	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	AFMID	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	PPP4R3A	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	CHD3	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	BTN2A2	DOMAIN:Ig-like V-type [34-145 aa, replaced_C_tail]; DOMAIN:Ig-like C2-type [153-234 aa, 100%]; DOMAIN:B30.2/SPRY [240-391 aa, 100%]; Transmembrane:Helical [266-286 aa, 100%]; Coiled_Coil [223-250 aa, 100%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	APOC1	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	APOC1	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	BTN2A2	DOMAIN:Ig-like V-type [34-145 aa, 100%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	TBCD	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SEMA6C	IDR:Disordered_Region [320-342 aa]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ACADM	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	A5SS	In-Frame UniProt Domain Indel	KAT6B	IDR:Disordered_Region [360-409 aa]; Region:Negatively regulates HAT activity [361-717 aa, 82%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	IL17RC	DOMAIN:SEFIR [583-735 aa, 100%]; Transmembrane:Helical [539-559 aa, 100%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ACADM	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	GRAMD1A	DOMAIN:VASt [367-538 aa, 100%]; Transmembrane:Helical [610-630 aa, 100%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	A5SS	NMD Poison-Exon Switch	AKT2	DOMAIN:Protein kinase [138-372 aa, replaced_C_tail]; DOMAIN:AGC-kinase C-terminal [367-438 aa, 100%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	UIMC1	ZN_FING:UBZ4-type [502-529 aa, 100%]; Region:Necessary for interaction with NR6A1 N-terminus [100-200 aa, 46%]; Region:AIR [270-400 aa, 100%]; Region:Necessary for interaction with NR6A1 C-terminus [400-500 aa, 100%]; Region:Zinc-finger-like region [505-582 aa, 100%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SCN1A	REPEAT:III [1200-1514 aa, 30%]; Transmembrane:Helical; Name=S5 of repeat III [1346-1369 aa, 100%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	PATL1	Region:Involved in nuclear foci localization [1-397 aa, 8%]; Region:Region N; interaction with decapping machinery [85-388 aa, 10%]; Region:Involved in RNA-binding [223-397 aa, 17%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	WASHC2C	MOTIF:LFa 5 [537-548 aa, 75%]; Region:Sufficient for interaction with CCDC93 [356-600 aa, 12%]; Region:Interaction with VPS35 [357-1339 aa, 3%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	DEDD2	DOMAIN:DED [25-104 aa, 100%]; MOTIF:Nuclear localization signal [104-109 aa, 100%]; MOTIF:Bipartite nuclear localization signal [155-173 aa, 100%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	AFMID	none
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	DBNL	DOMAIN:ADF-H [4-133 aa, 38%]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	VWCE	DOMAIN:VWFC 5 [567-625 aa, replaced_C_tail]; DOMAIN:VWFC 6 [626-683 aa, replaced_C_tail]
+Unassigned (module FWER>0.05)	M6	0.134	0.8962	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ACADM	none
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	LETMD1	DOMAIN:Letm1 RBD [122-236 aa, 8%]; Region:Required and sufficient for mitochondrial import [1-110 aa, 17%]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	SLC43A1	none
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	CASC4	none
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	FBXO38	IDR:Disordered_Region [620-666 aa]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	FBXO38	IDR:Disordered_Region [642-718 aa]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	ANAPC5	REPEAT:TPR 4 [338-378 aa, 10%]; REPEAT:TPR 5 [379-413 aa, 26%]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	PLEKHG2	IDR:Disordered_Region [436-540 aa]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ANKRD16	REPEAT:ANK 8 [273-302 aa, 63%]; REPEAT:ANK 9 [306-335 aa, 100%]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ARHGEF7	DOMAIN:PH [473-578 aa, 51%]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	MLXIPL	DOMAIN:bHLH [518-572 aa, 100%]; Region:Leucine-zipper [572-593 aa, 100%]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	RMDN1	REPEAT:TPR 1 [168-204 aa, 76%]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	ZNF821	ZN_FING:C2H2-type 1 [116-140 aa, 4%]; ZN_FING:C2H2-type 2 [150-172 aa, 100%]; Coiled_Coil [257-366 aa, 100%]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	STAG1	DOMAIN:SCD [296-381 aa, 100%]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	NQO2	none
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	ZFYVE19	MOTIF:MIM1-B [326-339 aa, 100%]; Coiled_Coil [311-375 aa, 51%]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	SEZ6L2	IDR:Disordered_Region [65-152 aa]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	QARS	none
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	SNAP47	DOMAIN:t-SNARE coiled-coil homology 1 [154-216 aa, 100%]; DOMAIN:t-SNARE coiled-coil homology 2 [401-463 aa, 100%]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	BPTF	none
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	ABCD4	none
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	Dual-PTC NMD Background	ATXN3	none
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	SUGCT	none
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	ZSCAN31	DOMAIN:SCAN box [39-121 aa, 100%]
+Unassigned (module FWER>0.05)	M5	0.704	1.0	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	PLPP1	Transmembrane:Helical [54-74 aa, replaced_C_tail]; Transmembrane:Helical [95-115 aa, replaced_C_tail]; Transmembrane:Helical [165-185 aa, 100%]; Transmembrane:Helical [201-221 aa, 100%]; Transmembrane:Helical [231-251 aa, 100%]
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	KIAA1217	Coiled_Coil [557-581 aa, 88%]
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	COL27A1	DOMAIN:Collagen-like 9 [1126-1185 aa, 28%]; Region:Triple-helical region [625-1618 aa, 2%]
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	BPTF	Coiled_Coil [1995-2023 aa, 100%]
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	PHKB	Region:Calmodulin-binding [7-29 aa, replaced_C_tail]; Region:Calmodulin-binding [768-795 aa, 100%]; Region:Calmodulin-binding [920-951 aa, 100%]
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	ZCCHC10	none
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	TMEM150A	Transmembrane:Helical [76-96 aa, 100%]; Transmembrane:Helical [109-129 aa, 100%]; Transmembrane:Helical [141-161 aa, 100%]; Transmembrane:Helical [179-199 aa, 100%]; Transmembrane:Helical [212-232 aa, 100%]
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	RPRD2	DOMAIN:CID [19-149 aa, 3%]
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SEC31A	Region:Interaction with PDCD6 [798-1111 aa, 4%]
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	ZCCHC6	none
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	MAX	IDR:Disordered_Region [1-40 aa]
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	PDHB	none
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	PHKB	Region:Calmodulin-binding [7-29 aa, replaced_C_tail]; Region:Calmodulin-binding [768-795 aa, 100%]; Region:Calmodulin-binding [920-951 aa, 100%]
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	MTMR2	DOMAIN:GRAM [68-139 aa, 100%]; DOMAIN:Myotubularin phosphatase [205-580 aa, 100%]; Coiled_Coil [593-627 aa, 100%]
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	RPAIN	ZN_FING:RIP-type [93-143 aa, 76%]; Region:Mediates nuclear export [93-109 aa, 29%]
+Unassigned (module FWER>0.05)	M7	0.181	0.9316	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	CDC25C	DOMAIN:Rhodanese [321-428 aa, 100%]; Region:HIV-1 Vpr binding site [334-379 aa, 100%]
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	SIRT6	DOMAIN:Deacetylase sirtuin-type [27-272 aa, 100%]
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	A3SS	NMD Skipping-Decay Switch	FAM20A	none
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	ANKRD13C	none
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	DEPDC4	DOMAIN:DEP [71-162 aa, 100%]
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	MXE	In-Frame UniProt Domain Indel	KIF16B	DOMAIN:PX [1152-1266 aa, 36%]
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	ADH6	none
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	UCHL5	DOMAIN:ULD [288-316 aa, 7%]; Region:Interaction with ADRM1 [310-326 aa, 59%]
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	SLC35D2	Transmembrane:Helical [98-109 aa, 100%]; Transmembrane:Helical [117-129 aa, 62%]; Transmembrane:Helical [97-117 aa, 100%]
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	PAPD4	none
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	A5SS	In-Frame UniProt Domain Indel	CEP170	Region:Targeting to microtubules [853-1584 aa, 2%]; Region:Interaction with CCDC61 [1015-1460 aa, 4%]; Region:Targeting to centrosomes [1113-1584 aa, 4%]
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	A3SS	NMD Poison-Exon Switch	CCDC150	Coiled_Coil [670-885 aa, replaced_C_tail]; Coiled_Coil [905-968 aa, replaced_C_tail]
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	RI	NMD Skipping-Decay Switch	POLR3C	IDR:Disordered_Region [197-228 aa]
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	RI	NMD Skipping-Decay Switch	DNAJC11	none
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	CCDC150	Coiled_Coil [712-940 aa, 28%]
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	NPRL3	none
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	A3SS	In-Frame Peptide Remodeling	RAP1GDS1	none
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	RI	Dual-PTC NMD Background	NECAP1	none
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	SE	C-Terminal Frameshift	LYRM7	none
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	NHSL1	none
+Unassigned (module FWER>0.05)	M10	0.349	0.9994	Exploratory_Orphan_Module	MXE	NMD Poison-Exon Switch	ATXN3	DOMAIN:Josephin [1-180 aa, 65%]; DOMAIN:UIM 1 [224-243 aa, 100%]; DOMAIN:UIM 2 [229-248 aa, 100%]; DOMAIN:UIM 3 [316-334 aa, 100%]
+Unassigned (module FWER>0.05)	M15	0.374	0.9992	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	RFWD2	none
+Unassigned (module FWER>0.05)	M15	0.374	0.9992	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	MAP4K2	DOMAIN:Protein kinase [16-273 aa, 52%]; DOMAIN:CNH [482-793 aa, 100%]; Region:PEST1 [294-314 aa, 100%]; Region:PEST2 [344-360 aa, 100%]; Region:PEST3 [405-448 aa, 100%]
+Unassigned (module FWER>0.05)	M15	0.374	0.9992	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	TTC6	none
+Unassigned (module FWER>0.05)	M15	0.374	0.9992	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	SLC44A4	Transmembrane:Helical [598-618 aa, 100%]; Transmembrane:Helical [639-659 aa, 100%]
+Unassigned (module FWER>0.05)	M15	0.374	0.9992	Exploratory_Orphan_Module	A5SS	NMD Skipping-Decay Switch	POLR2G	none
+Unassigned (module FWER>0.05)	M15	0.374	0.9992	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	PSMD11	DOMAIN:PCI [224-392 aa, replaced_C_tail]
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	PPIL3	DOMAIN:PPIase cyclophilin-type [1-77 aa, replaced_C_tail]
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	RI	NMD Poison-Exon Switch	RUSC1	DOMAIN:SH3 [738-796 aa, 100%]
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	A3SS	In-Frame UniProt Domain Indel	RUSC1	DOMAIN:RUN [522-666 aa, 31%]; Region:Interaction with IKBKG [596-662 aa, 61%]
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	SEC31A	none
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	A5SS	In-Frame UniProt Domain Indel	TTPAL	DOMAIN:CRAL-TRIO [117-282 aa, 20%]
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	BANP	DOMAIN:BEN [185-263 aa, 100%]; Coiled_Coil [53-90 aa, 100%]; Region:Interaction with CUX1 and HDAC1 [124-279 aa, 100%]; Region:DNA-binding [247-298 aa, 100%]
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	SE	In-Frame UniProt Domain Indel	PARL	Transmembrane:Helical [208-230 aa, 100%]
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	PPIL3	DOMAIN:PPIase cyclophilin-type [2-154 aa, 84%]
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	SE	NMD Skipping-Decay Switch	ZMYM5	ZN_FING:MYM-type 1 [265-299 aa, 100%]; ZN_FING:MYM-type 2 [311-351 aa, 100%]; ZN_FING:MYM-type 3 [358-393 aa, 100%]; ZN_FING:MYM-type 4 [404-431 aa, 100%]
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	A5SS	In-Frame Peptide Remodeling	SMG7	none
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	SE	NMD Poison-Exon Switch	TMX2	DOMAIN:Thioredoxin [99-234 aa, 100%]; MOTIF:Di-lysine motif [255-258 aa, 100%]; Transmembrane:Helical [103-125 aa, 100%]
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	SYNC	DOMAIN:IF rod [168-463 aa, 3%]; Region:Coil 2 [350-458 aa, 5%]; Region:Tail [459-482 aa, 100%]
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	ZNF691	IDR:Disordered_Region [1-90 aa]
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	SE	In-Frame Peptide Remodeling	RAPGEF2	none
+Unassigned (module FWER>0.05)	M8	0.156	0.9342	Exploratory_Orphan_Module	SE	Frameshift Domain Loss	BANP	Coiled_Coil [53-90 aa, 100%]
+IGF2BP1	M12	0.035	0.3862	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	NETO2	DOMAIN:LDL-receptor class A [296-332 aa, 100%]
+IGF2BP1	M12	0.035	0.3862	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	TMEM175	Transmembrane:Helical; Name=TM3-1 [107-128 aa, 9%]; Transmembrane:Helical; Name=TM4-1 [139-160 aa, 73%]
+IGF2BP1	M12	0.035	0.3862	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	SH3YL1	IDR:Disordered_Region [218-266 aa]
+IGF2BP1	M12	0.035	0.3862	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	ADCK1	DOMAIN:Protein kinase [155-467 aa, 12%]
+IGF2BP1	M12	0.035	0.3862	PerModule_FWER<=0.05_Bridged	RI	In-Frame Peptide Remodeling	TAF1C	none
+IGF2BP1	M12	0.035	0.3862	PerModule_FWER<=0.05_Bridged	A5SS	NMD Poison-Exon Switch	CSAD	none
+IGF2BP1	M12	0.035	0.3862	PerModule_FWER<=0.05_Bridged	SE	In-Frame UniProt Domain Indel	BCORL1	MOTIF:Nuclear localization signal [1254-1262 aa, 100%]
+IGF2BP1	M12	0.035	0.3862	PerModule_FWER<=0.05_Bridged	SE	NMD Poison-Exon Switch	ITSN1	DOMAIN:C2 [1007-1123 aa, replaced_C_tail]

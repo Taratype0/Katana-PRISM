@@ -507,7 +507,9 @@ def _map_uniprot_domains_to_isoforms(
         uniprot_acc = entry["uniprot_acc"]
         u_len = max(entry["uniprot_len"], 1)
         canon_is_inc = abs(len_inc - u_len) <= abs(len_exc - u_len)
-        canon_len = max(len_inc if canon_is_inc else len_exc, 1)
+        canon_prot = prot_inc if canon_is_inc else prot_exc
+        canon_len = max(len(canon_prot), 1)
+        delta_l = canon_len - u_len
         scale = canon_len / float(u_len)
         # Anchor coordinates onto whichever isoform matches the canonical Swiss-Prot reference length
         c_alt_start = pre + 1
@@ -515,11 +517,32 @@ def _map_uniprot_domains_to_isoforms(
 
         if 0.40 <= scale <= 1.85:
             for feat in entry["features"]:
-                s_map = max(1, min(canon_len, int(round(feat["start"] * scale)) if abs(canon_len - u_len) > 25 else feat["start"]))
-                e_map = max(s_map, min(canon_len, int(round(feat["end"] * scale)) if abs(canon_len - u_len) > 25 else feat["end"]))
+                s_map, e_map = None, None
+                if feat["kind"] == "MOTIF":
+                    m_pep = re.search(r"\b([ACDEFGHIKLMNPQRSTVWY]{4,16})\b", str(feat["label"]).replace("MOTIF:", ""))
+                    if m_pep:
+                        pep = m_pep.group(1)
+                        hits = [m.start() + 1 for m in re.finditer(re.escape(pep), canon_prot)]
+                        if hits:
+                            best_s = min(hits, key=lambda h: abs(h - feat["start"]))
+                            s_map, e_map = best_s, best_s + len(pep) - 1
+                if s_map is None:
+                    if canon_len == u_len:
+                        s_map, e_map = feat["start"], feat["end"]
+                    elif feat["end"] <= int(0.55 * u_len) and feat["end"] <= canon_len:
+                        s_map, e_map = feat["start"], feat["end"]
+                    elif feat["start"] >= int(0.65 * u_len) and 1 <= feat["start"] + delta_l <= canon_len:
+                        s_map = max(1, min(canon_len, feat["start"] + delta_l))
+                        e_map = max(s_map, min(canon_len, feat["end"] + delta_l))
+                    elif abs(delta_l) <= 25:
+                        s_map = max(1, min(canon_len, feat["start"]))
+                        e_map = max(s_map, min(canon_len, feat["end"]))
+                    else:
+                        s_map = max(1, min(canon_len, int(round(feat["start"] * scale))))
+                        e_map = max(s_map, min(canon_len, int(round(feat["end"] * scale))))
                 ov = max(0, min(e_map, c_alt_end) - max(s_map, c_alt_start) + 1) if c_alt_end >= c_alt_start else 0
                 dom_span = max(1, e_map - s_map + 1)
-                if prot_inc != prot_exc and ov >= 1:
+                if prot_inc != prot_exc and ov >= 1 and not (nmd_inc and nmd_exc):
                     if (nmd_inc or nmd_exc) and s_map > min_l:
                         state = "lost_by_PTC_truncation"
                     elif canon_is_inc and len_inc > len_exc and suf > 0:
@@ -767,6 +790,11 @@ def trace_protein_and_nmd_consequences(
                 summary = f"Predicted NMD-inducing skipping ({f_status}): exclusion PTC {ptc_dist} nt upstream of last EJC -> {fav}{dom_lost}"
             elif nmd_cls == "incomplete_3prime_CDS_or_nonstop":
                 summary = f"Unresolved 3'-end / potential non-stop transcript ({t_inc['aa_len']} vs {t_exc['aa_len']} aa)"
+            elif nmd_cls == "dual_NMD_background":
+                summary = (
+                    f"Dual-PTC NMD-sensitive background ({f_status}): both isoforms terminate >=50 nt upstream of last EJC "
+                    f"(max {ptc_dist} nt; {t_inc['aa_len']} vs {t_exc['aa_len']} aa)"
+                )
             elif f_status == "utr_cis_regulatory_only":
                 summary = f"ORF intact ({t_inc['aa_len']} aa); remodels {loc} ({delta_nt:+d} nt)"
             else:

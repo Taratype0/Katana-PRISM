@@ -477,6 +477,13 @@ def bridge_splicenet_modules_to_rbps(
 
     kme_vals = np.nan_to_num(merged["kME"].to_numpy(dtype=np.float64), nan=0.0)
 
+    # Shared host-gene permutation matrix across all modules simultaneously for pivotal Westfall-Young minP study_P_FWER
+    b_study = max(int(n_permutations), 4999)
+    rng_study = np.random.default_rng(int(seed) + 7919)
+    perm_shared = np.vstack([rng_study.permutation(n_genes) for _ in range(b_study)]) if n_genes >= 10 else None
+    per_mod_cache: list[tuple[str, int, int, list[str], np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
+    study_mod_maxima: list[np.ndarray] = []
+
     out_rows: list[dict] = []
     for mod_idx, m_lbl in enumerate(non_grey):
         in_m = merged["mod_label"].to_numpy() == m_lbl
@@ -498,7 +505,7 @@ def bridge_splicenet_modules_to_rbps(
         if not arms:
             arms.append(("kME_all", np.where(in_m, np.maximum(np.abs(kme_vals), 0.25), 0.0)))
 
-        arm_Z_list, arm_score_list, arm_null_list, arm_names = [], [], [], []
+        arm_Z_list, arm_score_list, arm_null_list, arm_study_null_list, arm_names = [], [], [], [], []
         for a_name, y_raw in arms:
             y_res = _fwl_resid(y_raw, X_nuis, w)
             y_g = np.zeros(n_genes, dtype=np.float64)
@@ -514,43 +521,72 @@ def bridge_splicenet_modules_to_rbps(
                 out=np.zeros((int(n_permutations), F_gc.shape[1]), dtype=np.float64),
                 where=valid_c[None, :],
             )
+            Y_perm_sh = yc[perm_shared]
+            study_null_Z = np.divide(
+                (Y_perm_sh.astype(np.float32) @ F_gc.astype(np.float32)).astype(np.float64),
+                sd_perm[None, :],
+                out=np.zeros((b_study, F_gc.shape[1]), dtype=np.float64),
+                where=valid_c[None, :],
+            )
             Z_2d = Z_obs.reshape(n_reg, len(rbps))
             null_3d = null_Z.reshape(int(n_permutations), n_reg, len(rbps))
+            study_null_3d = study_null_Z.reshape(b_study, n_reg, len(rbps))
             # One-sided positive cis-binding enrichment across all 12 spatial cis-regulatory channels!
             sc_2d = np.maximum(Z_2d, 0.0)
             null_sc_3d = np.maximum(null_3d, 0.0)
+            study_null_sc_3d = np.maximum(study_null_3d, 0.0)
             arm_names.append(a_name)
             arm_Z_list.append(Z_2d)
             arm_score_list.append(sc_2d)
             arm_null_list.append(null_sc_3d)
+            arm_study_null_list.append(study_null_sc_3d)
 
         score_stack = np.stack(arm_score_list, axis=0)
         Z_stack = np.stack(arm_Z_list, axis=0)
         null_stack = np.stack(arm_null_list, axis=1)
+        study_null_stack = np.stack(arm_study_null_list, axis=1)
 
         rbp_max = np.max(score_stack, axis=(0, 1))
         null_rbp_max = np.max(null_stack, axis=(1, 2))
         glob_max = np.max(null_rbp_max, axis=1)
+        study_mod_max = np.max(study_null_stack, axis=(1, 2, 3))
+        study_mod_maxima.append(study_mod_max)
 
         nom_p = (1.0 + np.sum(null_rbp_max >= rbp_max[None, :] - 1e-6, axis=0)) / (n_permutations + 1.0)
         fwer_p = (1.0 + np.sum(glob_max[:, None] >= rbp_max[None, :] - 1e-6, axis=0)) / (n_permutations + 1.0)
+        per_mod_cache.append((m_lbl, n_m_ev, n_m_genes, arm_names, score_stack, Z_stack, rbp_max, nom_p, fwer_p, study_mod_max))
 
-        order = np.argsort(-rbp_max)
-        for rank_i, r_i in enumerate(order, 1):
-            flat_best = int(np.argmax(score_stack[:, :, r_i]))
-            best_a, best_reg = divmod(flat_best, n_reg)
-            out_rows.append({
-                "module": m_lbl,
-                "module_events": n_m_ev,
-                "module_genes": n_m_genes,
-                "RBP": rbps[r_i],
-                "best_region": _BRIDGE_REGION_NAMES[best_reg],
-                "kme_direction": arm_names[best_a],
-                "stat_Z": round(float(Z_stack[best_a, best_reg, r_i]), 4),
-                "nominal_P": round(float(nom_p[r_i]), 5),
-                "module_P_FWER": round(float(fwer_p[r_i]), 5),
-                "sequence_rank": int(rank_i),
-            })
+    if study_mod_maxima:
+        # Westfall-Young pivotal minP across modules so modules of heterogeneous size (e.g. 30 vs 1,178 events) are uniform on [0, 1]
+        M_null = np.stack(study_mod_maxima, axis=1)  # (b_study, n_modules)
+        P_null_mod = np.empty_like(M_null)
+        for k_m in range(M_null.shape[1]):
+            col_s = np.sort(M_null[:, k_m])
+            ge_cnt = b_study - np.searchsorted(col_s, M_null[:, k_m] - 1e-9, side="left")
+            # Leave-one-out count (ge_cnt - 1) puts P_null_mod on the exact same {1/(B+1)..1} grid as p_obs_mod
+            P_null_mod[:, k_m] = (1.0 + np.maximum(ge_cnt - 1, 0)) / (b_study + 1.0)
+        min_p_null = np.min(P_null_mod, axis=1)  # (b_study,)
+
+        for m_lbl, n_m_ev, n_m_genes, arm_names, score_stack, Z_stack, rbp_max, nom_p, fwer_p, s_mod_max in per_mod_cache:
+            p_obs_mod = (1.0 + np.sum(s_mod_max[:, None] >= rbp_max[None, :] - 1e-6, axis=0)) / (b_study + 1.0)
+            study_fwer_p = (1.0 + np.sum(min_p_null[:, None] <= p_obs_mod[None, :] + 1e-12, axis=0)) / (b_study + 1.0)
+            order = np.argsort(-rbp_max)
+            for rank_i, r_i in enumerate(order, 1):
+                flat_best = int(np.argmax(score_stack[:, :, r_i]))
+                best_a, best_reg = divmod(flat_best, n_reg)
+                out_rows.append({
+                    "module": m_lbl,
+                    "module_events": n_m_ev,
+                    "module_genes": n_m_genes,
+                    "RBP": rbps[r_i],
+                    "best_region": _BRIDGE_REGION_NAMES[best_reg],
+                    "kme_direction": arm_names[best_a],
+                    "stat_Z": round(float(Z_stack[best_a, best_reg, r_i]), 4),
+                    "nominal_P": round(float(nom_p[r_i]), 5),
+                    "module_P_FWER": round(float(fwer_p[r_i]), 5),
+                    "study_P_FWER": round(float(study_fwer_p[r_i]), 5),
+                    "sequence_rank": int(rank_i),
+                })
 
     out_df = pd.DataFrame(out_rows)
     if rbp_expr_df is not None and not out_df.empty:

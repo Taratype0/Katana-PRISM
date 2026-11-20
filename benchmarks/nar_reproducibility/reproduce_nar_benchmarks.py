@@ -154,6 +154,8 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert sig_mods == ["M1", "M12", "M3", "M9"], f"Unexpected FWER<=0.05 bridged modules: {sig_mods}"
     b_idx = b_df.set_index(["module", "RBP"])
     assert abs(float(b_idx.loc[("M1", "SRSF9"), "module_P_FWER"]) - 0.001) < 1e-6 and abs(float(b_idx.loc[("M1", "SRSF9"), "stat_Z"]) - 6.5719) < 1e-3
+    assert "study_P_FWER" in b_df.columns and float(b_idx.loc[("M1", "SRSF9"), "study_P_FWER"]) <= 0.05
+    assert float(b_idx.loc[("M1", "SRSF1"), "study_P_FWER"]) > 0.05 and float(b_idx.loc[("M3", "PTBP1"), "study_P_FWER"]) > 0.05
     assert abs(float(b_idx.loc[("M1", "FMR1"), "module_P_FWER"]) - 0.008) < 1e-6 and abs(float(b_idx.loc[("M1", "FMR1"), "stat_Z"]) - 4.8605) < 1e-3
     assert abs(float(b_idx.loc[("M1", "SRSF1"), "module_P_FWER"]) - 0.027) < 1e-6 and abs(float(b_idx.loc[("M1", "SRSF1"), "stat_Z"]) - 4.4653) < 1e-3
     assert abs(float(b_idx.loc[("M3", "PTBP1"), "module_P_FWER"]) - 0.021) < 1e-6 and abs(float(b_idx.loc[("M3", "PTBP1"), "stat_Z"]) - 4.4429) < 1e-3
@@ -161,9 +163,10 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert abs(float(b_idx.loc[("M12", "IGF2BP1"), "module_P_FWER"]) - 0.035) < 1e-6 and abs(float(b_idx.loc[("M12", "IGF2BP1"), "stat_Z"]) - 5.9014) < 1e-3
 
     flows = pd.read_csv(tables_path / "fig4c_bridged_vs_orphan_coding_flows.tsv", sep="\t")
-    assert len(flows) == 611
-    assert int((flows["bridge_tier"] == "FWER<=0.05_Bridged").sum()) == 286
-    assert int((flows["bridge_tier"] == "Exploratory_Orphan_Module").sum()) == 325
+    assert len(flows) == 610
+    assert int((flows["bridge_tier"] == "PerModule_FWER<=0.05_Bridged").sum()) == 286
+    assert int((flows["bridge_tier"] == "Exploratory_Orphan_Module").sum()) == 324
+    assert "GFFKR" not in " ".join(flows.loc[flows["gene_symbol"].eq("ITGA6"), "disrupted_domain"].astype(str))
 
     f4d = pd.read_csv(tables_path / "fig4d_deconvolution_vs_competitors.tsv", sep="\t").set_index("method")
     prism_4d = f4d.loc["Katana-PRISM (SpliceNet -> SpliceTrace Bridge)"]
@@ -239,13 +242,13 @@ def verify_bundled_tables(tables_path: Path) -> None:
     s7d = pd.read_csv(tables_path / "tableS7d_manifold_and_treecut_sensitivity.tsv", sep="\t")
     assert len(s7d) >= 15
     tm_sc = pd.read_csv(tables_path / "fig5d_real_multidonor_sc_vs_rmaps3_and_stouffer.tsv", sep="\t")
-    assert len(tm_sc) == 10
+    assert len(tm_sc) == 12
     het_sw = pd.read_csv(tables_path / "tableS6_semisynthetic_sigma_het_sweep.tsv", sep="\t")
     assert len(het_sw) == 6 and float(het_sw.iloc[0]["Cell_Pooled_rMAPS3_Holm_FPR_pct"]) == 0.0
     s1_bam = pd.read_csv(tables_path / "tableS1_zero_resort_bam_concordance.tsv", sep="\t")
     assert len(s1_bam) == 11 and float(s1_bam["exact_coordinate_overlap_pct"].min()) == 100.0 and float(s1_bam["max_abs_delta_dpsi"].max()) == 0.0
     s6_map = pd.read_csv(tables_path / "tableS6_event_coordinate_mapping_audit.tsv", sep="\t")
-    assert int(s6_map.iloc[0]["mapped_canonical_binary_events"]) == 563 and int(s6_map.iloc[0]["quarantined_in_exclusions_tsv"]) == 9873
+    assert int(s6_map.iloc[0]["final_evaluated_binary_events"]) == 563 and int(s6_map.iloc[1]["initial_annotated_or_cluster_denominator"]) == 53663 and int(s6_map.iloc[1]["final_evaluated_binary_events"]) == 2169
     print("[OK] All bundled NAR benchmark table invariants (including v13 ablations) verified.")
 
 
