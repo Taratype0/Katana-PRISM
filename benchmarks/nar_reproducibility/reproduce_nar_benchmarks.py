@@ -149,8 +149,16 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert int(lb["NoFWL_SameMaxT_sig_fwer05"].min()) == 0 and int(lb["NoFWL_SameMaxT_sig_fwer05"].max()) == 153
 
     b_df = pd.read_csv(tables_path / "fig4a_encode_module_rbp_bridge_distal500.tsv", sep="\t")
+    assert len(b_df) == 2704 and b_df["module"].nunique() == 16 and b_df["RBP"].nunique() == 169
     sig_mods = sorted(b_df.loc[b_df["module_P_FWER"] <= 0.05, "module"].unique().tolist())
     assert sig_mods == ["M1", "M12", "M3", "M9"], f"Unexpected FWER<=0.05 bridged modules: {sig_mods}"
+    b_idx = b_df.set_index(["module", "RBP"])
+    assert abs(float(b_idx.loc[("M1", "SRSF9"), "module_P_FWER"]) - 0.001) < 1e-6 and abs(float(b_idx.loc[("M1", "SRSF9"), "stat_Z"]) - 6.5719) < 1e-3
+    assert abs(float(b_idx.loc[("M1", "FMR1"), "module_P_FWER"]) - 0.008) < 1e-6 and abs(float(b_idx.loc[("M1", "FMR1"), "stat_Z"]) - 4.8605) < 1e-3
+    assert abs(float(b_idx.loc[("M1", "SRSF1"), "module_P_FWER"]) - 0.027) < 1e-6 and abs(float(b_idx.loc[("M1", "SRSF1"), "stat_Z"]) - 4.4653) < 1e-3
+    assert abs(float(b_idx.loc[("M3", "PTBP1"), "module_P_FWER"]) - 0.021) < 1e-6 and abs(float(b_idx.loc[("M3", "PTBP1"), "stat_Z"]) - 4.4429) < 1e-3
+    assert abs(float(b_idx.loc[("M9", "RBM42"), "module_P_FWER"]) - 0.029) < 1e-6 and abs(float(b_idx.loc[("M9", "RBM42"), "stat_Z"]) - 5.6286) < 1e-3
+    assert abs(float(b_idx.loc[("M12", "IGF2BP1"), "module_P_FWER"]) - 0.035) < 1e-6 and abs(float(b_idx.loc[("M12", "IGF2BP1"), "stat_Z"]) - 5.9014) < 1e-3
 
     flows = pd.read_csv(tables_path / "fig4c_bridged_vs_orphan_coding_flows.tsv", sep="\t")
     assert len(flows) == 611
