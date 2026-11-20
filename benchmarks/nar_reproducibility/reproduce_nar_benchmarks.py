@@ -213,6 +213,12 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert int(pw.loc["REACTOME_PROCESSING_OF_CAPPED_INTRON_CONTAINING_PRE_MRNA", "das_overlap"]) == 12
     assert int(pw.loc["REACTOME_PROCESSING_OF_CAPPED_INTRON_CONTAINING_PRE_MRNA", "concordant2d_overlap"]) == 8
 
+    s4c = pd.read_csv(tables_path / "figS4c_gse270928_qr_fwl_projection_check.tsv", sep="\t")
+    assert s4c["covariate"].tolist() == [
+        "GC fraction", "CpG density", "log(Exon length)", "Proxy PSI0 (0.5−0.5·ΔΨ)", "log2(Host-gene frags+1)"
+    ]
+    assert float(s4c["max_abs_r_after_fwl"].max()) == 0.0
+
     pool = pd.read_csv(tables_path / "figS4a_within_donor_state_pooling.tsv", sep="\t")
     assert int(pool["cells_per_donor_state"].max()) == 48
     print("[OK] All bundled NAR benchmark table invariants verified.")

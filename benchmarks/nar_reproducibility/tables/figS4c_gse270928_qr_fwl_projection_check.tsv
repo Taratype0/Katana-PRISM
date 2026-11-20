@@ -1,0 +1,6 @@
+covariate	mean_abs_r_before_fwl	p90_abs_r_before_fwl	mean_abs_r_after_fwl	max_abs_r_after_fwl
+GC fraction	0.1618	0.3478	0.0	0.0
+CpG density	0.1127	0.2159	0.0	0.0
+log(Exon length)	0.1044	0.1824	0.0	0.0
+Proxy PSI0 (0.5−0.5·ΔΨ)	0.054	0.1129	0.0	0.0
+log2(Host-gene frags+1)	0.0529	0.1026	0.0	0.0
