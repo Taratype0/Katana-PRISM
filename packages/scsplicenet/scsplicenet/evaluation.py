@@ -24,8 +24,8 @@ def orthogonalize_sc_host_expression(
     qu = np.asarray(test_usage, dtype=float)
     qh = np.asarray(test_host_log_expr, dtype=float)
 
-    tr_res = tu.copy()
-    te_res = qu.copy()
+    tr_res = np.full_like(tu, np.nan, dtype=float)
+    te_res = np.full_like(qu, np.nan, dtype=float)
     for j in range(tu.shape[1]):
         ok = np.isfinite(tu[:, j]) & np.isfinite(th[:, j])
         if int(ok.sum()) < min_train_cells:
@@ -34,12 +34,14 @@ def orthogonalize_sc_host_expression(
         y = tu[ok, j]
         vx = float(np.var(x))
         if vx <= 1e-10:
+            tr_res[ok, j] = tu[ok, j]
+            ok_te_f = np.isfinite(qu[:, j]) & np.isfinite(qh[:, j])
+            te_res[ok_te_f, j] = qu[ok_te_f, j]
             continue
         mx = float(np.mean(x))
         my = float(np.mean(y))
         slope = float(np.mean((x - mx) * (y - my)) / vx)
-        ok_tr = np.isfinite(tu[:, j]) & np.isfinite(th[:, j])
-        tr_res[ok_tr, j] = tu[ok_tr, j] - slope * (th[ok_tr, j] - mx)
+        tr_res[ok, j] = tu[ok, j] - slope * (th[ok, j] - mx)
         ok_te = np.isfinite(qu[:, j]) & np.isfinite(qh[:, j])
         te_res[ok_te, j] = qu[ok_te, j] - slope * (qh[ok_te, j] - mx)
     return tr_res, te_res
@@ -63,13 +65,18 @@ def evaluate_heldout_edges_and_modules(
     u_te = heldout_usage.reindex(columns=event_ids).to_numpy(dtype=float)
 
     if eval_level == "donor":
-        donors = sorted(heldout_metadata["donor_id"].astype(str).unique())
+        hm = heldout_metadata.copy()
+        if "cell_id" in hm.columns:
+            hm["cell_id"] = hm["cell_id"].astype(str)
+            hm = hm.drop_duplicates(subset=["cell_id"]).set_index("cell_id").reindex(heldout_usage.index.astype(str))
+        donor_vec = hm["donor_id"].astype(str).to_numpy()
+        donors = sorted(pd.Series(donor_vec).dropna().unique())
         w_te = np.isfinite(u_te).astype(float)
         if heldout_support is not None:
             s_te = heldout_support.reindex(index=heldout_usage.index, columns=event_ids).to_numpy(dtype=float)
             w_te = estimate_sc_observation_weights(u_te, s_te, net.modules["excess_bio_var"].to_numpy(dtype=float))
         prof_te, wt_te = precision_group_profiles(
-            u_te, w_te, heldout_metadata["donor_id"].astype(str).to_numpy(), donors, min_cells=3
+            u_te, w_te, donor_vec, donors, min_cells=3
         )
         # Evaluate held-out correlation on unshrunk observed profiles (unweighted Pearson across donors)
         r_te, _, _ = precision_pairwise_correlation(prof_te, None, min_pairs=min_pairs, min_eff_n=float(min_pairs))
@@ -115,9 +122,9 @@ def evaluate_heldout_edges_and_modules(
     ):
         _, u_te_orth = orthogonalize_sc_host_expression(
             train_usage.reindex(columns=event_ids).to_numpy(dtype=float),
-            train_host_log_expr.reindex(columns=event_ids).to_numpy(dtype=float),
+            train_host_log_expr.reindex(index=train_usage.index, columns=event_ids).to_numpy(dtype=float),
             u_te,
-            heldout_host_log_expr.reindex(columns=event_ids).to_numpy(dtype=float),
+            heldout_host_log_expr.reindex(index=heldout_usage.index, columns=event_ids).to_numpy(dtype=float),
         )
         r_te_orth, _, _ = precision_pairwise_correlation(u_te_orth, None, min_pairs=min_pairs, min_eff_n=float(min_pairs))
         orth_within_r, _, orth_coh_gap, _ = _module_coherence_from_corr(r_te_orth)
@@ -231,11 +238,16 @@ def enrich_sc_module_genes(
             })
         if mod_rows:
             p_arr = np.asarray(p_vals, dtype=float)
-            ord_p = np.argsort(p_arr, kind="mergesort")
-            rk = p_arr[ord_p] * len(p_arr) / np.arange(1, len(p_arr) + 1, dtype=float)
-            q_s = np.minimum.accumulate(rk[::-1])[::-1]
-            q_arr = np.empty_like(p_arr)
-            q_arr[ord_p] = np.clip(q_s, 0.0, 1.0)
+            q_arr = np.full_like(p_arr, np.nan, dtype=float)
+            fin_p = np.isfinite(p_arr)
+            if np.any(fin_p):
+                pf = p_arr[fin_p]
+                ord_p = np.argsort(pf, kind="mergesort")
+                rk = pf[ord_p] * len(pf) / np.arange(1, len(pf) + 1, dtype=float)
+                q_s = np.minimum.accumulate(rk[::-1])[::-1]
+                qf = np.empty_like(pf)
+                qf[ord_p] = np.clip(q_s, 0.0, 1.0)
+                q_arr[fin_p] = qf
             for rd, qv in zip(mod_rows, q_arr):
                 rd["q_BH"] = float(qv)
             rows.extend(rd for rd in mod_rows if rd["overlap"] >= min_overlap)
@@ -304,7 +316,7 @@ def predict_sc_usage_inductive(
             s_mu = np.divide(
                 (tr_w[sel_tr] * np.where(np.isfinite(tu[sel_tr]), tu[sel_tr], 0.0)).sum(axis=0),
                 sw,
-                out=global_mean,
+                out=global_mean.copy(),
                 where=sw > 0.0,
             )
             lam = sw / (sw + float(state_shrink_kappa))

@@ -5,7 +5,23 @@ from dataclasses import dataclass
 from itertools import product
 import numpy as np
 import pandas as pd
-from scipy.stats import norm, rankdata
+from scipy.stats import norm, rankdata, t as student_t
+
+
+def _bh_fdr_mask(p_vals: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    fdr = np.full(len(p_vals), np.nan, dtype=float)
+    ok = mask & np.isfinite(p_vals)
+    if not np.any(ok):
+        return fdr
+    pv = np.clip(p_vals[ok], 0.0, 1.0)
+    n = len(pv)
+    order = np.argsort(pv)
+    q = pv[order] * n / np.arange(1, n + 1, dtype=float)
+    q = np.minimum.accumulate(q[::-1])[::-1]
+    out = np.empty(n, dtype=float)
+    out[order] = np.clip(q, 0.0, 1.0)
+    fdr[ok] = out
+    return fdr
 
 
 @dataclass(frozen=True)
@@ -43,7 +59,7 @@ def compute_sc_splicing_contrast(
     """
     md = metadata.copy()
     if "qc_pass" in md.columns:
-        md = md.loc[md["qc_pass"].eq(True)].copy()
+        md = md.loc[md["qc_pass"].astype(str).str.lower().isin(("true", "1", "yes", "pass"))].copy()
     if donor_col not in md.columns and "donor" in md.columns:
         md[donor_col] = md["donor"]
     if donor_col not in md.columns:
@@ -55,14 +71,23 @@ def compute_sc_splicing_contrast(
 
     u_df = usage.copy()
     u_df.index = u_df.index.astype(str)
-    u = u_df.loc[md["cell_id"]].to_numpy(dtype=float)
-    finite = np.isfinite(u)
+    valid_cells = set(u_df.index)
     if support is not None:
         s_df = support.copy()
         s_df.index = s_df.index.astype(str)
+        valid_cells &= set(s_df.index)
+    else:
+        s_df = None
+    md = md.loc[md["cell_id"].isin(valid_cells)].copy()
+    if md.empty:
+        raise ValueError("Zero cells overlap between metadata and usage/support matrices")
+
+    u = u_df.loc[md["cell_id"]].to_numpy(dtype=float)
+    finite = np.isfinite(u)
+    if s_df is not None:
         t = np.where(finite, np.maximum(s_df.loc[md["cell_id"], u_df.columns].to_numpy(dtype=float), 0.0), 0.0)
     else:
-        t = finite.astype(float) * 10.0
+        t = finite.astype(float)
 
     g_vec = md[group_col].astype(str).to_numpy()
     d_vec = md[donor_col].astype(str).to_numpy()
@@ -75,43 +100,75 @@ def compute_sc_splicing_contrast(
         u_sub = np.where(f_sub, u[mask], 0.0)
         w_sub = np.divide(t_sub, 1.0 + 0.02 * t_sub, out=np.zeros_like(t_sub), where=(t_sub > 0) & f_sub)
         w_tot = w_sub.sum(axis=0)
+        w_sq = (w_sub * w_sub).sum(axis=0)
         t_tot = t_sub.sum(axis=0)
         n_c = f_sub.sum(axis=0)
         psi_hat = np.divide((w_sub * u_sub).sum(axis=0), w_tot, out=np.full(u.shape[1], np.nan), where=w_tot > 0)
-        # Binomial + finite-cell sampling variance
+        # Exact weighted binomial variance + Kish ESS biological dispersion floor
         p_clip = np.clip(np.nan_to_num(psi_hat, nan=0.5), 0.02, 0.98)
-        se2_bin = np.divide(p_clip * (1.0 - p_clip), np.maximum(t_tot, 1.0), out=np.full(u.shape[1], np.nan), where=t_tot > 0)
+        n_eff = np.divide(w_tot * w_tot, w_sq, out=np.zeros_like(w_tot), where=w_sq > 0)
+        w2_over_t = np.divide(w_sub * w_sub, np.maximum(t_sub, 1.0), out=np.zeros_like(t_sub), where=(t_sub > 0) & f_sub).sum(axis=0)
+        bin_term = np.divide(w2_over_t, w_tot * w_tot, out=np.full(u.shape[1], np.nan), where=w_tot > 0)
+        bio_term = np.divide(0.02, n_eff, out=np.zeros_like(w_tot), where=n_eff > 0)
+        se2_bin = np.where(w_tot > 0, p_clip * (1.0 - p_clip) * (bin_term + bio_term), np.nan)
         return psi_hat, se2_bin, n_c, t_tot
 
     psi_num, se2_num, nc_num, sup_num = _pooled_stats(is_num)
     psi_den, se2_den, nc_den, sup_den = _pooled_stats(is_den)
 
-    # Estimate replicate/block empirical variance across donors or stratified cell blocks
-    donors_num = set(d_vec[is_num])
-    donors_den = set(d_vec[is_den])
-    paired_donors = sorted(donors_num & donors_den)
+    # Estimate replicate/block empirical variance respecting independent biological donor structure
+    donors_num = sorted(set(d_vec[is_num]))
+    donors_den = sorted(set(d_vec[is_den]))
+    paired_donors = sorted(set(donors_num) & set(donors_den))
 
     donor_delta_df: pd.DataFrame | None = None
+    paired_mean_d: np.ndarray | None = None
+    paired_base_d: np.ndarray | None = None
+    df_event = np.full(u.shape[1], np.nan, dtype=float)
     if len(paired_donors) >= 5:
         inference_unit = "paired_donor_population"
         d_deltas = []
+        d_bases = []
         d_vars = []
         for d in paired_donors:
             p1, v1, c1, s1 = _pooled_stats(is_num & (d_vec == d))
             p0, v0, c0, s0 = _pooled_stats(is_den & (d_vec == d))
             ok_d = (c1 >= 2) & (c0 >= 2) & (s1 >= 3.0) & (s0 >= 3.0) & np.isfinite(p1) & np.isfinite(p0)
             d_deltas.append(np.where(ok_d, p1 - p0, np.nan))
+            d_bases.append(np.where(ok_d, p0, np.nan))
             d_vars.append(np.where(ok_d, v1 + v0, np.nan))
         d_mat = np.stack(d_deltas, axis=0)  # D x E
+        b_d_mat = np.stack(d_bases, axis=0)
         n_d = np.isfinite(d_mat).sum(axis=0)
         mean_d = np.divide(np.nansum(d_mat, axis=0), np.maximum(n_d, 1), out=np.full(u.shape[1], np.nan), where=n_d >= 3)
+        paired_mean_d = mean_d
+        paired_base_d = np.divide(np.nansum(b_d_mat, axis=0), np.maximum(n_d, 1), out=np.full(u.shape[1], np.nan), where=n_d >= 3)
         var_between = np.divide(
             np.nansum((d_mat - mean_d[None, :]) ** 2, axis=0),
             np.maximum(n_d - 1, 1) * np.maximum(n_d, 1),
             out=np.full(u.shape[1], np.nan),
             where=n_d >= 3,
         )
+        df_event = np.where(n_d >= 3, np.maximum(n_d - 1, 1).astype(float), np.nan)
         donor_delta_df = pd.DataFrame(d_mat, index=paired_donors, columns=u_df.columns.astype(str))
+    elif len(donors_num) >= 2 and len(donors_den) >= 2:
+        # Unpaired multi-donor cohort (e.g., 2v2, 3v3, 4v4 animals/patients):
+        # estimate between-donor Welch variance strictly at the biological-donor unit level (zero cell pseudoreplication)
+        inference_unit = "unpaired_donor_pseudobulk"
+        p_num_d = np.stack([_pooled_stats(is_num & (d_vec == d))[0] for d in donors_num], axis=0)
+        p_den_d = np.stack([_pooled_stats(is_den & (d_vec == d))[0] for d in donors_den], axis=0)
+        n1_d = np.isfinite(p_num_d).sum(axis=0)
+        n0_d = np.isfinite(p_den_d).sum(axis=0)
+        m1_d = np.divide(np.nansum(p_num_d, axis=0), np.maximum(n1_d, 1), out=np.full(u.shape[1], np.nan), where=n1_d >= 1)
+        m0_d = np.divide(np.nansum(p_den_d, axis=0), np.maximum(n0_d, 1), out=np.full(u.shape[1], np.nan), where=n0_d >= 1)
+        v1_d = np.divide(np.nansum((p_num_d - m1_d[None, :]) ** 2, axis=0), np.maximum(n1_d - 1, 1), out=np.zeros(u.shape[1]), where=n1_d >= 2)
+        v0_d = np.divide(np.nansum((p_den_d - m0_d[None, :]) ** 2, axis=0), np.maximum(n0_d - 1, 1), out=np.zeros(u.shape[1]), where=n0_d >= 2)
+        se1_sq = np.divide(v1_d, np.maximum(n1_d, 1), out=np.zeros(u.shape[1]), where=n1_d >= 2)
+        se0_sq = np.divide(v0_d, np.maximum(n0_d, 1), out=np.zeros(u.shape[1]), where=n0_d >= 2)
+        both_d = (n1_d >= 2) & (n0_d >= 2)
+        var_between = np.where(both_d, se1_sq + se0_sq, 0.0)
+        denom_df = (se1_sq ** 2) / np.maximum(n1_d - 1, 1) + (se0_sq ** 2) / np.maximum(n0_d - 1, 1)
+        df_event = np.where(both_d & (denom_df > 1e-18), ((se1_sq + se0_sq) ** 2) / np.maximum(denom_df, 1e-18), np.where(both_d, np.maximum(n1_d + n0_d - 2, 1).astype(float), np.nan))
     else:
         inference_unit = "gene_block_contrast"
         rng = np.random.default_rng(int(seed))
@@ -148,11 +205,26 @@ def compute_sc_splicing_contrast(
         & np.isfinite(psi_num)
         & np.isfinite(psi_den)
     )
-    raw_dpsi = np.where(eligible, psi_num - psi_den, np.nan)
-    baseline_psi = np.where(eligible, psi_den, np.nan)
+    # For >=5 paired donors, use within-donor mean_d & donor-averaged baseline_psi to eliminate Simpson's paradox
+    if paired_mean_d is not None and paired_base_d is not None:
+        use_p = eligible & np.isfinite(paired_mean_d)
+        raw_dpsi = np.where(use_p, paired_mean_d, np.where(eligible, psi_num - psi_den, np.nan))
+        baseline_psi = np.where(use_p & np.isfinite(paired_base_d), paired_base_d, np.where(eligible, psi_den, np.nan))
+    else:
+        raw_dpsi = np.where(eligible, psi_num - psi_den, np.nan)
+        baseline_psi = np.where(eligible, psi_den, np.nan)
     se2_tot = np.maximum(np.nan_to_num(se2_num + se2_den, nan=0.05), np.nan_to_num(var_between, nan=0.0)) + 0.0016
     se_tot = np.sqrt(se2_tot)
     z_shift = np.where(eligible, raw_dpsi / se_tot, np.nan)
+    # Two-sided donor-aware event P-value & BH FDR across eligible events
+    p_event = np.full(u.shape[1], np.nan, dtype=float)
+    use_t = eligible & np.isfinite(df_event) & (df_event >= 1.0)
+    use_z = eligible & (~use_t)
+    if np.any(use_t):
+        p_event[use_t] = np.clip(2.0 * student_t.sf(np.abs(z_shift[use_t]), df=df_event[use_t]), 1e-300, 1.0)
+    if np.any(use_z):
+        p_event[use_z] = np.clip(2.0 * norm.sf(np.abs(z_shift[use_z])), 1e-300, 1.0)
+    fdr_event = _bh_fdr_mask(p_event, eligible)
     # Empirical-Bayes shrunken dPSI for downstream locus tracing
     tau2_dpsi = max(float(np.nanmean(np.maximum(raw_dpsi[eligible] ** 2 - se2_tot[eligible], 0.0))) if np.any(eligible) else 0.005, 0.001)
     shrunk_dpsi = np.where(eligible, raw_dpsi * (tau2_dpsi / (tau2_dpsi + se2_tot)), np.nan)
@@ -169,6 +241,8 @@ def compute_sc_splicing_contrast(
         "dpsi": shrunk_dpsi,
         "se_dpsi": np.where(eligible, se_tot, np.nan),
         "z_shift": z_shift,
+        "p_value": p_event,
+        "fdr": fdr_event,
         "cells_numerator": nc_num.astype(int),
         "cells_denominator": nc_den.astype(int),
         "support_numerator": sup_num,
@@ -177,6 +251,8 @@ def compute_sc_splicing_contrast(
     info = {
         "inference_unit": inference_unit,
         "paired_donors": len(paired_donors),
+        "donors_numerator": len(donors_num),
+        "donors_denominator": len(donors_den),
         "eligible_events": int(eligible.sum()),
         "eligible_genes": int(len(set(genes[eligible]))),
     }
@@ -370,10 +446,10 @@ def discover_sc_rbp_programs(
     else:
         inference_mode = "gene_block_rademacher_maxT"
         B = int(n_permutations)
-        signs = rng.choice(np.array([-1.0, 1.0], dtype=np.float32), size=(B, n_genes))
+        signs = rng.choice(np.array([-1.0, 1.0], dtype=np.float64), size=(B, n_genes))
         S_norm = np.divide(S_gene, denom_gene[None, :], out=np.zeros_like(S_gene), where=valid_col[None, :])
         Z_obs = Z_gene_obs.copy()
-        null_Z = (signs @ np.ascontiguousarray(S_norm, dtype=np.float32)).astype(np.float64)
+        null_Z = signs @ np.ascontiguousarray(S_norm, dtype=np.float64)
 
         Z_obs_2d = Z_obs.reshape(n_reg, n_rbp)
         null_3d = null_Z.reshape(B, n_reg, n_rbp)
@@ -486,7 +562,7 @@ def compute_sc_stratified_meta_contrast(
     """
     md = metadata.copy()
     if "qc_pass" in md.columns:
-        md = md.loc[md["qc_pass"].eq(True)].copy()
+        md = md.loc[md["qc_pass"].astype(str).str.lower().isin(("true", "1", "yes", "pass"))].copy()
     if donor_col not in md.columns and "donor" in md.columns:
         md[donor_col] = md["donor"]
     donors = sorted(md[donor_col].astype(str).unique())
@@ -494,7 +570,7 @@ def compute_sc_stratified_meta_contrast(
     per_donor: dict[str, pd.DataFrame] = {}
     for d_idx, d_id in enumerate(donors):
         md_d = md.loc[md[donor_col].astype(str).eq(d_id)].copy()
-        if md_d[group_col].astype(str).nunique() < 2:
+        if not ({str(numerator_group), str(denominator_group)} <= set(md_d[group_col].astype(str))):
             continue
         c_d, _, _ = compute_sc_splicing_contrast(
             usage,
@@ -552,6 +628,8 @@ def compute_sc_stratified_meta_contrast(
     base_meta = np.divide(wb_sum, w_sum, out=np.full(n_ev, 0.5), where=elig_meta)
     se_meta = np.divide(1.0, np.sqrt(np.maximum(w_sum, 1e-12)), out=np.full(n_ev, np.nan), where=elig_meta)
     z_meta = np.divide(wd_sum, np.sqrt(np.maximum(w_sum, 1e-12)), out=np.full(n_ev, np.nan), where=elig_meta)
+    p_meta = np.where(elig_meta & np.isfinite(z_meta), np.clip(2.0 * norm.sf(np.abs(z_meta)), 1e-300, 1.0), np.nan)
+    fdr_meta = _bh_fdr_mask(p_meta, elig_meta)
     se2_m = np.where(elig_meta, se_meta * se_meta, 0.05)
     tau2_m = max(float(np.nanmean(np.maximum(raw_meta[elig_meta] ** 2 - se2_m[elig_meta], 0.0))) if np.any(elig_meta) else 0.005, 0.001)
     shrunk_meta = np.where(elig_meta, raw_meta * (tau2_m / (tau2_m + se2_m)), np.nan)
@@ -567,6 +645,8 @@ def compute_sc_stratified_meta_contrast(
         "dpsi": shrunk_meta,
         "se_dpsi": se_meta,
         "z_shift": z_meta,
+        "p_value": p_meta,
+        "fdr": fdr_meta,
         "cells_numerator": c_num_tot,
         "cells_denominator": c_den_tot,
         "support_numerator": s_num_tot,

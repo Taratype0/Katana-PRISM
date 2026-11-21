@@ -82,15 +82,15 @@ read.DRIMSeq <- function(gene, feature) {
 
     # Read gene-level results
 
-    resultsGene <- read.delim(gene)
-
-    resultsGene <- setNames(resultsGene$padj, resultsGene$groupID)
+    resultsGeneDf <- read.delim(gene)
 
     # Create a vector of screening hypothesis p-values
 
-    pScreen <- resultsGene$pvalue
+    pScreen <- resultsGeneDf$pvalue
 
-    names(pScreen) <- stripVersion(resultsGene$gene_id)
+    names(pScreen) <- stripVersion(resultsGeneDf$gene_id)
+
+    resultsGene <- setNames(resultsGeneDf$adj_pvalue, resultsGeneDf$gene_id)
 
     # Read feature-level results
 

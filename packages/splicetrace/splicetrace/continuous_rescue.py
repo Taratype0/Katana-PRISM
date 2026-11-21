@@ -233,8 +233,9 @@ def run_bulk_continuous_rescue(
     if int(non_const.sum()) >= 120:
         df = df.loc[non_const].reset_index(drop=True)
 
-    fdr_all = pd.to_numeric(df.get("fdr", pd.Series(1.0, index=df.index)), errors="coerce").fillna(1.0).to_numpy(dtype=float)
-    pval_all = np.clip(pd.to_numeric(df.get("PValue", df.get("fdr", 1.0)), errors="coerce").fillna(1.0).to_numpy(dtype=float), 1e-12, 1.0)
+    fdr_all = pd.to_numeric(df["fdr"] if "fdr" in df.columns else pd.Series(1.0, index=df.index), errors="coerce").fillna(1.0).to_numpy(dtype=float)
+    pv_ser = df["PValue"] if "PValue" in df.columns else (df["fdr"] if "fdr" in df.columns else pd.Series(1.0, index=df.index))
+    pval_all = np.clip(pd.to_numeric(pv_ser, errors="coerce").fillna(1.0).to_numpy(dtype=float), 1e-12, 1.0)
     dpsi_v = df["dpsi"].to_numpy(dtype=float)
     df["log_depth"] = np.log1p(np.maximum(df["depth"].to_numpy(dtype=float), 1.0))
 
@@ -271,6 +272,14 @@ def run_bulk_continuous_rescue(
         except Exception:
             valid_mask.append(False)
     cont_df = panel_raw.loc[valid_mask].reset_index(drop=True)
+    if cont_df.empty:
+        return SpliceTraceRescueResult(
+            rbp_ranking=pd.DataFrame(columns=["RBP", "best_region", "direction", "stat_Z", "nominal_P", "rbp_P_FWER", "sequence_rank"]),
+            region_tests=pd.DataFrame(columns=["RBP", "region", "layer", "stat_Z", "nominal_P", "region_P_FWER"]),
+            event_contrasts=cont_df,
+            mature_consequences=pd.DataFrame(),
+            diagnostics={"status": "no_valid_events", "n_events_total": 0, "n_events_fg": 0},
+        )
 
     rna_df = extract_event_rna(
         cont_df,
@@ -350,7 +359,8 @@ def run_bulk_continuous_rescue(
     X_nuis = np.column_stack(nuis_cols)
 
     dpsi_c = cont_df["dpsi"].to_numpy(dtype=float)
-    pv_c = np.clip(pd.to_numeric(cont_df.get("PValue", cont_df.get("fdr", 1.0)), errors="coerce").fillna(1.0).to_numpy(dtype=float), 1e-12, 1.0)
+    pv_c_ser = cont_df["PValue"] if "PValue" in cont_df.columns else (cont_df["fdr"] if "fdr" in cont_df.columns else pd.Series(1.0, index=cont_df.index))
+    pv_c = np.clip(pd.to_numeric(pv_c_ser, errors="coerce").fillna(1.0).to_numpy(dtype=float), 1e-12, 1.0)
     z_raw = np.sign(dpsi_c) * np.clip(norm.isf(0.5 * pv_c), 0.0, 8.0)
     y_sparse = np.where(cont_df["_is_fg"].to_numpy(dtype=bool), z_raw, 0.0)
     cont_df["z_shift"] = y_sparse

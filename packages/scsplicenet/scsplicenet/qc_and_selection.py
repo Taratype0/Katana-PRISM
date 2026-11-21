@@ -196,9 +196,15 @@ def attach_split_state_reliability_and_psix(
         w = finite.astype(float)
 
     # 1. Stratified split-half state/micro-state repeatability on training cells ONLY
-    strata = (
-        metadata["condition"].astype(str) + "|" + metadata["cell_type"].astype(str)
-    ).to_numpy(dtype=str)
+    md_al = metadata.copy()
+    if "cell_id" in md_al.columns:
+        md_al["cell_id"] = md_al["cell_id"].astype(str)
+        md_al = md_al.drop_duplicates(subset=["cell_id"]).set_index("cell_id").reindex(usage.index.astype(str))
+    cond_col = "condition" if "condition" in md_al.columns else ("treatment" if "treatment" in md_al.columns else None)
+    ct_col = "cell_type" if "cell_type" in md_al.columns else None
+    cond_s = md_al[cond_col].fillna("unknown").astype(str) if cond_col else pd.Series("all", index=md_al.index)
+    ct_s = md_al[ct_col].fillna("cell").astype(str) if ct_col else pd.Series("cell", index=md_al.index)
+    strata = (cond_s + "|" + ct_s).to_numpy(dtype=str)
     uniq_s = sorted(np.unique(strata))
     rng = np.random.default_rng(int(seed))
     r_splits = np.zeros((repeats, n_ev), dtype=float)
@@ -244,27 +250,40 @@ def attach_split_state_reliability_and_psix(
     # 2. Psix-style KNN cell-manifold autocorrelation comparator (Buen Abad Najar et al., Genome Biol 2022)
     # Build cell-cell similarity graph from host_log_expr (or usage PCA fallback) on training cells ONLY
     if host_log_expr is not None:
-        mat_cell = np.nan_to_num(host_log_expr.reindex(index=usage.index).to_numpy(dtype=float), nan=0.0)
+        h_df = host_log_expr.copy()
+        h_df.index = h_df.index.astype(str)
+        h_df.columns = h_df.columns.astype(str)
+        u_idx_s = usage.index.astype(str)
+        if len(set(h_df.columns) & set(u_idx_s)) > len(set(h_df.index) & set(u_idx_s)):
+            h_df = h_df.T
+        mat_cell = np.nan_to_num(h_df.reindex(index=u_idx_s).to_numpy(dtype=float), nan=0.0)
     else:
         col_m = np.nanmean(u, axis=0)
         mat_cell = np.where(finite, u - col_m[None, :], 0.0)
-    c_std = mat_cell - mat_cell.mean(axis=1, keepdims=True)
-    c_nrm = np.maximum(np.linalg.norm(c_std, axis=1, keepdims=True), 1e-12)
-    sim = (c_std / c_nrm) @ (c_std / c_nrm).T
-    np.fill_diagonal(sim, -np.inf)
-    k_use = min(int(knn_k), max(1, n_cells - 1))
-    knn_w = np.zeros((n_cells, n_cells), dtype=float)
-    for ci in range(n_cells):
-        nn_ix = np.argsort(sim[ci])[-k_use:]
-        knn_w[ci, nn_ix] = np.exp(np.maximum(sim[ci, nn_ix], 0.0))
-    knn_w = 0.5 * (knn_w + knn_w.T)
+    if n_cells <= 1:
+        psix_score = np.zeros(n_ev, dtype=float)
+    else:
+        c_std = mat_cell - mat_cell.mean(axis=1, keepdims=True)
+        c_nrm = np.maximum(np.linalg.norm(c_std, axis=1, keepdims=True), 1e-12)
+        sim = (c_std / c_nrm) @ (c_std / c_nrm).T
+        np.fill_diagonal(sim, -np.inf)
+        k_use = min(int(knn_k), n_cells - 1)
+        knn_w = np.zeros((n_cells, n_cells), dtype=float)
+        for ci in range(n_cells):
+            nn_ix = np.argsort(sim[ci])[-k_use:]
+            knn_w[ci, nn_ix] = np.exp(np.maximum(sim[ci, nn_ix], 0.0))
+        knn_w = 0.5 * (knn_w + knn_w.T)
 
-    # Standardize cell PSI residuals by binomial SD and compute Moran's I / Psix statistic across KNN graph
-    mu = out["precision_mean"].to_numpy(dtype=float)
-    z_u = np.where(finite, (u - mu[None, :]) * np.sqrt(w), 0.0)
-    num_psix = np.sum(z_u * (knn_w @ z_u), axis=0)
-    den_psix = np.maximum(np.sum(z_u * z_u, axis=0), 1e-12) * max(float(knn_w.sum()) / n_cells, 1e-12)
-    psix_score = num_psix / den_psix
+        # Standardize cell PSI residuals by binomial SD and compute Moran's I / Psix statistic over observed-subgraph weights
+        mu = out["precision_mean"].to_numpy(dtype=float)
+        z_u = np.where(finite, (u - mu[None, :]) * np.sqrt(w), 0.0)
+        f_flt = finite.astype(float)
+        num_psix = np.sum(z_u * (knn_w @ z_u), axis=0)
+        obs_w_sum = np.sum(f_flt * (knn_w @ f_flt), axis=0)
+        obs_cnt = np.maximum(f_flt.sum(axis=0), 1.0)
+        mean_obs_deg = np.maximum(obs_w_sum / obs_cnt, 1e-12)
+        den_psix = np.maximum(np.sum(z_u * z_u, axis=0), 1e-12) * mean_obs_deg
+        psix_score = np.where(obs_w_sum > 1e-12, num_psix / den_psix, 0.0)
     out["psix_knn_score"] = psix_score
     # scSpliceNet 1.0 Hybrid Manifold x ExcessBioVar x Coverage score (combines continuous state smoothness with binomial noise subtraction)
     out["hybrid_manifold_excess_bio_var"] = (

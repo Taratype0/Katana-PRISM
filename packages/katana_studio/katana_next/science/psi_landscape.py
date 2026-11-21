@@ -439,8 +439,10 @@ def render_editorial_psi_clustermap(
     svg_path: str | Path | None = None,
     title: str = "Depth-Stabilized Splicing Z-Score Clustermap",
     event_meta: dict[str, dict[str, Any]] | None = None,
+    max_display_rows: int = 40,
 ) -> None:
-    """Render publication-grade PSI Z-Score Clustermap with distinct Condition vs Subtype legends & gene callouts."""
+    """Render publication-grade PSI Z-Score Clustermap with exact 1-to-1 row-to-gene alignment,
+    left row dendrogram, top sample dendrogram, distinct Condition vs Subtype legends, and explicit row/column axes."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -451,45 +453,91 @@ def render_editorial_psi_clustermap(
     png_path.parent.mkdir(parents=True, exist_ok=True)
 
     internal = landscape["_internal"]
-    Z = internal["Z_ordered"]
+    Z_full = np.asarray(internal["Z_ordered"], dtype=float)
     col_link = internal["col_link"]
-    sel_eids = internal["sel_eids"]
-    obs_frac = internal["obs_frac_ordered"]
-    samples = landscape["ordered_samples"]
-    conds = landscape["ordered_conditions"]
+    sel_eids_full = list(internal["sel_eids"])
+    obs_frac = np.asarray(internal["obs_frac_ordered"], dtype=float)
+    samples = list(landscape["ordered_samples"])
+    conds = list(landscape["ordered_conditions"])
     z_clip = float(landscape.get("z_clip", 2.5))
     show_coverage_strip = bool(len(obs_frac) > 0 and float(np.min(obs_frac)) < 0.97)
 
+    # Select top `max_display_rows` highest-variance rows (preferring unique genes first so EVERY row is 1-to-1 labeled!)
+    n_total_hm = len(sel_eids_full)
+    row_var_map = {str(r["event_id"]): float(r.get("excess_biovar", 0.0)) for r in landscape.get("heatmap_rows", [])}
+    if n_total_hm > max_display_rows:
+        ranked_idx = sorted(
+            range(n_total_hm),
+            key=lambda i: (-row_var_map.get(sel_eids_full[i], float(np.nanstd(Z_full[i]))), i),
+        )
+        chosen: list[int] = []
+        seen_g: set[str] = set()
+        for idx_r in ranked_idx:
+            if len(chosen) >= max_display_rows:
+                break
+            g_sym = str((event_meta or {}).get(sel_eids_full[idx_r], {}).get("gene_symbol", "")).strip()
+            if g_sym and g_sym not in seen_g:
+                seen_g.add(g_sym)
+                chosen.append(idx_r)
+        for idx_r in ranked_idx:
+            if len(chosen) >= max_display_rows:
+                break
+            if idx_r not in chosen:
+                chosen.append(idx_r)
+        Z_sub = Z_full[chosen, :]
+        eids_sub = [sel_eids_full[i] for i in chosen]
+    else:
+        Z_sub = Z_full
+        eids_sub = sel_eids_full
+
+    row_link = None
+    if len(eids_sub) >= 3:
+        try:
+            rd = np.nan_to_num(pdist(Z_sub, metric="euclidean"), nan=0.0)
+            row_link = linkage(rd, method="ward")
+            r_ord = leaves_list(row_link).tolist()
+            Z = Z_sub[r_ord, :]
+            sel_eids = [eids_sub[i] for i in r_ord]
+        except Exception:
+            Z = Z_sub
+            sel_eids = eids_sub
+            row_link = None
+    else:
+        Z = Z_sub
+        sel_eids = eids_sub
+
+    n_disp = len(sel_eids)
     uniq_conds = list(dict.fromkeys(conds))
     cond_color = {c: CONDITION_PALETTE[i % len(CONDITION_PALETTE)] for i, c in enumerate(uniq_conds)}
 
-    fig = plt.figure(figsize=(13.2, 8.4), dpi=220)
+    fig_h = max(8.2, min(12.2, 3.0 + 0.195 * n_disp))
+    fig = plt.figure(figsize=(14.0, fig_h), dpi=220)
     fig.patch.set_facecolor("white")
     if show_coverage_strip:
         gs = fig.add_gridspec(
-            4, 4,
-            height_ratios=[0.90, 0.24, 0.18, 6.2],
-            width_ratios=[0.22, 7.5, 1.55, 0.25],
-            hspace=0.04, wspace=0.05,
+            4, 5,
+            height_ratios=[0.85, 0.24, 0.18, 6.8],
+            width_ratios=[0.82, 0.22, 6.9, 1.95, 0.24],
+            hspace=0.035, wspace=0.04,
         )
         hm_row_idx = 3
     else:
         gs = fig.add_gridspec(
-            3, 4,
-            height_ratios=[0.92, 0.26, 6.3],
-            width_ratios=[0.22, 7.5, 1.55, 0.25],
-            hspace=0.04, wspace=0.05,
+            3, 5,
+            height_ratios=[0.88, 0.26, 6.9],
+            width_ratios=[0.82, 0.22, 6.9, 1.95, 0.24],
+            hspace=0.035, wspace=0.04,
         )
         hm_row_idx = 2
 
     # 1. Top Sample Dendrogram
-    ax_dend = fig.add_subplot(gs[0, 1])
+    ax_dend = fig.add_subplot(gs[0, 2])
     if col_link is not None and len(samples) >= 3:
         dendrogram(col_link, ax=ax_dend, color_threshold=0, above_threshold_color=EDITORIAL_NAVY, no_labels=True)
     ax_dend.axis("off")
 
     # 2. Sample Group Color Bar
-    ax_cond = fig.add_subplot(gs[1, 1])
+    ax_cond = fig.add_subplot(gs[1, 2])
     cond_rgb = np.array([[matplotlib.colors.to_rgb(cond_color[c]) for c in conds]])
     ax_cond.imshow(cond_rgb, aspect="auto", interpolation="nearest")
     ax_cond.set_xticks([])
@@ -497,72 +545,85 @@ def render_editorial_psi_clustermap(
     for sp in ax_cond.spines.values():
         sp.set_visible(False)
 
-    # 3. Optional Cell Completeness Bar (only shown in sparse single-cell cohorts where <97% complete)
+    # 3. Optional Cell Completeness Bar
     if show_coverage_strip:
-        ax_cov = fig.add_subplot(gs[2, 1])
+        ax_cov = fig.add_subplot(gs[2, 2])
         cov_cmap = LinearSegmentedColormap.from_list("cov_editorial", ["#E2E8F0", "#93C5FD", "#051C2C"])
         ax_cov.imshow(obs_frac[None, :], aspect="auto", cmap=cov_cmap, vmin=0.35, vmax=1.0, interpolation="nearest")
         ax_cov.set_xticks([])
-        ax_cov.set_yticks([0], ["Detected %"], fontsize=7.8, color=EDITORIAL_SLATE)
+        ax_cov.set_yticks([0], ["Detected %"], fontsize=7.6, color=EDITORIAL_SLATE)
         for sp in ax_cov.spines.values():
             sp.set_visible(False)
 
-    # 4. Left Event-Subtype Strip (distinct jewel/slate palette!)
-    ax_et = fig.add_subplot(gs[hm_row_idx, 0])
+    # 4. Left Row Dendrogram (1-to-1 with displayed rows)
+    ax_rdend = fig.add_subplot(gs[hm_row_idx, 0])
+    if row_link is not None and n_disp >= 3:
+        dendrogram(row_link, ax=ax_rdend, orientation="left", color_threshold=0, above_threshold_color=EDITORIAL_NAVY, no_labels=True)
+        ax_rdend.invert_yaxis()
+    ax_rdend.axis("off")
+
+    # 5. Left Event-Subtype Strip
+    ax_et = fig.add_subplot(gs[hm_row_idx, 1])
     etypes = [str((event_meta or {}).get(e, {}).get("event_type") or infer_event_type(e)) for e in sel_eids]
     et_rgb = np.array([[matplotlib.colors.to_rgb(EVENT_TYPE_COLORS.get(et, "#94A3B8"))] for et in etypes])
     ax_et.imshow(et_rgb, aspect="auto", interpolation="nearest")
-    ax_et.set_xticks([0], ["Subtype"], fontsize=7.6, rotation=90, color=EDITORIAL_SLATE)
+    if n_disp >= 2:
+        ax_et.hlines(np.arange(0.5, n_disp - 0.5), -0.5, 0.5, colors="white", linewidths=0.35, alpha=0.65)
+    ax_et.set_xticks([0], ["Type"], fontsize=7.6, rotation=90, fontweight="bold", color=EDITORIAL_SLATE)
     ax_et.set_yticks([])
     for sp in ax_et.spines.values():
         sp.set_visible(False)
 
-    # 5. Main Diverging PSI Z-Score Heatmap
-    ax_hm = fig.add_subplot(gs[hm_row_idx, 1])
+    # 6. Main Diverging PSI Z-Score Heatmap — 100% 1-to-1 Row-to-Gene Alignment!
+    ax_hm = fig.add_subplot(gs[hm_row_idx, 2])
     div_cmap = LinearSegmentedColormap.from_list("editorial_z", [EDITORIAL_CERULEAN, "#E0F2FE", "#FFFFFF", "#FECDD3", EDITORIAL_CORAL])
     im = ax_hm.imshow(Z, aspect="auto", cmap=div_cmap, vmin=-z_clip, vmax=z_clip, interpolation="nearest")
+    if n_disp >= 2:
+        ax_hm.hlines(np.arange(0.5, n_disp - 0.5), -0.5, len(samples) - 0.5, colors="white", linewidths=0.40, alpha=0.55)
     if len(samples) <= 32:
+        ax_hm.vlines(np.arange(0.5, len(samples) - 0.5), -0.5, n_disp - 0.5, colors="white", linewidths=0.40, alpha=0.45)
         ax_hm.set_xticks(np.arange(len(samples)))
-        ax_hm.set_xticklabels(samples, rotation=90, fontsize=8.2, color=EDITORIAL_NAVY)
+        ax_hm.set_xticklabels(samples, rotation=60, ha="right", fontsize=8.1, color=EDITORIAL_NAVY)
+        ax_hm.set_xlabel(f"Columns: {len(samples)} Biological Samples (Ward-clustered across {landscape.get('manifold_events', landscape['selected_events']):,} events)", fontsize=8.5, fontweight="bold", color=EDITORIAL_NAVY, labelpad=6)
     else:
         ax_hm.set_xticks([])
-        ax_hm.set_xlabel(f"{len(samples)} cells / samples ordered by Ward linkage", fontsize=8.8, color=EDITORIAL_NAVY)
+        ax_hm.set_xlabel(f"Columns: {len(samples):,} Single Cells ordered by Ward linkage across {landscape.get('manifold_events', landscape['selected_events']):,} events", fontsize=8.6, fontweight="bold", color=EDITORIAL_NAVY, labelpad=6)
 
-    # Always display clean Gene Symbol labels on the right axis (all rows if <=32, or ~20 evenly-spaced representative genes!)
-    n_rows = len(sel_eids)
-    if n_rows <= 32:
-        tick_idx = list(range(n_rows))
-    else:
-        step = max(1, n_rows // 20)
-        tick_idx = []
-        seen_genes: set[str] = set()
-        for r_i in range(0, n_rows, step):
-            g_sym = str((event_meta or {}).get(sel_eids[r_i], {}).get("gene_symbol", "")).strip()
-            if g_sym and not g_sym.startswith("ENS") and g_sym not in seen_genes:
-                seen_genes.add(g_sym)
-                tick_idx.append(r_i)
     row_lbls = [
-        f"{(event_meta or {}).get(sel_eids[i], {}).get('gene_symbol', sel_eids[i][:12])} ({etypes[i]})"
-        for i in tick_idx
+        f"{(event_meta or {}).get(sel_eids[i], {}).get('gene_symbol', sel_eids[i][:14])} ({etypes[i]})"
+        for i in range(n_disp)
     ]
-    ax_hm.set_yticks(tick_idx, row_lbls, fontsize=7.4, color=EDITORIAL_NAVY)
+    lbl_fs = 7.7 if n_disp <= 40 else 6.8
+    ax_hm.set_yticks(np.arange(n_disp), row_lbls, fontsize=lbl_fs, color=EDITORIAL_NAVY)
     ax_hm.yaxis.tick_right()
+    ax_hm.tick_params(axis="y", length=3.0, pad=3.0)
+    ax_hm.text(
+        1.01,
+        1.012,
+        f"Rows: Top {n_disp} Events\n(1-to-1 row aligned)",
+        transform=ax_hm.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=7.6,
+        fontweight="bold",
+        color=EDITORIAL_NAVY,
+    )
 
-    # 6. Colorbar (placed in column 3 after dedicated column-2 label gutter so right-axis gene names NEVER collide!)
-    ax_cb = fig.add_subplot(gs[hm_row_idx, 3])
+    # 7. Colorbar
+    ax_cb = fig.add_subplot(gs[hm_row_idx, 4])
     cb = fig.colorbar(im, cax=ax_cb)
-    cb.set_label(f"Depth-Stabilized PSI Row Z-Score (±{z_clip:.1f} SD)", fontsize=8.4, color=EDITORIAL_NAVY)
+    cb.set_label(f"Row-Standardized Shrunk PSI Z-Score (±{z_clip:.1f} SD)", fontsize=8.3, fontweight="bold", color=EDITORIAL_NAVY)
     cb.ax.tick_params(labelsize=7.6)
     cb.outline.set_edgecolor("#CBD5E1")
 
-    # 7. TWO SEPARATE, CLEARLY TITLED LEGENDS (Sample Group vs Splicing Subtype — zero color collision!)
+    # 8. Legends
     cond_patches = [Patch(facecolor=cond_color[c], label=c) for c in uniq_conds[:8]]
     present_ets = [et for et in ("SE", "RI", "A3SS", "A5SS", "MXE") if et in set(etypes)]
     et_patches = [Patch(facecolor=EVENT_TYPE_COLORS[et], label=et) for et in present_ets]
 
     leg1 = fig.legend(
         handles=cond_patches,
-        title="Sample Group (Top Bar)",
+        title="Sample Group (Top Column Bar)",
         title_fontsize=8.0,
         loc="upper left",
         bbox_to_anchor=(0.04, 0.925),
@@ -575,7 +636,7 @@ def render_editorial_psi_clustermap(
     if et_patches:
         leg2 = fig.legend(
             handles=et_patches,
-            title="Splicing Subtype (Left Strip)",
+            title="Splicing Class (Left Row Strip)",
             title_fontsize=8.0,
             loc="upper right",
             bbox_to_anchor=(0.94, 0.925),
@@ -585,15 +646,14 @@ def render_editorial_psi_clustermap(
         leg2.get_title().set_fontweight("bold")
 
     man_n = landscape.get("manifold_events", landscape["selected_events"])
-    hm_n = landscape.get("heatmap_events", len(sel_eids))
-    mode_lbl = "Unsupervised biological variance" if "unsupervised" in landscape["selection_mode"] else "Supervised PS-DAS signature"
+    mode_lbl = "unsupervised biological variance" if "unsupervised" in landscape["selection_mode"] else "PS-DAS signature"
     fig.text(0.04, 0.978, title, fontsize=11.8, fontweight="bold", color=EDITORIAL_NAVY, ha="left", va="top")
     fig.text(
-        0.04, 0.948,
-        f"Top {hm_n} events shown (sample clustering & PERMANOVA R² = {landscape['permanova_r2']*100:.1f}%, P = {landscape['permanova_p']:.3g} computed across {man_n:,} {mode_lbl} events)",
-        fontsize=8.3, color=EDITORIAL_SLATE, ha="left", va="top",
+        0.04, 0.949,
+        f"Rows = Top {n_disp} variable splicing events (1-to-1 aligned) · Columns = {len(samples):,} {'samples' if len(samples) <= 32 else 'cells'} · PERMANOVA R² = {landscape['permanova_r2']*100:.1f}%, P = {landscape['permanova_p']:.3g} (across {man_n:,} {mode_lbl} events)",
+        fontsize=8.2, color=EDITORIAL_SLATE, ha="left", va="top",
     )
-    fig.subplots_adjust(left=0.05, right=0.88, top=0.84, bottom=0.11)
+    fig.subplots_adjust(left=0.04, right=0.89, top=0.84, bottom=0.12)
     fig.savefig(png_path, dpi=220, bbox_inches="tight", facecolor="white")
     if svg_path:
         fig.savefig(svg_path, bbox_inches="tight", facecolor="white")
@@ -644,14 +704,23 @@ def render_editorial_psi_pca(
     markers = ["o", "s", "^", "D", "P", "X", "v", "<"]
 
     fig, (ax_pca, ax_scree) = plt.subplots(
-        1, 2, figsize=(12.2, 4.9),
-        gridspec_kw={"width_ratios": [2.35, 1.0], "wspace": 0.24}, dpi=220,
+        1, 2, figsize=(13.0, 5.1),
+        gridspec_kw={"width_ratios": [2.25, 1.0], "wspace": 0.36}, dpi=220,
     )
     fig.patch.set_facecolor("white")
 
     ax_pca.axhline(0, color="#E2E8F0", linewidth=0.8, zorder=0)
     ax_pca.axvline(0, color="#E2E8F0", linewidth=0.8, zorder=0)
     ax_pca.grid(True, color="#F1F5F9", linewidth=0.6, zorder=0)
+
+    all_x = np.array([float(s["PC1"]) for s in samples], dtype=float)
+    all_y = np.array([float(s["PC2"]) for s in samples], dtype=float)
+    x_min, x_max = float(np.min(all_x)), float(np.max(all_x))
+    y_min, y_max = float(np.min(all_y)), float(np.max(all_y))
+    x_span = max(0.5, x_max - x_min)
+    y_span = max(0.5, y_max - y_min)
+    ax_pca.set_xlim(x_min - 0.30 * x_span, x_max + 0.32 * x_span)
+    ax_pca.set_ylim(y_min - 0.22 * y_span, y_max + 0.24 * y_span)
 
     for idx, c in enumerate(conds):
         pts = [s for s in samples if s["condition"] == c]
@@ -661,12 +730,48 @@ def render_editorial_psi_pca(
         mk = markers[idx % len(markers)]
         _draw_confidence_ellipse(ax_pca, xs, ys, col, level=0.90)
         ax_pca.scatter(xs, ys, s=78, color=col, marker=mk, edgecolors="white", linewidths=0.9, label=f"{c} (n={len(pts)})", zorder=3)
-        if len(samples) <= 30:
-            for s_i, p in enumerate(pts):
+
+    if len(samples) <= 24:
+        x_mid = 0.5 * (x_min + x_max)
+        min_dy = 0.078 * (y_span * 1.46)
+        for is_right in (False, True):
+            side_pts = sorted(
+                [p for p in samples if (float(p["PC1"]) >= x_mid) == is_right],
+                key=lambda item: float(item["PC2"]),
+            )
+            if not side_pts:
+                continue
+            ys_adj = [float(p["PC2"]) for p in side_pts]
+            for _ in range(18):
+                for i in range(1, len(ys_adj)):
+                    if ys_adj[i] - ys_adj[i - 1] < min_dy:
+                        mid_v = 0.5 * (ys_adj[i] + ys_adj[i - 1])
+                        ys_adj[i - 1] = mid_v - 0.5 * min_dy
+                        ys_adj[i] = mid_v + 0.5 * min_dy
+            y_lo, y_hi = y_min - 0.16 * y_span, y_max + 0.18 * y_span
+            if ys_adj[-1] > y_hi:
+                shift = ys_adj[-1] - y_hi
+                ys_adj = [v - shift for v in ys_adj]
+            if ys_adj[0] < y_lo:
+                shift = y_lo - ys_adj[0]
+                ys_adj = [v + shift for v in ys_adj]
+            for p, y_lbl in zip(side_pts, ys_adj):
+                px, py = float(p["PC1"]), float(p["PC2"])
+                # Place label inward toward plot center if near outer edge so it never crosses spine!
+                place_left_of_pt = px > (x_max - 0.18 * x_span) if is_right else px > (x_min + 0.22 * x_span)
+                dx = -0.055 * x_span if place_left_of_pt else 0.055 * x_span
+                ha = "right" if place_left_of_pt else "left"
                 ax_pca.annotate(
-                    p["sample_id"], (p["PC1"], p["PC2"]),
-                    xytext=(5, 4 if s_i % 2 == 0 else -8), textcoords="offset points",
-                    fontsize=7.8, color=EDITORIAL_NAVY, fontweight="bold",
+                    p["sample_id"],
+                    xy=(px, py),
+                    xytext=(px + dx, y_lbl),
+                    ha=ha,
+                    va="center",
+                    fontsize=7.4,
+                    color=EDITORIAL_NAVY,
+                    fontweight="bold",
+                    arrowprops={"arrowstyle": "-", "color": "#94A3B8", "lw": 0.65, "shrinkA": 2, "shrinkB": 3},
+                    zorder=5,
                 )
 
     vexp = landscape["pca_variance_pct"]
@@ -676,7 +781,7 @@ def render_editorial_psi_pca(
         f"A. Sample splicing manifold (PERMANOVA R² = {landscape['permanova_r2']*100:.1f}%, P = {landscape['permanova_p']:.3g})",
         loc="left", fontsize=10.2, fontweight="bold", color=EDITORIAL_NAVY,
     )
-    ax_pca.legend(frameon=False, fontsize=8.2, loc="best")
+    ax_pca.legend(frameon=True, facecolor="#FFFFFF", framealpha=0.88, edgecolor="#E2E8F0", fontsize=8.0, loc="upper left")
 
     # Panel B: Variance spectrum + Beyond-Jutils QC summary
     pcs = [f"PC{i+1}" for i in range(len(vexp))]
@@ -687,12 +792,12 @@ def render_editorial_psi_pca(
         ax_scree.text(xi, v + max(vexp) * 0.04, f"{v:.1f}%", ha="center", fontsize=7.8, color=EDITORIAL_NAVY)
     ax_scree.set_xticks(np.arange(len(vexp)), pcs)
     ax_scree.set_ylabel("Explained variance (%)")
-    ax_scree.set_ylim(0, max(cum[-1] * 1.16, 25))
+    ax_scree.set_ylim(0, max(cum[-1] * 1.18, 25))
     ax_scree.set_title("B. Variance spectrum", loc="left", fontsize=10.2, fontweight="bold", color=EDITORIAL_NAVY)
     ax_scree.legend(frameon=False, fontsize=8.0, loc="upper left")
 
     fig.suptitle(title, x=0.01, ha="left", fontsize=12.0, fontweight="bold", color=EDITORIAL_NAVY, y=1.02)
-    fig.subplots_adjust(wspace=0.24)
+    fig.subplots_adjust(wspace=0.36)
     fig.savefig(png_path, dpi=220, bbox_inches="tight", facecolor="white")
     if svg_path:
         fig.savefig(svg_path, bbox_inches="tight", facecolor="white")
@@ -714,61 +819,100 @@ def render_editorial_dual_psi_umap(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.colors import LinearSegmentedColormap
+    from matplotlib.lines import Line2D
 
     png_path = Path(png_path)
     png_path.parent.mkdir(parents=True, exist_ok=True)
     plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 8.8, "axes.spines.top": False, "axes.spines.right": False})
 
     cells = dual["cells"]
-    ctypes = sorted(set(c.get("cell_type") or c.get("condition") for c in cells))
+    ct_counts: dict[str, int] = {}
+    for c in cells:
+        k = str(c.get("cell_type") or c.get("condition") or "Cells")
+        ct_counts[k] = ct_counts.get(k, 0) + 1
+    ctypes = sorted(ct_counts.keys(), key=lambda x: (-ct_counts[x], x))
     ct_col = {ct: CONDITION_PALETTE[i % len(CONDITION_PALETTE)] for i, ct in enumerate(ctypes)}
-    conds = sorted(set(c.get("condition", "") for c in cells))
-    mk_map = {cond: ["o", "^", "s", "D"][i % 4] for i, cond in enumerate(conds)}
+    conds = sorted(set(str(c.get("condition", "")) for c in cells))
+    mk_map = {cond: ["o", "^", "s", "D", "P", "X"][i % 6] for i, cond in enumerate(conds)}
+    pt_s = 34 if len(cells) <= 400 else (18 if len(cells) <= 1500 else 10)
 
     fig, (ax1, ax2, ax3) = plt.subplots(
-        1, 3, figsize=(16.2, 4.8),
-        gridspec_kw={"wspace": 0.27}, dpi=220,
+        1, 3, figsize=(16.4, 5.4),
+        gridspec_kw={"wspace": 0.26}, dpi=220,
     )
     fig.patch.set_facecolor("white")
 
     for ct in ctypes:
         for cond in conds:
-            sub = [c for c in cells if (c.get("cell_type") or c.get("condition")) == ct and c.get("condition") == cond]
+            sub = [c for c in cells if str(c.get("cell_type") or c.get("condition") or "Cells") == ct and str(c.get("condition", "")) == cond]
             if not sub:
                 continue
-            lbl = f"{ct} · {cond}" if ct != cond else ct
             ax1.scatter(
                 [c["expr_UMAP1"] for c in sub], [c["expr_UMAP2"] for c in sub],
-                s=34, color=ct_col[ct], marker=mk_map[cond], alpha=0.88, edgecolors="white", linewidths=0.4, label=lbl,
+                s=pt_s, color=ct_col[ct], marker=mk_map[cond], alpha=0.86, edgecolors="white", linewidths=0.35,
             )
             ax2.scatter(
                 [c["psi_UMAP1"] for c in sub], [c["psi_UMAP2"] for c in sub],
-                s=34, color=ct_col[ct], marker=mk_map[cond], alpha=0.88, edgecolors="white", linewidths=0.4, label=lbl,
+                s=pt_s, color=ct_col[ct], marker=mk_map[cond], alpha=0.86, edgecolors="white", linewidths=0.35,
             )
 
     ax1.set_title(f"A. Expression UMAP (Sil = {dual['cell_type_silhouette_expr']:.2f})", loc="left", fontsize=10.0, fontweight="bold", color=EDITORIAL_NAVY)
-    ax1.set_xlabel("Expression UMAP 1")
-    ax1.set_ylabel("Expression UMAP 2")
-    ax1.legend(frameon=False, fontsize=7.5, loc="best")
+    ax1.set_xlabel("Expression UMAP 1", fontweight="bold", color=EDITORIAL_NAVY)
+    ax1.set_ylabel("Expression UMAP 2", fontweight="bold", color=EDITORIAL_NAVY)
 
     ax2.set_title(f"B. Precision Event-PSI UMAP (Sil = {dual['cell_type_silhouette_psi']:.2f})", loc="left", fontsize=10.0, fontweight="bold", color=EDITORIAL_NAVY)
-    ax2.set_xlabel("Precision PSI UMAP 1 (Procrustes-aligned)")
-    ax2.set_ylabel("Precision PSI UMAP 2")
+    ax2.set_xlabel("Precision PSI UMAP 1 (Procrustes-aligned)", fontweight="bold", color=EDITORIAL_NAVY)
+    ax2.set_ylabel("Precision PSI UMAP 2", fontweight="bold", color=EDITORIAL_NAVY)
 
     div_cmap = LinearSegmentedColormap.from_list("div_editorial", ["#E2E8F0", "#60A5FA", "#2251FF", EDITORIAL_CORAL])
     divs = np.array([c["modality_divergence"] for c in cells], dtype=float)
     sc3 = ax3.scatter(
         [c["psi_UMAP1"] for c in cells], [c["psi_UMAP2"] for c in cells],
-        s=38, c=divs, cmap=div_cmap, vmin=0.0, vmax=1.0, edgecolors="white", linewidths=0.4,
+        s=pt_s + 2, c=divs, cmap=div_cmap, vmin=0.0, vmax=1.0, edgecolors="white", linewidths=0.35,
     )
     cb = fig.colorbar(sc3, ax=ax3, fraction=0.046, pad=0.03)
-    cb.set_label("Cross-modality divergence Δ_kNN", fontsize=8.0)
+    cb.set_label("Cross-modality divergence Δ_kNN", fontsize=8.2, fontweight="bold", color=EDITORIAL_NAVY)
     ax3.set_title(f"C. Modality Divergence (Donor LISI = {dual['median_donor_lisi']:.2f})", loc="left", fontsize=10.0, fontweight="bold", color=EDITORIAL_NAVY)
-    ax3.set_xlabel("Precision PSI UMAP 1")
-    ax3.set_ylabel("Precision PSI UMAP 2")
+    ax3.set_xlabel("Precision PSI UMAP 1", fontweight="bold", color=EDITORIAL_NAVY)
+    ax3.set_ylabel("Precision PSI UMAP 2", fontweight="bold", color=EDITORIAL_NAVY)
 
-    fig.suptitle(title, x=0.01, ha="left", fontsize=12.0, fontweight="bold", color=EDITORIAL_NAVY, y=1.03)
-    fig.subplots_adjust(wspace=0.24)
+    shown_ct = ctypes[:10]
+    ct_handles = [
+        Line2D([0], [0], marker="o", color="none", markerfacecolor=ct_col[ct], markeredgecolor="white", markersize=7.0, label=f"{ct[:22]} (n={ct_counts[ct]})")
+        for ct in shown_ct
+    ]
+    if len(ctypes) > 10:
+        ct_handles.append(Line2D([0], [0], marker="o", color="none", markerfacecolor="#94A3B8", markersize=6.5, label=f"+{len(ctypes) - 10} other populations"))
+    cond_handles = [
+        Line2D([0], [0], marker=mk_map[cd], color="none", markerfacecolor="#334155", markeredgecolor="white", markersize=7.2, label=cd)
+        for cd in conds[:6]
+    ]
+    leg_ct = fig.legend(
+        handles=ct_handles,
+        title="Color: Cell Population",
+        title_fontsize=8.0,
+        loc="upper left",
+        bbox_to_anchor=(0.01, 0.935),
+        ncol=min(5, max(1, len(ct_handles))),
+        frameon=True, facecolor="#F8FAFC", edgecolor="#E2E8F0", fontsize=7.6,
+    )
+    leg_ct.get_title().set_fontweight("bold")
+    fig.add_artist(leg_ct)
+    if len(cond_handles) >= 1 and set(conds) != set(ctypes):
+        leg_cd = fig.legend(
+            handles=cond_handles,
+            title="Shape: Condition",
+            title_fontsize=8.0,
+            loc="upper right",
+            bbox_to_anchor=(0.985, 0.935),
+            ncol=min(4, len(cond_handles)),
+            frameon=True, facecolor="#F8FAFC", edgecolor="#E2E8F0", fontsize=7.6,
+        )
+        leg_cd.get_title().set_fontweight("bold")
+
+    fig.text(0.01, 0.985, title, ha="left", va="top", fontsize=12.0, fontweight="bold", color=EDITORIAL_NAVY)
+    top_margin = 0.77 if len(shown_ct) <= 5 else 0.72
+    fig.subplots_adjust(left=0.05, right=0.96, top=top_margin, bottom=0.11, wspace=0.25)
     fig.savefig(png_path, dpi=220, bbox_inches="tight", facecolor="white")
     if svg_path:
         fig.savefig(svg_path, bbox_inches="tight", facecolor="white")

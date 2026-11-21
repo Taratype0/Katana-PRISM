@@ -97,22 +97,42 @@ def load_rmats_measurable_events(
                 frames.append(_standardize_rmats_df(raw, kind, valid_contigs, comparison_id))
     elif str(src).endswith((".tar.gz", ".tgz", ".tar")):
         with tarfile.open(src, "r:*") as tar:
+            best_by_kind: dict[str, tuple[int, tarfile.TarInfo]] = {}
+            _prio = (".MATS.JC.txt", ".MATS.JCEC.txt", ".MATS.JunctionCountOnly.txt")
             for member in tar:
-                kind = next(
-                    (k for k in EVENT_COORD_COLS if member.name.endswith((f"{k}.MATS.JC.txt", f"{k}.MATS.JCEC.txt", f"{k}.MATS.JunctionCountOnly.txt"))),
-                    None,
-                )
-                if kind is None:
+                base = Path(member.name).name
+                if not member.isfile() or base.startswith("._"):
                     continue
+                for kind in EVENT_COORD_COLS:
+                    for rank_p, suf in enumerate(_prio):
+                        if base == f"{kind}{suf}":
+                            prev = best_by_kind.get(kind)
+                            if prev is None or rank_p < prev[0]:
+                                best_by_kind[kind] = (rank_p, member)
+            for kind, (_, member) in best_by_kind.items():
                 fobj = tar.extractfile(member)
                 if fobj is not None:
                     found_any_rmats_file = True
                     raw = pd.read_csv(fobj, sep="\t", low_memory=False)
                     frames.append(_standardize_rmats_df(raw, kind, valid_contigs, comparison_id))
     elif src.suffix == ".parquet":
-        return pd.read_parquet(src)
+        raw_p = pd.read_parquet(src)
+        if "IncLevelDifference" in raw_p.columns and "dpsi" not in raw_p.columns and "event_type" in raw_p.columns:
+            for kind, grp in raw_p.groupby("event_type"):
+                if str(kind) in EVENT_COORD_COLS:
+                    found_any_rmats_file = True
+                    frames.append(_standardize_rmats_df(grp.copy(), str(kind), valid_contigs, comparison_id))
+        else:
+            return raw_p
     else:
-        return pd.read_csv(src, sep="\t")
+        raw_t = pd.read_csv(src, sep="\t", low_memory=False)
+        if "IncLevelDifference" in raw_t.columns and "dpsi" not in raw_t.columns and "event_type" in raw_t.columns:
+            for kind, grp in raw_t.groupby("event_type"):
+                if str(kind) in EVENT_COORD_COLS:
+                    found_any_rmats_file = True
+                    frames.append(_standardize_rmats_df(grp.copy(), str(kind), valid_contigs, comparison_id))
+        else:
+            return raw_t
 
     frames = [f for f in frames if not f.empty]
     if not frames:

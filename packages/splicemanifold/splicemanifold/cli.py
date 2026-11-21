@@ -123,20 +123,50 @@ def _run_single_cell(args: argparse.Namespace) -> int:
             sup_df = sup_df.T
 
     md_df = pd.read_csv(args.metadata, sep="\t" if str(args.metadata).endswith(".tsv") else ",")
+
+    def _meta_str(row: pd.Series, *keys: str, default: str = "") -> str:
+        for k in keys:
+            if k in row.index:
+                val = row[k]
+                if val is not None and pd.notna(val):
+                    s_val = str(val).strip()
+                    if s_val and s_val.lower() != "nan":
+                        return s_val
+        return default
+
     sample_meta = []
     for _, r in md_df.iterrows():
-        cid = str(r.get("cell_id") or r.get("sample_id"))
+        cid = _meta_str(r, "cell_id", "sample_id")
+        if not cid:
+            continue
         sample_meta.append({
             "sample_id": cid,
-            "condition": str(r.get("condition") or r.get("cell_type") or "State"),
-            "cell_type": str(r.get("cell_type") or r.get("condition") or "Cell"),
-            "donor_id": str(r.get("donor_id") or r.get("donor") or ""),
+            "condition": _meta_str(r, "condition", "cell_type", default="State"),
+            "cell_type": _meta_str(r, "cell_type", "condition", default="Cell"),
+            "donor_id": _meta_str(r, "donor_id", "donor", default=""),
         })
+
+    event_meta = {}
+    ev_cand = getattr(args, "events", None) or (Path(args.psi).parent / "sc_events.tsv")
+    if ev_cand and Path(ev_cand).is_file():
+        try:
+            ev_df = pd.read_csv(ev_cand, sep="\t")
+            if "event_id" in ev_df.columns:
+                gc = next((c for c in ("gene_symbol", "gene_name", "gene_id") if c in ev_df.columns), "event_id")
+                ec = "event_type" if "event_type" in ev_df.columns else None
+                for _, er in ev_df.drop_duplicates("event_id").iterrows():
+                    event_meta[str(er["event_id"])] = {
+                        "gene_symbol": str(er[gc]),
+                        "event_type": str(er[ec]) if ec else "SE",
+                    }
+        except Exception:
+            event_meta = {}
 
     landscape = compute_splicing_manifold(
         psi_df,
         sample_meta,
         depth_matrix=sup_df,
+        event_meta=event_meta,
         top_n=args.top_n,
         manifold_top_n=args.manifold_top_n,
         min_present_fraction=args.min_present_fraction,
@@ -144,10 +174,21 @@ def _run_single_cell(args: argparse.Namespace) -> int:
         run_umap=True,
     )
     if not landscape.get("available"):
-        raise RuntimeError(landscape.get("reason", "Manifold unavailable"))
+        receipt = {
+            "version": __version__,
+            "mode": "single-cell",
+            "manifold_available": False,
+            "reason": landscape.get("reason", "Manifold unavailable"),
+            "elapsed_seconds": round(time.monotonic() - t0, 2),
+        }
+        (out / "run_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+        if args.emit_versions_yml:
+            write_nfcore_versions_yml(args.emit_versions_yml, args.process_name)
+        print(json.dumps(receipt))
+        return 0
 
     fig_dir = out / "figures"
-    render_psi_clustermap(landscape, fig_dir / "sc_psi_clustermap.png", fig_dir / "sc_psi_clustermap.svg")
+    render_psi_clustermap(landscape, fig_dir / "sc_psi_clustermap.png", fig_dir / "sc_psi_clustermap.svg", event_meta=event_meta)
     render_psi_pca(landscape, fig_dir / "sc_psi_pca.png", fig_dir / "sc_psi_pca.svg")
 
     receipt: dict = {
@@ -215,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
 
     psc = sub.add_parser("single-cell", help="Smart-seq3 Precision-Kernel Event-PSI UMAP & Modality Divergence")
     psc.add_argument("--psi", type=Path, required=True, help="Single-cell PSI matrix TSV(.gz)")
+    psc.add_argument("--events", type=Path, default=None, help="Optional single-cell event annotation TSV (for gene symbol labels)")
     psc.add_argument("--support", type=Path, default=None, help="Optional junction read-support matrix TSV(.gz)")
     psc.add_argument("--metadata", type=Path, required=True, help="Cell metadata TSV/CSV (cell_id, cell_type, condition, donor_id)")
     psc.add_argument("--expression", type=Path, default=None, help="Optional host log-expression matrix TSV(.gz) for Procrustes dual UMAP & Delta_kNN")

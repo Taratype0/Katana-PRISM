@@ -542,7 +542,10 @@ def parse_meme_motifs(text: str, *, default_source: str = "external_meme") -> li
                     row_s = lines[i].strip()
                     if not row_s or row_s.startswith(("URL", "MOTIF", "---")):
                         break
-                    nums = [float(x) for x in row_s.split()]
+                    try:
+                        nums = [float(x) for x in row_s.split()]
+                    except ValueError:
+                        break
                     if len(nums) == 4:
                         mat_rows.append(nums)
                         if w_match and len(mat_rows) >= int(w_match.group(1)):
@@ -643,14 +646,21 @@ def parse_iupac_table(df: pd.DataFrame, *, default_source: str = "external_table
             continue
         cw = float(row[col_map["core_weight"]]) if "core_weight" in col_map and pd.notna(row[col_map["core_weight"]]) else 0.90
         mat = iupac_to_pwm(mot, core_weight=cw)
+        def _opt_str(key: str, default: str) -> str:
+            c_name = col_map.get(key)
+            if not c_name:
+                return default
+            v = row.get(c_name)
+            return str(v).strip() if (v is not None and pd.notna(v) and str(v).strip() != "") else default
+
         entries.append({
             "RBP": rbp,
-            "motif_id": str(row.get(col_map.get("motif_id", ""), f"{rbp}_{mot}")),
-            "source": str(row.get(col_map.get("source", ""), default_source)),
-            "assay": str(row.get(col_map.get("assay", ""), "kmer_or_IUPAC")),
-            "category": str(row.get(col_map.get("category", ""), "user_extended")),
-            "mouse_symbol": str(row.get(col_map.get("mouse_symbol", ""), human_to_mouse_rbp_symbol(rbp))),
-            "methylation_dependent": str(row.get(col_map.get("methylation_dependent", "false"))).lower() in {"true", "1", "yes"},
+            "motif_id": _opt_str("motif_id", f"{rbp}_{mot}"),
+            "source": _opt_str("source", default_source),
+            "assay": _opt_str("assay", "kmer_or_IUPAC"),
+            "category": _opt_str("category", "user_extended"),
+            "mouse_symbol": _opt_str("mouse_symbol", human_to_mouse_rbp_symbol(rbp)),
+            "methylation_dependent": _opt_str("methylation_dependent", "false").lower() in {"true", "1", "yes"},
             "matrix": mat.tolist(),
         })
     return entries
@@ -731,7 +741,7 @@ def export_katana_motif_pack(entries: list[dict], out_path: Path | str, *, pack_
     dst = Path(out_path)
     dst.parent.mkdir(parents=True, exist_ok=True)
     if dst.name.lower().endswith(".gz"):
-        with gzip.GzipFile(filename=dst.stem, mode="wb", fileobj=dst.open("wb"), mtime=0) as gz:
+        with dst.open("wb") as raw_fh, gzip.GzipFile(filename=dst.stem, mode="wb", fileobj=raw_fh, mtime=0) as gz:
             gz.write(raw)
     else:
         dst.write_bytes(raw)

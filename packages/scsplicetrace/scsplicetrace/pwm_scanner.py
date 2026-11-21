@@ -34,8 +34,29 @@ def batch_pwm_profiles_for_width(
             vals = np.ones((m_count, len(starts)), dtype=float)
             for k in range(w):
                 vals *= odds_batch[:, k, encoded[starts + k]]
-            ev_out[0] = np.log2(1.0 + np.mean(vals, axis=1))[:, None]
+            mean_log = np.log2(1.0 + np.mean(vals, axis=1))[:, None]
+            for width in widths:
+                if width == 0:
+                    ev_out[0] = mean_log
+                else:
+                    span = max(0, seq_len - width + 1)
+                    if span == 0 or width < w:
+                        ev_out[width] = np.full((m_count, span), np.nan, dtype=float)
+                    else:
+                        full_grid = np.zeros((m_count, n), dtype=float)
+                        full_grid[:, starts] = vals
+                        v_grid = np.zeros(n, dtype=float)
+                        v_grid[starts] = 1.0
+                        win_k = width - w + 1
+                        cs_val = np.concatenate([np.zeros((m_count, 1)), np.cumsum(full_grid, axis=1)], axis=1)
+                        cs_cnt = np.concatenate([[0.0], np.cumsum(v_grid)])
+                        w_sum = cs_val[:, win_k:] - cs_val[:, :-win_k]
+                        w_cnt = cs_cnt[win_k:] - cs_cnt[:-win_k]
+                        w_mean = np.divide(w_sum, w_cnt[None, :], out=np.full((m_count, span), np.nan), where=w_cnt[None, :] > 0)
+                        ev_out[width] = np.where(np.isfinite(w_mean), np.log2(1.0 + w_mean), np.nan)
         else:
-            ev_out[0] = np.full((m_count, 1), np.nan, dtype=float)
+            for width in widths:
+                span = 1 if width == 0 else max(0, seq_len - width + 1)
+                ev_out[width] = np.full((m_count, span), np.nan, dtype=float)
         result[ev_id] = ev_out
     return result

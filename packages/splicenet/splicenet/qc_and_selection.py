@@ -41,23 +41,29 @@ def unit_robust_audit(
 
     a = x.to_numpy(dtype=float)
     ok = np.isfinite(a)
-    den = (ok * weights).sum(axis=1)
-    mean_w = np.divide(np.nansum(a * weights, axis=1), den, out=np.full(len(a), np.nan), where=den > 0)
-    sq_w = np.nan_to_num((a - mean_w[:, None]) ** 2, nan=0.0) * weights
+    w_ok = np.where(ok, weights[None, :], 0.0)
+    den = w_ok.sum(axis=1)
+    mean_w = np.divide((np.where(ok, a, 0.0) * w_ok).sum(axis=1), den, out=np.full(len(a), np.nan), where=den > 0)
+    sq_w = np.where(ok, (a - mean_w[:, None]) ** 2, 0.0) * w_ok
 
     units = meta_idx.groupby("biological_sample_id", sort=True).indices
     per_unit = np.stack([sq_w[:, idx].sum(axis=1) for idx in units.values()], axis=1)
     total_sq = per_unit.sum(axis=1)
     share = np.divide(per_unit.max(axis=1), total_sq, out=np.full(len(a), np.nan), where=total_sq > 1e-12)
+    eff_max_share = max(float(max_unit_variance_share), 0.85) if len(units) == 2 else float(max_unit_variance_share)
 
-    obs_var = x.var(axis=1, ddof=1).to_numpy(dtype=float)
+    # Donor-weighted reliability-weight Bessel-corrected variance matching donor-equitable `weights`
+    w_sq_sum = (w_ok ** 2).sum(axis=1)
+    bessel_den = den - np.divide(w_sq_sum, den, out=np.zeros_like(den), where=den > 0)
+    obs_var = np.divide(total_sq, bessel_den, out=np.full(len(a), np.nan), where=(ok.sum(axis=1) >= 2) & (bessel_den > 1e-12))
     if t_mat is not None:
+        mu_clip = np.clip(np.nan_to_num(mean_w, nan=0.5), 0.01, 0.99)[:, None]
         with np.errstate(divide="ignore", invalid="ignore"):
-            b_var_cell = a * (1.0 - a) / t_mat
-        ok_b = ok & np.isfinite(b_var_cell) & (t_mat > 0)
+            b_var_cell = (mu_clip * (1.0 - mu_clip)) / np.maximum(t_mat, 1.0)
+        ok_b = ok & np.isfinite(t_mat) & (t_mat > 0)
         den_b = (ok_b * weights).sum(axis=1)
         binom_noise = np.divide(
-            np.nansum(np.where(ok_b, b_var_cell, 0.0) * weights, axis=1),
+            (np.where(ok_b, b_var_cell, 0.0) * weights).sum(axis=1),
             den_b,
             out=np.zeros(len(a), dtype=float),
             where=den_b > 0,
@@ -73,7 +79,7 @@ def unit_robust_audit(
         median_depth = np.full(len(a), np.nan)
 
     obs_frac = ok.mean(axis=1)
-    eligible = (obs_frac >= min_observed_fraction) & (obs_var > 1e-12) & (share < max_unit_variance_share)
+    eligible = (obs_frac >= min_observed_fraction) & (obs_var > 1e-12) & (share < eff_max_share)
     if t_mat is not None and require_positive_excess_variance:
         eligible = eligible & (excess_var > 1e-12)
 
@@ -86,7 +92,7 @@ def unit_robust_audit(
             r.append("constant")
         elif t_mat is not None and require_positive_excess_variance and not (ev > 1e-12):
             r.append("pure_binomial_sampling_noise")
-        if not (s < max_unit_variance_share):
+        if not (s < eff_max_share):
             r.append("unit_dominated_variation")
         reasons.append(";".join(r) if r else "passed")
 

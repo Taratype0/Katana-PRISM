@@ -58,7 +58,8 @@ workflow KATANA_MODULAR_DOWNSTREAM {
             ch_fasta,
             ch_gtf,
             params.species ?: 'mouse',
-            ch_splicenet
+            ch_splicenet,
+            ch_bundle
         )
         ch_splicetrace_all = SPLICETRACE.out.results.map { cid, dir -> dir }.collect()
         ch_versions        = ch_versions.mix(SPLICETRACE.out.versions.first())
@@ -73,6 +74,7 @@ workflow KATANA_MODULAR_DOWNSTREAM {
         ch_fasta,
         ch_gtf,
         params.species ?: 'auto',
+        params.rmats_mode ?: 'JCEC',
         params.das_fdr,
         params.das_dpsi,
         ch_manifold,

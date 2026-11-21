@@ -48,6 +48,7 @@ def active_chapters(enabled):
     if enabled["enrichment"]: chapters.add(5)
     if enabled["network"]: chapters.add(6)
     if any(enabled[key] for key in ("rbp_identity", "motiftrace", "motif_binding", "mapp")): chapters.add(7)
+    if enabled["network"] or enabled["motiftrace"]: chapters.add(8)
     return chapters
 
 

@@ -10,7 +10,7 @@ Katana-PRISM cleanly separates **cluster/container workflow scheduling** from **
 
 1. **Full End-to-End Execution (`FASTQ` / `BAM` $\rightarrow$ `Katana Report`) via Nextflow (`main.nf`)**:
    - Built on `nf-core` DSL2 conventions with SLURM / Docker / Singularity / Apptainer / Conda isolation and dynamic per-task resource scaling.
-   - Performs single-pass coordinate-sorted `STAR` alignment (or header-inspected zero-resort `BAM` ingestion), parallel `Qualimap` $5'\rightarrow 3'$ gene-body coverage, unified `MultiQC`, `Salmon` + `DESeq2`, `DEXSeq` / `DRIMSeq` / `stageR`, `SUPPA2`, and parallelized `rMATS-turbo`, followed by scatter-gather execution of Katana's downstream analytical modules.
+   - Performs single-pass coordinate-sorted `STAR` alignment (or header-inspected zero-resort `BAM` ingestion), parallel `Qualimap` $5'\rightarrow 3'$ gene-body coverage, unified `MultiQC`, `Salmon` + `DESeq2`, `DEXSeq` / `DRIMSeq` / `stageR`, `SUPPA2`, and parallelized `rMATS-turbo` for bulk RNA-seq; and `STARsolo` + **`MARVEL`** (`SE`, `MXE`, `RI`, `A5SS`, `A3SS`) with parallel multi-subtype contrast scattering (`--sc_contrasts`) for full-length single-cell RNA-seq (`Smart-seq2/3`), followed by scatter-gather execution of Katana's downstream analytical modules.
 2. **Standalone Python Packages (`packages/*`) for External Caller Outputs**:
    - Researchers who have already generated `rMATS` tables or `Smart-seq3` splicing matrices in another pipeline can `pip install` **only** the lightweight Python module(s) they need—without installing Nextflow or upstream aligners.
 

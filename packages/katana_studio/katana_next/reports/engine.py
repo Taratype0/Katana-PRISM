@@ -13,12 +13,13 @@ from .sources import load_source, digest, read_table, table_schema
 
 CHAPTERS = {
     1: ('Design, inputs and quality control', 'Declared biological samples, comparisons, references and available QC.'),
-    2: ('AS landscape', 'Raw/read-support event composition, sample structure and PSI patterns.'),
-    3: ('Differential molecular results', 'Gene expression, exact splice events, transcript and exon usage; original measurement units retained.'),
-    4: ('Cross-comparison overlap and interaction', 'Exact memberships and effect directions; interaction tests keep their own model families.'),
-    5: ('GO, KEGG and pathway enrichment', 'Comparison-specific input sets and detected/testable backgrounds; original P/FDR retained.'),
-    7: ('RBP and MotifTrace', 'RBP identity, matched motif/CLIP evidence and RNA sequence consequences are separate evidence layers.'),
-    6: ('Katana-Splice-Network', 'Shared study network, module composition, activity, enrichment, hubs and diagnostics.'),
+    2: ('AS landscape', 'Raw/precision-supported event composition, transcript 5′–3′ regional structure and PSI patterns.'),
+    3: ('Differential molecular results', 'Gene expression and differential alternative splicing; original caller P/FDR and measurement units retained.'),
+    4: ('Cross-layer & cross-comparison regulation', 'Expression–splicing decoupling, exact multi-comparison memberships and ΔPSI direction concordance.'),
+    5: ('GO, KEGG and pathway enrichment', 'Comparison-specific input sets and detected/testable backgrounds; original P/FDR and provenance retained.'),
+    6: ('Katana-SpliceNet (Co-Splicing Modules)', 'Co-splicing modules, sample/donor eigengene contrast responses, hub genes and module pathway enrichment.'),
+    7: ('RBP and Katana-SpliceTrace', 'Positional cis-motif enrichment, host RBP evidence and mature-mRNA 50-nt EJC NMD / UniProt domain consequences.'),
+    8: ('Integrative evidence synthesis & target prioritization', 'Multi-layer convergence across PS-DAS, multi-contrast concordance, SpliceNet hubs, RBP cis-motifs and UniProt / NMD consequences.'),
 }
 # Keep persisted chapter identities compatible with completed reports. Order and
 # displayed numbers are presentation metadata, not scientific source identities.
@@ -47,8 +48,10 @@ def chapter_for(analysis):
         return 5
     if analysis.startswith('programs.') or analysis == 'single_cell.programs':
         return 6
-    if any(word in analysis for word in ('rbp', 'motif', 'binding')):
+    if any(word in analysis for word in ('rbp', 'motif', 'binding', 'splicetrace')):
         return 7
+    if analysis in ('prioritize.integrative_targets', 'synthesis.integrative'):
+        return 8
     return None
 
 
@@ -64,6 +67,7 @@ class Builder:
         self.enrichment_summaries = []
         self.motif_summaries = []
         self.network_browsers = []
+        self.interactive_blocks = []
         self.create_archive = True
         self.result_store = None
         self.compact_tables = False

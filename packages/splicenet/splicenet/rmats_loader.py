@@ -150,13 +150,17 @@ def extract_matrices_from_bundle_or_rmats(
             fp = rpath / f"{et}.MATS.{mode}.txt"
             if not fp.is_file():
                 continue
-            df = pd.read_csv(fp, sep="\t")
+            _str_cols = {
+                c: str
+                for c in ("IncLevel1", "IncLevel2", "IJC_SAMPLE_1", "IJC_SAMPLE_2", "SJC_SAMPLE_1", "SJC_SAMPLE_2")
+            }
+            df = pd.read_csv(fp, sep="\t", converters=_str_cols)
             if df.empty:
                 continue
             eids = _canon_ids(df, et)
             gids = df["GeneID"].map(_norm_gene) if "GeneID" in df.columns else pd.Series("", index=df.index)
-            p1_0 = _parse_nums(df["IncLevel1"].iloc[0])
-            p2_0 = _parse_nums(df["IncLevel2"].iloc[0])
+            p1_0 = _parse_nums(df["IncLevel1"].iloc[0]) or _parse_nums(df["IJC_SAMPLE_1"].iloc[0])
+            p2_0 = _parse_nums(df["IncLevel2"].iloc[0]) or _parse_nums(df["IJC_SAMPLE_2"].iloc[0])
             n1 = n1_decl if len(n1_decl) == len(p1_0) else [f"{lbl1}_rep{i+1}" for i in range(len(p1_0))]
             n2 = n2_decl if len(n2_decl) == len(p2_0) else [f"{lbl2}_rep{i+1}" for i in range(len(p2_0))]
             for s in n1:
@@ -180,6 +184,8 @@ def extract_matrices_from_bundle_or_rmats(
                     psi_obs.setdefault((eid, s), []).append(pv)
                     sup_obs.setdefault((eid, s), []).append((iv + sv) if (math.isfinite(iv) and math.isfinite(sv)) else math.nan)
 
+    if not psi_obs:
+        raise ValueError("No non-empty rMATS tables found to construct co-splicing matrices.")
     usage = pd.Series({k: _med(v) for k, v in psi_obs.items()}, dtype=float).unstack().sort_index()
     support = pd.Series({k: _med(v) for k, v in sup_obs.items()}, dtype=float).unstack().sort_index()
     usage.index.name = "event_key"

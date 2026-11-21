@@ -62,11 +62,17 @@ def pick_soft_threshold(bc: np.ndarray, candidate_powers: tuple[int, ...] = (6, 
         if int(nz.sum()) < 4:
             continue
         x = 0.5 * (edges[:-1][nz] + edges[1:][nz])
-        y = np.log10(hist[nz] / float(len(k_pos)))
+        # Jacobian-corrected density p(k) = hist / (N * delta_k) so slope directly estimates -gamma
+        bin_w = np.maximum(np.power(10.0, edges[1:][nz]) - np.power(10.0, edges[:-1][nz]), 1e-12)
+        y = np.log10((hist[nz] / float(len(k_pos))) / bin_w)
+        if float(np.std(x)) <= 1e-12 or float(np.std(y)) <= 1e-12:
+            continue
         slope, _ = np.polyfit(x, y, 1)
-        if slope >= 0:
+        if not np.isfinite(slope) or slope >= -1e-9:
             continue
         r2 = float(np.corrcoef(x, y)[0, 1] ** 2)
+        if not np.isfinite(r2):
+            continue
         if r2 >= r2_cutoff:
             return int(p)
         if r2 > best_r2:
@@ -135,11 +141,13 @@ def _merge_close_modules_and_kme(
         mes: dict[int, np.ndarray] = {}
         for m in sorted(set(lbls) - {0}):
             sub = Xz[lbls == m]
-            _, _, vt = np.linalg.svd(sub.T, full_matrices=False)
             u, s, _ = np.linalg.svd(sub.T, full_matrices=False)
             me = u[:, 0] * s[0]
-            if float(np.corrcoef(me, sub.mean(axis=0))[0, 1]) < 0:
-                me = -me
+            sub_mean = sub.mean(axis=0)
+            if float(np.std(me)) > 1e-12 and float(np.std(sub_mean)) > 1e-12:
+                r_ori = float(np.corrcoef(me, sub_mean)[0, 1])
+                if np.isfinite(r_ori) and r_ori < 0:
+                    me = -me
             mes[int(m)] = me
         return mes
 
@@ -150,11 +158,13 @@ def _merge_close_modules_and_kme(
         if len(m_ids) < 2:
             break
         me_mat = np.vstack([mes[m] for m in m_ids])
-        corr = np.corrcoef(me_mat)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            corr = np.corrcoef(me_mat)
         diss = 1.0 - corr
+        diss = np.where(np.isfinite(diss), diss, np.inf)
         np.fill_diagonal(diss, np.inf)
         i, j = np.unravel_index(int(np.argmin(diss)), diss.shape)
-        if diss[i, j] < float(merge_cut_height):
+        if np.isfinite(diss[i, j]) and diss[i, j] < float(merge_cut_height):
             keep_m, drop_m = min(m_ids[i], m_ids[j]), max(m_ids[i], m_ids[j])
             labels[labels == drop_m] = keep_m
         else:
@@ -197,15 +207,20 @@ def fit_splicenet(
     means = selected_usage.mean(axis=1)
     complete = selected_usage.T.fillna(means).T
 
+    X = complete.to_numpy(dtype=float)
     r_bin = str(rscript) if rscript else shutil.which("Rscript")
     if backend == "r-wgcna" and r_bin:
+        eff_r_power = int(power)
+        if eff_r_power <= 0:
+            bc_tmp = compute_tukey_bicor_matrix(X, max_p_outliers=max_p_outliers)
+            eff_r_power = pick_soft_threshold(bc_tmp)
         max_block = int(len(complete)) if single_block else 2000
         r_body = f"""
         set.seed({int(seed)})
         suppressPackageStartupMessages(library(WGCNA))
         args <- commandArgs(trailingOnly=TRUE)
         dat <- t(as.matrix(read.delim(args[1], row.names=1, check.names=FALSE)))
-        net <- blockwiseModules(dat, power={int(power)}, corType='bicor', networkType='signed', TOMType='signed',
+        net <- blockwiseModules(dat, power={eff_r_power}, corType='bicor', networkType='signed', TOMType='signed',
           minModuleSize={int(min_module_size)}, mergeCutHeight={float(merge_cut_height)}, numericLabels=TRUE,
           pamRespectsDendro=FALSE, deepSplit={int(deep_split)}, maxBlockSize={max_block}L, randomSeed={int(seed)},
           verbose=0, maxPOutliers={float(max_p_outliers)})
@@ -222,11 +237,13 @@ def fit_splicenet(
             if proc.returncode == 0 and (tp / "out.tsv").is_file():
                 df_r = pd.read_csv(tp / "out.tsv", sep="\t", dtype={"event_key": str})
                 df_r["module"] = df_r["module"].astype(int)
+                if out_dir is not None:
+                    Path(out_dir).mkdir(parents=True, exist_ok=True)
+                    df_r.to_csv(Path(out_dir) / "assignments.tsv", sep="\t", index=False)
                 if not return_matrices:
                     return df_r
 
     # Pure-Python exact execution (works offline everywhere without R!)
-    X = complete.to_numpy(dtype=float)
     bc = compute_tukey_bicor_matrix(X, max_p_outliers=max_p_outliers)
     eff_power = pick_soft_threshold(bc) if int(power) <= 0 else int(power)
     tom = compute_signed_tom_from_bicor(bc, power=eff_power)
@@ -256,8 +273,11 @@ def consensus_core_audit(
     ranking_metric: str = "excess_bio_variance",
     n_subsamples: int = 20,
     donor_keep_fraction: float = 0.85,
+    power: int = 6,
+    merge_cut_height: float = 0.25,
     min_module_size: int = 20,
     max_p_outliers: float = 0.10,
+    backend: str = "python",
     seed: int = 20261116,
 ) -> tuple[pd.DataFrame, dict[str, float]]:
     """Run end-to-end donor-block subsampling refits (repeating QC + selection + TOM) to score module stability."""
@@ -265,7 +285,17 @@ def consensus_core_audit(
 
     rng = np.random.default_rng(seed)
     donors = np.array(sorted(meta["biological_sample_id"].astype(str).unique()))
-    n_keep = max(4, int(round(donor_keep_fraction * len(donors))))
+    if len(donors) < 4:
+        enriched = base_assignments.copy()
+        enriched["coassignment_support"] = np.nan
+        enriched["membership_tier"] = np.where(enriched["module"].eq(0), "unassigned_grey", "insufficient_donors_for_subsampling")
+        return enriched, {
+            "n_subsamples": 0,
+            "median_subsample_ARI": np.nan,
+            "median_coassignment_support": np.nan,
+            "core_hub_events": 0,
+        }
+    n_keep = min(len(donors) - 1, max(3, int(round(donor_keep_fraction * len(donors)))))
 
     base = base_assignments.set_index("event_key").copy()
     keys = base.index.tolist()
@@ -286,7 +316,14 @@ def consensus_core_audit(
         sel, _ = select_events(masked, aud, feature_cap=feature_cap, ranking_metric=ranking_metric)
         if len(sel) < min_module_size:
             continue
-        sub_assign = fit_splicenet(sel, min_module_size=min_module_size, max_p_outliers=max_p_outliers)
+        sub_assign = fit_splicenet(
+            sel,
+            power=power,
+            min_module_size=min_module_size,
+            merge_cut_height=merge_cut_height,
+            max_p_outliers=max_p_outliers,
+            backend=backend,
+        )
         sub_map = sub_assign.set_index("event_key")["module"]
         shared = [i for i, k in enumerate(keys) if k in sub_map.index]
         if len(shared) >= min(20, min_module_size):

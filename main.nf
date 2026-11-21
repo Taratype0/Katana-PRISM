@@ -36,7 +36,7 @@ def validateStrandednessParameters() {
 }
 
 workflow SINGLE_CELL {
-    if (params.sc_fastq_manifest || params.sc_10x_fastq_sheet) {
+    if (params.sc_fastq_manifest || params.sc_10x_fastq_sheet || params.sc_sj_dir || params.sc_bam) {
         requireParameters(['sc_metadata', 'fasta', 'gtf'])
         ch_meta  = Channel.value(file(params.sc_metadata, checkIfExists: true))
         ch_expr  = params.sc_expression ? Channel.value(file(params.sc_expression, checkIfExists: true)) : Channel.value(file('NO_EXPRESSION'))

@@ -6,7 +6,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import numpy as np
@@ -19,8 +19,10 @@ from katana_next.science.statistics import (
     safe_spearman,
 )
 from katana_next.infrastructure.fingerprints import fingerprint_value
-from katana_next.services.project_service import ProjectContext
 from katana_next.science.gene_filter import apply_gene_filter
+
+if TYPE_CHECKING:
+    from katana_next.services.project_service import ProjectContext
 
 
 EVENT_TYPES = ("SE", "RI", "A3SS", "A5SS", "MXE")

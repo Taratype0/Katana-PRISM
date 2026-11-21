@@ -124,7 +124,10 @@ def _arm_support(
     ijc = parse_number_list(row.get(f"IJC_SAMPLE_{suffix}"))
     sjc = parse_number_list(row.get(f"SJC_SAMPLE_{suffix}"))
     exp_col = f"{arm}_expected_samples"
-    expected = int(row[exp_col]) if exp_col in row and pd.notna(row[exp_col]) else len(psi)
+    expected = int(row[exp_col]) if exp_col in row and pd.notna(row[exp_col]) else max(len(psi), len(ijc), len(sjc))
+    if expected == 1 and len(psi) == 0 and len(ijc) == 1 and len(sjc) == 1:
+        # Handle single-replicate "NA" parsed as float NaN by upstream pandas.read_csv
+        psi = [math.nan]
     reasons: list[str] = []
     shape_ok = expected > 0 and len(psi) == len(ijc) == len(sjc) == expected
     counts_shape_ok = expected > 0 and len(ijc) == len(sjc) == expected
@@ -167,6 +170,7 @@ def _arm_support(
     high_depth_maj = (
         expected >= 3
         and counts_ok
+        and raw_floor_pass == expected
         and sum(1 for x in eff_list if math.isfinite(x) and x >= min_eff_reads * 1.5) >= maj_k
         and math.isfinite(med_eff) and med_eff >= min_eff_reads * 1.5
         and len(eff_list) == expected
@@ -243,7 +247,8 @@ def qualify_ps_das_events(
 
         p1_j = (si1 + 0.5) / (st1 + 1.0)
         p2_j = (si2 + 0.5) / (st2 + 1.0)
-        j_se = math.sqrt(p1_j * (1.0 - p1_j) / (st1 + 1.0) + p2_j * (1.0 - p2_j) / (st2 + 1.0))
+        # Exact Jeffreys Beta(k+0.5, n-k+0.5) posterior variance: p*(1-p)/(n+2)
+        j_se = math.sqrt(p1_j * (1.0 - p1_j) / (st1 + 2.0) + p2_j * (1.0 - p2_j) / (st2 + 2.0))
 
         min_arm = min(num["numerator_expected_samples"], den["denominator_expected_samples"])
         eff_se = max_jeffreys_se if min_arm >= 2 else max(max_jeffreys_se, 0.22)
@@ -263,7 +268,7 @@ def qualify_ps_das_events(
         rec = {**num, **den}
         rec["effective_length_ratio"] = round(eff_mult, 3)
         rec["jeffreys_se_dpsi"] = round(j_se, 5)
-        rec["nmd_asymmetry_rescued"] = bool(nmd_res and se_ok)
+        rec["nmd_asymmetry_rescued"] = bool(usable_both and nmd_res and se_ok)
         rec["passes_precision_support"] = ps_support
         rec["passes_legacy_all10"] = legacy10
         rec["precision_support_policy"] = PS_DAS_POLICY_ID
@@ -328,6 +333,19 @@ def load_rmats_study(
             if sid and not any(x["sample_id"] == sid for x in sample_meta):
                 sample_meta.append({"sample_id": sid, "biological_sample_id": sid, "condition": cond})
         if c_path is not None and c_path.is_file():
+            import json as _json
+            manifest_order: dict[str, list[str]] = {}
+            manifest_arms: dict[str, tuple[str, str]] = {}
+            if (bdir / "manifest.json").is_file():
+                try:
+                    bm = _json.loads((bdir / "manifest.json").read_text(encoding="utf-8"))
+                    if isinstance(bm.get("rmats_sample_order"), dict):
+                        manifest_order = {str(k): [str(x) for x in v] for k, v in bm["rmats_sample_order"].items() if isinstance(v, list)}
+                    for cm in bm.get("comparisons", []):
+                        if isinstance(cm, dict) and cm.get("comparison_id") and cm.get("rmats_group1") and cm.get("rmats_group2"):
+                            manifest_arms[str(cm["comparison_id"])] = (str(cm["rmats_group1"]), str(cm["rmats_group2"]))
+                except Exception:
+                    pass
             c_df = _read_delimited(c_path)
             for _, r in c_df.iterrows():
                 cid = str(r.get("contrast") or r.get("contrast_id")).strip()
@@ -336,11 +354,14 @@ def load_rmats_study(
                 rdir = bdir / "rmats" / cid / "rmats_post"
                 if not rdir.is_dir():
                     rdir = bdir / "rmats" / cid
-                num_s = [s["sample_id"] for s in sample_meta if s["condition"] == num_lbl]
-                den_s = [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl]
+                g1_lbl, g2_lbl = manifest_arms.get(cid, (num_lbl, den_lbl))
+                rev_dir = (g1_lbl == den_lbl and g2_lbl == num_lbl)
+                num_s = manifest_order.get(num_lbl) or [s["sample_id"] for s in sample_meta if s["condition"] == num_lbl]
+                den_s = manifest_order.get(den_lbl) or [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl]
                 contrast_specs.append({
                     "contrast_id": cid, "numerator": num_lbl, "denominator": den_lbl,
                     "rmats_dir": rdir, "num_samples": num_s, "den_samples": den_s,
+                    "reverse_direction": rev_dir,
                 })
     elif rmats_dir is not None:
         rdir = Path(rmats_dir)
@@ -392,31 +413,41 @@ def load_rmats_study(
             fpath = cdir / f"{et}.MATS.{mode}.txt"
             if not fpath.is_file():
                 continue
-            df = pd.read_csv(fpath, sep="\t")
+            _str_cols = {
+                c: str
+                for c in ("IncLevel1", "IncLevel2", "IJC_SAMPLE_1", "IJC_SAMPLE_2", "SJC_SAMPLE_1", "SJC_SAMPLE_2")
+            }
+            df = pd.read_csv(fpath, sep="\t", converters=_str_cols)
             if df.empty:
                 continue
             df = df.copy()
             df["event_type"] = et
             df["event_id"] = canonical_event_ids(df, et)
+            rev_d = bool(spec.get("reverse_direction", False))
             df["comparison_id"] = spec["contrast_id"]
             df["numerator"] = spec["numerator"]
             df["denominator"] = spec["denominator"]
+            df["reverse_direction"] = rev_d
             df["gene_id"] = df["GeneID"].map(normalize_gene_id) if "GeneID" in df.columns else ""
             df["gene_symbol"] = df["geneSymbol"].map(_clean_id) if "geneSymbol" in df.columns else df["gene_id"]
 
-            p1_first = parse_number_list(df["IncLevel1"].iloc[0])
-            p2_first = parse_number_list(df["IncLevel2"].iloc[0])
-            n1_names = spec["num_samples"] if len(spec["num_samples"]) == len(p1_first) else [f"{spec['numerator']}_rep{i+1}" for i in range(len(p1_first))]
-            n2_names = spec["den_samples"] if len(spec["den_samples"]) == len(p2_first) else [f"{spec['denominator']}_rep{i+1}" for i in range(len(p2_first))]
+            p1_first = parse_number_list(df["IncLevel1"].iloc[0]) or parse_number_list(df["IJC_SAMPLE_1"].iloc[0])
+            p2_first = parse_number_list(df["IncLevel2"].iloc[0]) or parse_number_list(df["IJC_SAMPLE_2"].iloc[0])
+            arm1_s = spec["den_samples"] if rev_d else spec["num_samples"]
+            arm2_s = spec["num_samples"] if rev_d else spec["den_samples"]
+            arm1_lbl = spec["denominator"] if rev_d else spec["numerator"]
+            arm2_lbl = spec["numerator"] if rev_d else spec["denominator"]
+            n1_names = arm1_s if len(arm1_s) == len(p1_first) else [f"{arm1_lbl}_rep{i+1}" for i in range(len(p1_first))]
+            n2_names = arm2_s if len(arm2_s) == len(p2_first) else [f"{arm2_lbl}_rep{i+1}" for i in range(len(p2_first))]
             for s in n1_names:
                 if not any(x["sample_id"] == s for x in sample_meta):
-                    sample_meta.append({"sample_id": s, "biological_sample_id": s, "condition": spec["numerator"]})
+                    sample_meta.append({"sample_id": s, "biological_sample_id": s, "condition": arm1_lbl})
             for s in n2_names:
                 if not any(x["sample_id"] == s for x in sample_meta):
-                    sample_meta.append({"sample_id": s, "biological_sample_id": s, "condition": spec["denominator"]})
+                    sample_meta.append({"sample_id": s, "biological_sample_id": s, "condition": arm2_lbl})
 
-            df["numerator_expected_samples"] = len(n1_names)
-            df["denominator_expected_samples"] = len(n2_names)
+            df["numerator_expected_samples"] = len(n2_names) if rev_d else len(n1_names)
+            df["denominator_expected_samples"] = len(n1_names) if rev_d else len(n2_names)
 
             for eid, gid, gsym, p1s, p2s, i1s, i2s, s1s, s2s in zip(
                 df["event_id"], df["gene_id"], df["gene_symbol"],

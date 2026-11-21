@@ -46,7 +46,8 @@ def precision_pairwise_correlation(
     if weights is None:
         w = finite.astype(float)
     else:
-        w = np.where(finite, np.maximum(np.asarray(weights, dtype=float), 0.0), 0.0)
+        w_raw = np.asarray(weights, dtype=float)
+        w = np.where(finite & np.isfinite(w_raw), np.maximum(w_raw, 0.0), 0.0)
     active = finite & (w > 0.0)
     m_bool = active.astype(float)
     n_obs = (m_bool.T @ m_bool).astype(int)
@@ -86,12 +87,18 @@ def precision_group_profiles(
     ordered_groups: list[str] | np.ndarray,
     *,
     min_cells: int = 3,
+    between_group_var: float = 0.01,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Aggregate cell-level usage into precision-weighted group/donor/micro-state profiles."""
+    """Aggregate cell-level usage into precision-weighted group/donor/micro-state profiles.
+
+    Applies random-effects inverse-variance capping `w_tot / (1 + w_tot * between_group_var)` so
+    a single donor with 10x-25x more cells cannot monopolize Kish N_eff.
+    """
     v = np.asarray(values, dtype=float)
     w = np.asarray(weights, dtype=float)
     g = np.asarray(groups, dtype=str)
-    finite = np.isfinite(v) & (w > 0.0)
+    finite = np.isfinite(v) & np.isfinite(w) & (w > 0.0)
+    tau2_g = max(float(between_group_var), 0.0)
 
     prof_rows: list[np.ndarray] = []
     wt_rows: list[np.ndarray] = []
@@ -108,8 +115,9 @@ def precision_group_profiles(
         w_tot = w_sub.sum(axis=0)
         ok = (n_c >= int(min_cells)) & (w_tot > 0.0)
         p_row = np.divide((w_sub * v_sub).sum(axis=0), w_tot, out=np.full(v.shape[1], np.nan), where=ok)
+        w_eff = w_tot / (1.0 + w_tot * tau2_g) if tau2_g > 0.0 else w_tot
         prof_rows.append(p_row)
-        wt_rows.append(np.where(ok, w_tot, 0.0))
+        wt_rows.append(np.where(ok, w_eff, 0.0))
     return np.stack(prof_rows, axis=0), np.stack(wt_rows, axis=0)
 
 
@@ -482,11 +490,15 @@ def fit_scsplicenet(
         min_valid = int(np.ceil(0.75 * repeats))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
-            q25 = np.nanquantile(cross_draws, 0.25, axis=0)
+            c_arr = np.asarray(cross_draws, dtype=float)
+            q25 = np.nanquantile(c_arr, 0.25, axis=0)
+            q75 = np.nanquantile(c_arr, 0.75, axis=0)
+            med_c = np.nanmedian(c_arr, axis=0)
+            cons_r = np.where(med_c >= 0.0, np.maximum(q25, 0.0), np.minimum(q75, 0.0))
             eff_sup = np.nanmedian(neff_draws, axis=0)
 
         elig = cross_gene_pair & np.isfinite(full_r[ia, ib]) & (valid_splits >= min_valid) & np.isfinite(q25) & (eff_sup > 3.2)
-        shrunk_vec, shrink_info = empirical_bayes_fisher_shrink(q25, eff_sup, elig)
+        shrunk_vec, shrink_info = empirical_bayes_fisher_shrink(cons_r, eff_sup, elig)
         raw_vec = full_r[ia, ib]
         sup_vec = full_n[ia, ib].astype(float)
 
@@ -539,7 +551,11 @@ def fit_scsplicenet(
         min_valid = int(np.ceil(0.75 * repeats))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
-            q25 = np.nanquantile(split_r_draws, 0.25, axis=0)
+            s_mat = np.asarray(split_r_draws, dtype=float)
+            q25 = np.nanquantile(s_mat, 0.25, axis=0)
+            q75 = np.nanquantile(s_mat, 0.75, axis=0)
+            med_s = np.nanmedian(s_mat, axis=0)
+            cons_r = np.where(med_s >= 0.0, np.maximum(q25, 0.0), np.minimum(q75, 0.0))
 
         raw_blend = np.where(
             np.isfinite(full_micro_r) & np.isfinite(full_cell_r),
@@ -554,7 +570,7 @@ def fit_scsplicenet(
             full_cell_neff[ia, ib],
         )
         elig = cross_gene_pair & np.isfinite(raw_vec) & (valid_splits >= min_valid) & np.isfinite(q25) & (eff_sup > 3.5)
-        shrunk_vec, shrink_info = empirical_bayes_fisher_shrink(q25, eff_sup, elig)
+        shrunk_vec, shrink_info = empirical_bayes_fisher_shrink(cons_r, eff_sup, elig)
         sup_vec = full_cell_n[ia, ib].astype(float)
         s_arr = np.asarray(split_r_draws, dtype=float)
         stability = np.divide((np.isfinite(s_arr) & (s_arr > 0.0)).sum(axis=0), np.maximum(valid_splits, 1))
@@ -579,11 +595,15 @@ def fit_scsplicenet(
         min_valid = int(np.ceil(0.75 * repeats))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
-            q25 = np.nanquantile(split_draws, 0.25, axis=0)
+            w_mat = np.asarray(split_draws, dtype=float)
+            q25 = np.nanquantile(w_mat, 0.25, axis=0)
+            q75 = np.nanquantile(w_mat, 0.75, axis=0)
+            med_w = np.nanmedian(w_mat, axis=0)
+            cons_r = np.where(med_w >= 0.0, np.maximum(q25, 0.0), np.minimum(q75, 0.0))
         raw_vec = full_r[ia, ib]
         eff_sup = full_neff[ia, ib]
         elig = cross_gene_pair & np.isfinite(raw_vec) & (valid_splits >= min_valid) & np.isfinite(q25) & (eff_sup > 4.0)
-        shrunk_vec, shrink_info = empirical_bayes_fisher_shrink(q25, eff_sup, elig)
+        shrunk_vec, shrink_info = empirical_bayes_fisher_shrink(cons_r, eff_sup, elig)
         sup_vec = full_n[ia, ib].astype(float)
         s_arr = np.asarray(split_draws, dtype=float)
         stability = np.divide((np.isfinite(s_arr) & (s_arr > 0.0)).sum(axis=0), np.maximum(valid_splits, 1))
@@ -595,11 +615,12 @@ def fit_scsplicenet(
     shrunk_mat[ia[fin_shrunk], ib[fin_shrunk]] = shrunk_vec[fin_shrunk]
     shrunk_mat[ib[fin_shrunk], ia[fin_shrunk]] = shrunk_vec[fin_shrunk]
 
-    candidate_idx = np.flatnonzero(elig & np.isfinite(shrunk_vec) & (shrunk_vec > 0.0))
     if edge_budget is None:
+        candidate_idx = np.flatnonzero(gate_pass & np.isfinite(shrunk_vec) & (shrunk_vec > 0.0))
         max_frac_budget = int(np.ceil(int(cross_gene_pair.sum()) * top_fraction))
-        budget = min(max_frac_budget, int(gate_pass.sum()))
+        budget = min(max_frac_budget, len(candidate_idx))
     else:
+        candidate_idx = np.flatnonzero(elig & np.isfinite(shrunk_vec) & (shrunk_vec > 0.0))
         budget = int(edge_budget)
     if budget > 0 and len(candidate_idx) > 0:
         take = min(budget, len(candidate_idx))

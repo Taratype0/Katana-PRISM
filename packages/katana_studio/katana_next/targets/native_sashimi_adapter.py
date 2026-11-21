@@ -6,8 +6,10 @@ import math
 from pathlib import Path
 import re
 import shutil
+import struct
 import subprocess
 from typing import Iterable
+import zlib
 
 import matplotlib
 
@@ -59,6 +61,170 @@ class NativeSashimiAdapter:
 
     def __init__(self, samtools_path: str = "samtools") -> None:
         self.samtools_path = samtools_path
+        self._gtf_cache_key: str = ""
+        self._gtf_by_gene: dict[str, dict[str, list[tuple[int, int, str]]]] = {}
+        self._pure_bam_cache: dict[str, tuple[dict[str, int], dict[int, list[tuple[int, int, tuple[tuple[int, int], ...]]]], int]] = {}
+
+    def preload_gtf_for_genes(
+        self,
+        gtf_path: Path,
+        gene_symbols: Iterable[str],
+        gene_ids: Iterable[str] = (),
+    ) -> None:
+        """Single streaming pass over GTF to cache annotated exon structures for target genes."""
+        if not gtf_path or not gtf_path.is_file():
+            return
+        sym_set = {str(s).strip() for s in gene_symbols if str(s).strip()}
+        gid_set = {str(g).split(".", 1)[0].strip() for g in gene_ids if str(g).strip()}
+        if not sym_set and not gid_set:
+            return
+        opener = gzip.open if gtf_path.suffix == ".gz" else open
+        raw_by_key: dict[str, dict[str, dict[tuple[int, int], set[str]]]] = {}
+        try:
+            with opener(gtf_path, "rt", encoding="utf-8", errors="ignore") as handle:
+                for line in handle:
+                    if not line or line.startswith("#"):
+                        continue
+                    parts = line.rstrip("\n").split("\t")
+                    if len(parts) < 9 or parts[2] != "exon":
+                        continue
+                    attr_s = parts[8]
+                    attrs = _parse_gtf_attrs(attr_s)
+                    row_gene = str(attrs.get("gene_name", "")).strip()
+                    row_gid = str(attrs.get("gene_id", "")).split(".", 1)[0].strip()
+                    hit_keys: list[str] = []
+                    if row_gene and row_gene in sym_set:
+                        hit_keys.append(f"SYM:{parts[0]}:{row_gene}")
+                    if row_gid and row_gid in gid_set:
+                        hit_keys.append(f"GID:{parts[0]}:{row_gid}")
+                    if not hit_keys:
+                        continue
+                    exon_start, exon_end = int(parts[3]), int(parts[4])
+                    label = _gtf_exon_label(attrs)
+                    tx_key = str(attrs.get("transcript_id", "") or attrs.get("transcript_name", "") or "unknown_tx")
+                    for hk in hit_keys:
+                        raw_by_key.setdefault(hk, {}).setdefault(tx_key, {}).setdefault((exon_start, exon_end), set()).add(label)
+        except Exception:
+            return
+        self._gtf_cache_key = str(gtf_path.resolve())
+        self._gtf_by_gene = {
+            hk: {
+                tx: [(s, e, _collapse_gtf_labels(lbls)) for (s, e), lbls in sorted(ex_map.items())]
+                for tx, ex_map in tx_dict.items()
+            }
+            for hk, tx_dict in raw_by_key.items()
+        }
+
+    def render_event_sashimi_figure(
+        self,
+        *,
+        event_row: pd.Series | dict[str, object],
+        event_type: str,
+        label1: str,
+        label2: str,
+        out_stem: Path,
+        gtf_path: Path | None = None,
+        bams_1: list[Path] | None = None,
+        bams_2: list[Path] | None = None,
+        title: str | None = None,
+        subtitle: str | None = None,
+        dpsi: float | None = None,
+        fdr: float | None = None,
+        ijc1: list[float] | None = None,
+        sjc1: list[float] | None = None,
+        psi1: list[float] | None = None,
+        ijc2: list[float] | None = None,
+        sjc2: list[float] | None = None,
+        psi2: list[float] | None = None,
+        save_pdf: bool = False,
+    ) -> dict[str, str]:
+        """Render a publication-grade Katana Native Sashimi figure (BAM RPKM when BAMs exist,
+        else quantitative rMATS / single-cell donor-aggregated junction Sashimi with compressed introns,
+        replicate PSI dot rail, MISO fishbone transcript track, and 2-isoform schematic)."""
+        row_s = event_row if isinstance(event_row, pd.Series) else pd.Series(event_row)
+        et = str(event_type or row_s.get("event_type", "SE")).strip().upper()
+        if et not in {"SE", "RI", "A3SS", "A5SS", "MXE"}:
+            raise RuntimeError(f"Unsupported native sashimi event type: {et}")
+
+        geometry = self._event_geometry(row_s, et)
+        gene_symbol = str(row_s.get("geneSymbol", row_s.get("gene_symbol", "")) or "").strip().strip('"')
+        gene_id = str(row_s.get("GeneID", row_s.get("gene_id", "")) or "").strip().strip('"')
+        if gtf_path is not None and Path(gtf_path).is_file():
+            geometry = self._augment_geometry_with_gtf(geometry, Path(gtf_path), gene_symbol, gene_id)
+
+        mapper = _CompressedMapper.from_exons(geometry.exons, geometry.region_start, geometry.region_end)
+
+        p1 = list(psi1) if psi1 is not None else _parse_psi_list(row_s.get("IncLevel1", ""))
+        p2 = list(psi2) if psi2 is not None else _parse_psi_list(row_s.get("IncLevel2", ""))
+        i1 = list(ijc1) if ijc1 is not None else _parse_number_list(row_s.get("IJC_SAMPLE_1", ""))
+        s1 = list(sjc1) if sjc1 is not None else _parse_number_list(row_s.get("SJC_SAMPLE_1", ""))
+        i2 = list(ijc2) if ijc2 is not None else _parse_number_list(row_s.get("IJC_SAMPLE_2", ""))
+        s2 = list(sjc2) if sjc2 is not None else _parse_number_list(row_s.get("SJC_SAMPLE_2", ""))
+
+        dpsi_val = dpsi if dpsi is not None else _to_float(row_s.get("IncLevelDifference", row_s.get("dpsi", np.nan)))
+        fdr_val = fdr if fdr is not None else _to_float(row_s.get("FDR", row_s.get("fdr", np.nan)))
+        fig_title = title or f"{gene_symbol or gene_id} | {et} ({geometry.chrom}:{geometry.region_start:,}-{geometry.region_end:,})"
+        metadata: dict[str, object] = {
+            "event_id": str(row_s.get("event_id", row_s.get("event_uid", ""))),
+            "gene": gene_symbol or gene_id,
+            "event_type": et,
+            "label1": str(label1),
+            "label2": str(label2),
+            "dPSI": dpsi_val,
+            "FDR": fdr_val,
+        }
+
+        out_stem = Path(out_stem)
+        out_stem.parent.mkdir(parents=True, exist_ok=True)
+
+        # Prefer real BAM RPKM tracks whenever valid BAMs are provided (samtools / pysam / bamnostic / pure-Python)
+        has_bams = bool(bams_1 and bams_2 and all(Path(b).is_file() for b in [*bams_1, *bams_2]))
+        samtools = self._samtools_executable() if has_bams else None
+        if has_bams:
+            try:
+                tracks_1 = [self._sample_track(Path(b), geometry, mapper, samtools) for b in (bams_1 or [])]
+                tracks_2 = [self._sample_track(Path(b), geometry, mapper, samtools) for b in (bams_2 or [])]
+                group_tracks = [_mean_track(label1, tracks_1, p1), _mean_track(label2, tracks_2, p2)]
+                group_tracks[0]["group_index"] = 0
+                group_tracks[1]["group_index"] = 1
+                self._plot_tracks(
+                    out_stem,
+                    fig_title,
+                    metadata,
+                    geometry,
+                    mapper,
+                    group_tracks,
+                    view_label="compressed event view",
+                    save_pdf=save_pdf,
+                )
+                return {
+                    "svg": str(out_stem.with_suffix(".svg")),
+                    "png": str(out_stem.with_suffix(".png")),
+                    "mode": "bam_rpkm",
+                }
+            except Exception:
+                pass
+
+        rmats_tracks = [
+            _rmats_track(label1, i1, s1, p1, 0),
+            _rmats_track(label2, i2, s2, p2, 1),
+        ]
+        self._plot_rmats_evidence(
+            out_stem.parent,
+            fig_title,
+            metadata,
+            geometry,
+            mapper,
+            rmats_tracks,
+            output_stem=out_stem,
+            subtitle=subtitle,
+            save_pdf=save_pdf,
+        )
+        return {
+            "svg": str(out_stem.with_suffix(".svg")),
+            "png": str(out_stem.with_suffix(".png")),
+            "mode": "quantitative_junctions",
+        }
 
     def run_manifest(self, manifest: pd.DataFrame, output_root: Path, gtf_path: Path | None = None) -> tuple[str, pd.DataFrame]:
         logs: list[str] = []
@@ -257,7 +423,173 @@ class NativeSashimiAdapter:
             return self._sample_track_samtools(bam, geometry, mapper, samtools)
         if self._pysam_available():
             return self._sample_track_pysam(bam, geometry, mapper)
-        return self._sample_track_bamnostic(bam, geometry, mapper)
+        if self._bamnostic_available():
+            return self._sample_track_bamnostic(bam, geometry, mapper)
+        return self._sample_track_pure_python(bam, geometry, mapper)
+
+    @staticmethod
+    def _decompress_bgzf_stream(bam: Path) -> bytes:
+        """Pure-Python RFC-1952 BGZF reader returning uncompressed BAM bytes (zero external deps)."""
+        raw = bam.read_bytes()
+        chunks: list[bytes] = []
+        pos = 0
+        n_raw = len(raw)
+        while pos + 18 <= n_raw:
+            if raw[pos] != 0x1F or raw[pos + 1] != 0x8B:
+                break
+            xlen = struct.unpack_from("<H", raw, pos + 10)[0]
+            bsize = None
+            sub_p = pos + 12
+            sub_end = pos + 12 + xlen
+            while sub_p + 4 <= sub_end:
+                si1, si2, slen = raw[sub_p], raw[sub_p + 1], struct.unpack_from("<H", raw, sub_p + 2)[0]
+                if si1 == 66 and si2 == 67 and slen == 2:  # 'BC' BGZF block size
+                    bsize = struct.unpack_from("<H", raw, sub_p + 4)[0]
+                    break
+                sub_p += 4 + slen
+            if bsize is None:
+                # Standard gzip fallback
+                chunks.append(zlib.decompress(raw[pos:], 16 + zlib.MAX_WBITS))
+                break
+            block_end = pos + bsize + 1
+            cdata = raw[sub_end : block_end - 8]
+            if cdata:
+                chunks.append(zlib.decompress(cdata, -zlib.MAX_WBITS))
+            pos = block_end
+        return b"".join(chunks)
+
+    def _load_pure_bam(self, bam: Path) -> tuple[dict[str, int], dict[int, list[tuple[int, int, tuple[tuple[int, int], ...]]]], int]:
+        key = str(bam.resolve())
+        cached = self._pure_bam_cache.get(key)
+        if cached is not None:
+            return cached
+        data = self._decompress_bgzf_stream(bam)
+        if len(data) < 8 or data[:4] != b"BAM\x01":
+            raise RuntimeError(f"Invalid BAM magic in {bam}")
+        off = 4
+        l_text = struct.unpack_from("<i", data, off)[0]
+        off += 4 + l_text
+        n_ref = struct.unpack_from("<i", data, off)[0]
+        off += 4
+        ref_to_tid: dict[str, int] = {}
+        for tid in range(n_ref):
+            l_name = struct.unpack_from("<i", data, off)[0]
+            off += 4
+            name = data[off : off + l_name - 1].decode("ascii", errors="ignore")
+            off += l_name + 4  # skip l_ref
+            ref_to_tid[name] = tid
+            if name.startswith("chr"):
+                ref_to_tid.setdefault(name[3:], tid)
+            else:
+                ref_to_tid.setdefault("chr" + name, tid)
+
+        by_tid: dict[int, list[tuple[int, int, tuple[tuple[int, int], ...]]]] = {}
+        mapped_reads = 0
+        n_data = len(data)
+        while off + 4 <= n_data:
+            bsize = struct.unpack_from("<i", data, off)[0]
+            off += 4
+            rec_end = off + bsize
+            if rec_end > n_data or bsize < 32:
+                break
+            ref_id, pos0, l_rn_mq_bin, flag_nc, l_seq = struct.unpack_from("<iiIIi", data, off)
+            l_read_name = l_rn_mq_bin & 0xFF
+            flag = (flag_nc >> 16) & 0xFFFF
+            n_cigar = flag_nc & 0xFFFF
+            if ref_id >= 0 and (flag & 0x904) == 0 and n_cigar > 0:
+                mapped_reads += 1
+                cigar_off = off + 32 + l_read_name
+                raw_cigar = struct.unpack_from(f"<{n_cigar}I", data, cigar_off)
+                cigar_ops = tuple((int(c & 0xF), int(c >> 4)) for c in raw_cigar)
+                ref_span = sum(ln for op, ln in cigar_ops if op in {0, 2, 3, 7, 8})
+                by_tid.setdefault(ref_id, []).append((pos0 + 1, pos0 + ref_span, cigar_ops))
+            off = rec_end
+
+        # Check .bai metadata bin 37450 for full mapped read count if available (e.g. scaled library depth)
+        bai_p = self._bam_index_path(bam)
+        if bai_p is not None and bai_p.is_file():
+            try:
+                braw = bai_p.read_bytes()
+                if braw[:4] == b"BAI\x01":
+                    bo = 4
+                    bn_ref = struct.unpack_from("<i", braw, bo)[0]
+                    bo += 4
+                    bai_mapped = 0
+                    for _ in range(bn_ref):
+                        n_bin = struct.unpack_from("<i", braw, bo)[0]
+                        bo += 4
+                        for _ in range(n_bin):
+                            bin_id, n_chunk = struct.unpack_from("<Ii", braw, bo)
+                            bo += 8
+                            if bin_id == 37450 and n_chunk >= 2:
+                                _, _, n_m, _ = struct.unpack_from("<QQQQ", braw, bo)
+                                bai_mapped += int(n_m)
+                            bo += 16 * n_chunk
+                        n_intv = struct.unpack_from("<i", braw, bo)[0]
+                        bo += 4 + 8 * n_intv
+                    if bai_mapped > 0:
+                        mapped_reads = bai_mapped
+            except Exception:
+                pass
+
+        res = (ref_to_tid, by_tid, mapped_reads)
+        self._pure_bam_cache[key] = res
+        return res
+
+    def _sample_track_pure_python(self, bam: Path, geometry: EventGeometry, mapper: "_CompressedMapper") -> dict[str, object]:
+        import bisect
+
+        ref_to_tid, by_tid, mapped_reads = self._load_pure_bam(bam)
+        tid = ref_to_tid.get(geometry.chrom)
+        bins = np.zeros(240, dtype=float)
+        junction_counts = {junction.label: 0 for junction in geometry.junctions}
+        target_lookup = {(junction.start, junction.end): junction.label for junction in geometry.junctions}
+        aligned_bases = 0
+        aligned_read_count = 0
+
+        if tid is not None and tid in by_tid:
+            recs = by_tid[tid]
+            # Binary search near region_start (with 25kb safety margin for long introns)
+            lo_idx = bisect.bisect_left(recs, (max(1, geometry.region_start - 25000), 0, ()))
+            for r_start, r_end, cigar in recs[lo_idx:]:
+                if r_start > geometry.region_end:
+                    break
+                if r_end < geometry.region_start:
+                    continue
+                ref_pos = r_start
+                read_aligned_bases = 0
+                for idx, (op, length) in enumerate(cigar):
+                    if op in {0, 7, 8}:  # M, =, X
+                        seg_start = ref_pos
+                        seg_end = ref_pos + length - 1
+                        self._add_coverage_segment(bins, mapper.map(seg_start), mapper.map(seg_end))
+                        read_aligned_bases += length
+                        ref_pos += length
+                    elif op == 2:  # D
+                        ref_pos += length
+                    elif op == 3:  # N
+                        intron_start = ref_pos
+                        intron_end = ref_pos + length - 1
+                        label = target_lookup.get((intron_start, intron_end))
+                        if label is not None:
+                            left_anchor, right_anchor = _junction_anchors_bamnostic(cigar, idx)
+                            if min(left_anchor, right_anchor) >= 8:
+                                junction_counts[label] = junction_counts.get(label, 0) + 1
+                        ref_pos += length
+                if read_aligned_bases > 0:
+                    aligned_bases += read_aligned_bases
+                    aligned_read_count += 1
+
+        coverage, mean_aligned_read_length = self._normalize_coverage_bins(bins, mapped_reads, aligned_bases, aligned_read_count)
+        return {
+            "sample": bam.stem,
+            "bam": str(bam),
+            "coverage": coverage,
+            "junction_counts": junction_counts,
+            "mapped_reads": mapped_reads,
+            "mean_aligned_read_length": mean_aligned_read_length,
+            "coverage_normalization": "RPKM-style: average read-depth per bin / mapped-reads-per-million * 1000 / mean aligned read length",
+        }
 
     def _sample_track_samtools(self, bam: Path, geometry: EventGeometry, mapper: "_CompressedMapper", samtools: str) -> dict[str, object]:
         region = f"{geometry.chrom}:{geometry.region_start}-{geometry.region_end}"
@@ -459,7 +791,10 @@ class NativeSashimiAdapter:
 
     @staticmethod
     def _add_coverage_segment(bins: np.ndarray, x1: float, x2: float) -> None:
-        lo, hi = sorted((max(0.0, x1), min(100.0, x2)))
+        raw_lo, raw_hi = (x1, x2) if x1 <= x2 else (x2, x1)
+        if raw_hi <= 0.0 or raw_lo >= 100.0:
+            return
+        lo, hi = max(0.0, raw_lo), min(100.0, raw_hi)
         if hi <= lo:
             index = int(round(lo / 100.0 * (len(bins) - 1)))
             bins[max(0, min(len(bins) - 1, index))] += 1.0
@@ -562,23 +897,29 @@ class NativeSashimiAdapter:
         geometry: EventGeometry,
         mapper: "_CompressedMapper",
         rmats_tracks: list[dict[str, object]],
+        *,
+        output_stem: Path | None = None,
+        subtitle: str | None = None,
+        save_pdf: bool = True,
     ) -> None:
-        fig = plt.figure(figsize=(14.5, 8.05))
-        gs = fig.add_gridspec(nrows=6, ncols=1, height_ratios=[0.85, 1.15, 1.15, 0.18, 0.72, 0.86], hspace=0.18)
+        fig = plt.figure(figsize=(14.5, 8.2))
+        gs = fig.add_gridspec(nrows=6, ncols=1, height_ratios=[0.85, 1.18, 1.18, 0.16, 0.72, 0.88], hspace=0.20)
         ax_title = fig.add_subplot(gs[0])
         ax_title.axis("off")
-        ax_title.text(0.02, 0.72, title, ha="left", va="center", fontsize=21, fontweight="bold", color="#111827")
+        ax_title.text(0.02, 0.72, title, ha="left", va="center", fontsize=19.5, fontweight="bold", color="#051C2C")
         ax_title.text(
             0.02,
-            0.38,
-            "rMATS event evidence: IJC/SJC counts, replicate PSI, dPSI and FDR",
+            0.34,
+            subtitle or "Katana Native Sashimi · rMATS IJC/SJC counts, replicate PSI, dPSI and FDR",
             ha="left",
             va="center",
-            fontsize=12.5,
+            fontsize=11.8,
             color="#4B5563",
         )
-        ax_title.text(0.78, 0.72, f"dPSI: {_fmt_signed(metadata.get('dPSI'))}", ha="left", va="center", fontsize=18, fontweight="bold", color="#006B4F")
-        ax_title.text(0.78, 0.42, f"FDR: {_fmt_float(metadata.get('FDR'))}", ha="left", va="center", fontsize=16.5, fontweight="bold", color="#111827")
+        dpsi_v = _to_float(metadata.get("dPSI"))
+        dpsi_col = "#2251FF" if (np.isnan(dpsi_v) or dpsi_v >= 0) else "#B83A4B"
+        ax_title.text(0.77, 0.72, f"dPSI: {_fmt_signed(metadata.get('dPSI'))}", ha="left", va="center", fontsize=17.5, fontweight="bold", color=dpsi_col)
+        ax_title.text(0.77, 0.36, f"FDR: {_fmt_float(metadata.get('FDR'))}", ha="left", va="center", fontsize=15.5, fontweight="bold", color="#051C2C")
 
         max_count = max(
             [float(track.get("mean_ijc", 0) or 0) for track in rmats_tracks]
@@ -591,38 +932,32 @@ class NativeSashimiAdapter:
             ax.set_ylim(0, 1)
             ax.axis("off")
             group_index = int(track.get("group_index", row_index))
-            line_color = "#4B5563" if group_index == 0 else "#2563EB"
-            ax.text(-0.045, 0.52, str(track.get("label", "")), transform=ax.transAxes, rotation=90, ha="center", va="center", fontsize=9.4, fontweight="bold", clip_on=False)
-            ax.hlines(0.18, 3, 97, color="#111827", linewidth=0.9)
-            for exon in geometry.exons:
-                color = "#F8C9CF" if exon.role in {"event", "alternative", "retained", "skipped"} else "#DDEBFA"
-                self._draw_exon_box(ax, mapper, exon, 0.18, color, show_label=row_index == 0)
+            line_color = "#051C2C" if group_index == 0 else "#2251FF"
+            arm_lbl = str(track.get("label", ""))
+            lbl_sz = 8.4 if len(arm_lbl) > 15 else 9.4
+            ax.text(-0.048, 0.50, arm_lbl, transform=ax.transAxes, rotation=90, ha="center", va="center", fontsize=lbl_sz, fontweight="bold", color=line_color, clip_on=False)
+            ax.hlines(0.20, 2, 98, color="#051C2C", linewidth=0.95)
+            # Draw constitutive exons first, then event/alternative exons so boundaries remain crisp
+            # (Exon names & roles are printed cleanly without arc collision in the Event Schematic below)
+            ordered_exons = sorted(geometry.exons, key=lambda ex: (0 if ex.role == "constitutive" else 1, ex.start, -(ex.end - ex.start)))
+            for exon in ordered_exons:
+                color = "#BFDBFE" if exon.role in {"event", "alternative", "retained", "skipped"} else "#E2E8F0"
+                self._draw_exon_box(ax, mapper, exon, 0.20, color, show_label=False)
             self._draw_rmats_arcs(ax, geometry, mapper, track, max_count)
             psi = _to_float(track.get("psi", np.nan))
+            _draw_psi_strip(ax, psi, track.get("replicate_psis", []), line_color)
             ax.text(
                 1.055,
-                0.72,
-                f"PSI: {_fmt_float(psi)}",
-                transform=ax.transAxes,
-                ha="center",
-                va="center",
-                fontsize=12.5,
-                fontweight="bold",
-                color=line_color,
-                clip_on=False,
-            )
-            ax.text(
-                1.055,
-                0.47,
+                0.28,
                 f"IJC: {_fmt_float(track.get('mean_ijc'))} | SJC: {_fmt_float(track.get('mean_sjc'))}",
                 transform=ax.transAxes,
                 ha="center",
                 va="center",
-                fontsize=10.5,
-                color="#374151",
+                fontsize=9.8,
+                fontweight="bold",
+                color="#334155",
                 clip_on=False,
             )
-            _draw_psi_strip(ax, psi, track.get("replicate_psis", []), line_color)
 
         ax_gene = fig.add_subplot(gs[-2])
         structure_mapper = _CompressedMapper.from_exons(geometry.exons, geometry.region_start, geometry.region_end)
@@ -631,20 +966,22 @@ class NativeSashimiAdapter:
         self._draw_event_schematic(ax_model, geometry, structure_mapper)
         fig.legend(
             handles=[
-                Patch(facecolor="#2457D6", label="rMATS inclusion junction mean count"),
-                Patch(facecolor="#E41F26", label="rMATS skipping/alternative junction mean count"),
-                Patch(facecolor="#DDEBFA", edgecolor="#111827", label="constitutive exon"),
-                Patch(facecolor="#F8C9CF", edgecolor="#111827", label="event exon/region"),
+                Patch(facecolor="#2251FF", label="inclusion junction mean count"),
+                Patch(facecolor="#B83A4B", label="skipping / alternative junction mean count"),
+                Patch(facecolor="#E2E8F0", edgecolor="#051C2C", label="constitutive exon"),
+                Patch(facecolor="#BFDBFE", edgecolor="#051C2C", label="event exon / region"),
             ],
             loc="lower center",
-            bbox_to_anchor=(0.5, 0.010),
+            bbox_to_anchor=(0.5, 0.008),
             ncol=4,
             frameon=False,
             fontsize=9.8,
         )
-        fig.subplots_adjust(left=0.105, right=0.860, top=0.95, bottom=0.145)
-        for suffix in ("png", "pdf", "svg"):
-            fig.savefig(outdir / f"native_rmats_evidence.{suffix}", bbox_inches="tight", facecolor="white", dpi=240 if suffix == "png" else None)
+        fig.subplots_adjust(left=0.105, right=0.855, top=0.95, bottom=0.135)
+        stem = output_stem if output_stem is not None else (outdir / "native_rmats_evidence")
+        suffixes = ("png", "pdf", "svg") if save_pdf else ("png", "svg")
+        for suffix in suffixes:
+            fig.savefig(stem.with_suffix(f".{suffix}"), bbox_inches="tight", facecolor="white", dpi=220 if suffix == "png" else None)
         plt.close(fig)
 
     def _draw_rmats_arcs(
@@ -658,6 +995,26 @@ class NativeSashimiAdapter:
         mean_ijc = max(0.0, float(track.get("mean_ijc", 0) or 0))
         mean_sjc = max(0.0, float(track.get("mean_sjc", 0) or 0))
         label_positions: list[tuple[float, float]] = []
+        # For RI events, draw a quantitative intron-retention coverage bar over the retained intron for mean_ijc
+        if geometry.event_type == "RI" and mean_ijc > 0:
+            ret_blocks = [ex for ex in geometry.exons if ex.role == "retained"]
+            if ret_blocks:
+                rx1 = mapper.map(ret_blocks[0].start)
+                rx2 = mapper.map(ret_blocks[0].end)
+                left_r, right_r = min(rx1, rx2), max(rx1, rx2)
+                bar_h = 0.11 + 0.16 * (mean_ijc / max(max_count, 1.0))
+                ax.add_patch(Rectangle((left_r, 0.255), max(1.5, right_r - left_r), bar_h, facecolor="#2251FF", alpha=0.18, edgecolor="#2251FF", linewidth=1.1))
+                ax.text(
+                    (left_r + right_r) / 2.0,
+                    0.255 + bar_h * 0.50,
+                    f"RI: {_fmt_float(mean_ijc)}",
+                    color="#1D4ED8",
+                    ha="center",
+                    va="center",
+                    fontsize=9.0,
+                    fontweight="bold",
+                    bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.72, "pad": 0.3},
+                )
         for index, junction in enumerate(geometry.junctions):
             count = mean_ijc if junction.role == "inclusion" else mean_sjc
             if count <= 0:
@@ -666,13 +1023,18 @@ class NativeSashimiAdapter:
             x2 = mapper.map(junction.end + 1)
             span = max(2.0, abs(x2 - x1))
             role = "inclusion" if junction.role == "inclusion" else "alternative"
-            color = "#2457D6" if role == "inclusion" else "#E41F26"
+            color = "#2251FF" if role == "inclusion" else "#B83A4B"
             lane = index if role == "inclusion" else index + 1
-            y0 = 0.30
-            apex = min(0.92, 0.52 + 0.10 * lane + 0.08 * min(1.0, span / 60.0))
+            y0 = 0.26
+            if geometry.event_type in {"A3SS", "A5SS"}:
+                apex = 0.48 if role == "alternative" else 0.80
+            elif geometry.event_type == "RI":
+                apex = 0.78
+            else:
+                apex = min(0.86, 0.48 + 0.09 * lane + 0.08 * min(1.0, span / 60.0))
             frac = max(0.0, min(1.0, count / max(max_count, 1.0)))
             # Keep count differences visible without letting high-count arcs dominate the plot.
-            linewidth = 0.55 + 3.9 * (frac ** 1.12)
+            linewidth = 0.65 + 3.8 * (frac ** 1.12)
             pull = min(span * 0.12, 7.0)
             path = MplPath(
                 [
@@ -685,9 +1047,13 @@ class NativeSashimiAdapter:
             )
             ax.add_patch(PathPatch(path, facecolor="none", edgecolor=color, linewidth=linewidth, capstyle="round", alpha=0.92))
             label_x = (x1 + x2) / 2.0
-            label_y = apex + 0.045
-            while any(abs(label_x - old_x) < 5.5 and abs(label_y - old_y) < 0.06 for old_x, old_y in label_positions):
-                label_y += 0.065
+            if geometry.event_type in {"A3SS", "A5SS"}:
+                # Place lower arc count cleanly beneath its arc crest and upper arc count cleanly above its crest
+                label_y = (apex - 0.11) if role == "alternative" else (apex + 0.03)
+            else:
+                label_y = min(0.94, apex + 0.035)
+            while any(abs(label_x - old_x) < 9.0 and abs(label_y - old_y) < 0.11 for old_x, old_y in label_positions):
+                label_y = min(0.98, label_y + 0.12)
             label_positions.append((label_x, label_y))
             ax.text(
                 label_x,
@@ -696,10 +1062,10 @@ class NativeSashimiAdapter:
                 color=color,
                 ha="center",
                 va="bottom",
-                fontsize=9.5,
+                fontsize=9.3,
                 fontweight="bold",
                 clip_on=False,
-                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.75, "pad": 0.4},
+                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.84, "pad": 0.4},
             )
 
     def _plot_summary(
@@ -761,6 +1127,7 @@ class NativeSashimiAdapter:
         tracks: list[dict[str, object]],
         *,
         view_label: str,
+        save_pdf: bool = True,
     ) -> None:
         n_tracks = max(1, len(tracks))
         fig_height = max(8.25, 3.25 + n_tracks * 1.35)
@@ -773,7 +1140,7 @@ class NativeSashimiAdapter:
         )
         ax_title = fig.add_subplot(gs[0])
         ax_title.axis("off")
-        ax_title.text(0.02, 0.70, title, ha="left", va="center", fontsize=21, fontweight="bold", color="#111827")
+        ax_title.text(0.02, 0.70, title, ha="left", va="center", fontsize=20, fontweight="bold", color="#051C2C")
         ax_title.text(
             0.02,
             0.34,
@@ -785,8 +1152,10 @@ class NativeSashimiAdapter:
         )
         dpsi = metadata.get("dPSI")
         fdr = metadata.get("FDR")
-        ax_title.text(0.82, 0.72, f"dPSI: {_fmt_signed(dpsi)}", ha="left", va="center", fontsize=18, fontweight="bold", color="#006B4F")
-        ax_title.text(0.82, 0.34, f"FDR: {_fmt_float(fdr)}", ha="left", va="center", fontsize=16.5, fontweight="bold", color="#111827")
+        dpsi_v = _to_float(dpsi)
+        dpsi_col = "#2251FF" if (np.isnan(dpsi_v) or dpsi_v >= 0) else "#B83A4B"
+        ax_title.text(0.80, 0.72, f"dPSI: {_fmt_signed(dpsi)}", ha="left", va="center", fontsize=17.5, fontweight="bold", color=dpsi_col)
+        ax_title.text(0.80, 0.34, f"FDR: {_fmt_float(fdr)}", ha="left", va="center", fontsize=15.5, fontweight="bold", color="#051C2C")
 
         coverage_max = max(float(np.nanmax(track["coverage"])) if len(track["coverage"]) else 0.0 for track in tracks) if tracks else 1.0
         coverage_ylim = max(coverage_max * 1.28, 1.0)
@@ -794,17 +1163,20 @@ class NativeSashimiAdapter:
         axes = [fig.add_subplot(gs[i + 1]) for i in range(n_tracks)]
         for idx, (ax, track) in enumerate(zip(axes, tracks, strict=False)):
             group_index = int(track.get("group_index", idx))
-            fill = "#C9D1DB" if group_index == 0 else "#BFD4F7"
-            line = "#4B5563" if group_index == 0 else "#2563EB"
+            fill = "#CBD5E1" if group_index == 0 else "#BFDBFE"
+            line = "#051C2C" if group_index == 0 else "#2251FF"
             ax.fill_between(x, 0, track["coverage"], color=fill, linewidth=0, alpha=0.95)
             ax.plot(x, track["coverage"], color=line, linewidth=1.4)
             ax.set_xlim(0, 100)
             ax.set_ylim(0, coverage_ylim)
             ax.set_ylabel("")
-            ax.text(-0.050, 0.5, "RPKM", transform=ax.transAxes, rotation=90, ha="center", va="center", fontsize=9.5, clip_on=False)
+            ax.text(-0.058, 0.5, "RPKM", transform=ax.transAxes, rotation=90, ha="center", va="center", fontsize=8.8, color="#4B5563", clip_on=False)
             label = str(track.get("label", ""))
-            label_size = 8.2 if len(label) > 20 else 9.2
-            ax.text(-0.090, 0.5, label, transform=ax.transAxes, rotation=90, ha="center", va="center", fontsize=label_size, fontweight="bold", clip_on=False)
+            if n_tracks >= 4:
+                ax.text(-0.082, 0.5, label, transform=ax.transAxes, rotation=0, ha="right", va="center", fontsize=8.4, fontweight="bold", color="#051C2C", clip_on=False)
+            else:
+                label_size = 8.2 if len(label) > 20 else 9.2
+                ax.text(-0.096, 0.5, label, transform=ax.transAxes, rotation=90, ha="center", va="center", fontsize=label_size, fontweight="bold", color="#051C2C", clip_on=False)
             _draw_psi_strip(ax, _to_float(track.get("psi", np.nan)), track.get("replicate_psis", []), line)
             self._draw_junction_arcs(ax, geometry, mapper, track["junction_counts"], np.asarray(track["coverage"], dtype=float), coverage_ylim)
             if idx == len(axes) - 1:
@@ -824,10 +1196,10 @@ class NativeSashimiAdapter:
         self._draw_event_schematic(ax_model, geometry, structure_mapper)
         fig.legend(
             handles=[
-                Patch(facecolor="#2457D6", label="inclusion junction count"),
-                Patch(facecolor="#E41F26", label="alternative/skipping junction count"),
-                Patch(facecolor="#DDEBFA", edgecolor="#111827", label="constitutive exon"),
-                Patch(facecolor="#F8C9CF", edgecolor="#111827", label="event exon/region"),
+                Patch(facecolor="#2251FF", label="inclusion junction count"),
+                Patch(facecolor="#B83A4B", label="alternative/skipping junction count"),
+                Patch(facecolor="#E2E8F0", edgecolor="#051C2C", label="constitutive exon"),
+                Patch(facecolor="#BFDBFE", edgecolor="#051C2C", label="event exon/region"),
             ],
             loc="lower center",
             bbox_to_anchor=(0.5, 0.012),
@@ -835,9 +1207,10 @@ class NativeSashimiAdapter:
             frameon=False,
             fontsize=9.8,
         )
-        fig.subplots_adjust(left=0.145, right=0.860, top=0.96, bottom=0.145)
-        for suffix in ("png", "pdf", "svg"):
-            fig.savefig(output_stem.with_suffix(f".{suffix}"), bbox_inches="tight", facecolor="white", dpi=240 if suffix == "png" else None)
+        fig.subplots_adjust(left=0.185 if n_tracks >= 4 else 0.145, right=0.860, top=0.96, bottom=0.145)
+        suffixes = ("png", "pdf", "svg") if save_pdf else ("png", "svg")
+        for suffix in suffixes:
+            fig.savefig(output_stem.with_suffix(f".{suffix}"), bbox_inches="tight", facecolor="white", dpi=220 if suffix == "png" else None)
         plt.close(fig)
 
     def _draw_junction_arcs(self, ax, geometry: EventGeometry, mapper: "_CompressedMapper", counts: dict[str, int], coverage: np.ndarray, coverage_ylim: float) -> None:
@@ -865,12 +1238,16 @@ class NativeSashimiAdapter:
             while any(prev_lane == lane and not (right < prev_left - 2 or left > prev_right + 2) for prev_left, prev_right, prev_lane in occupied):
                 lane += 1
             occupied.append((left, right, lane))
-            color = "#2457D6" if role == "inclusion" else "#E41F26"
+            color = "#2251FF" if role == "inclusion" else "#B83A4B"
             anchor_left = self._coverage_anchor_fraction(coverage, x1, coverage_ylim)
             anchor_right = self._coverage_anchor_fraction(coverage, x2, coverage_ylim)
             local_anchor = max(anchor_left, anchor_right)
-            role_floor = 0.52 + 0.10 * lane if role == "inclusion" else 0.72 + 0.08 * lane
-            apex = min(0.94, max(local_anchor + 0.24, role_floor))
+            if geometry.event_type in {"A3SS", "A5SS"}:
+                role_floor = 0.56 if role == "alternative" else 0.80
+                apex = min(0.94, max(local_anchor + 0.14, role_floor))
+            else:
+                role_floor = 0.52 + 0.10 * lane if role == "inclusion" else 0.72 + 0.08 * lane
+                apex = min(0.94, max(local_anchor + 0.24, role_floor))
             count_fraction = max(0.0, min(1.0, count / max_count))
             # Keep count differences visible without letting high-count arcs dominate the plot.
             linewidth = 0.55 + 3.9 * (count_fraction ** 1.12)
@@ -886,9 +1263,12 @@ class NativeSashimiAdapter:
             )
             ax.add_patch(PathPatch(path, facecolor="none", edgecolor=color, linewidth=linewidth, capstyle="round", alpha=0.92, transform=arc_transform))
             label_x = (x1 + x2) / 2.0
-            label_y = min(0.98, apex + 0.045)
-            while any(abs(label_x - old_x) < 5.5 and abs(label_y - old_y) < 0.055 for old_x, old_y in label_positions):
-                label_y = min(0.98, label_y + 0.060)
+            if geometry.event_type in {"A3SS", "A5SS"} and role == "alternative":
+                label_y = max(0.18, apex - 0.10)
+            else:
+                label_y = min(0.98, apex + 0.040)
+            while any(abs(label_x - old_x) < 9.0 and abs(label_y - old_y) < 0.10 for old_x, old_y in label_positions):
+                label_y = min(0.98, label_y + 0.11)
             label_positions.append((label_x, label_y))
             ax.text(
                 label_x,
@@ -926,16 +1306,16 @@ class NativeSashimiAdapter:
         ax.set_xticklabels(labels, fontsize=9)
         y_top, y_bottom = 0.72, 0.35
         for y, label in ((y_top, self._top_isoform_label(geometry.event_type)), (y_bottom, self._bottom_isoform_label(geometry.event_type))):
-            ax.hlines(y, 5, 95, color="#111827", linewidth=1.0)
+            ax.hlines(y, 5, 95, color="#051C2C", linewidth=1.0)
             ax.text(3.3, y, label, ha="right", va="center", fontsize=9.4, color="#4B5563")
 
-        exons = sorted(geometry.exons, key=lambda exon: (exon.start, exon.end))
-        for exon in exons:
-            color = "#F8C9CF" if exon.role in {"event", "alternative", "retained", "skipped"} else "#DDEBFA"
-            self._draw_exon_box(ax, mapper, exon, y_top, color, show_label=True)
+        placed_x: list[float] = []
+        for exon in sorted(self._top_isoform_exons(geometry), key=lambda exon: (exon.start, exon.end)):
+            color = "#BFDBFE" if exon.role in {"event", "alternative", "retained", "skipped"} else "#E2E8F0"
+            self._draw_exon_box(ax, mapper, exon, y_top, color, show_label=True, placed_x=placed_x)
 
         for exon in self._bottom_isoform_exons(geometry):
-            color = "#F8C9CF" if exon.role in {"event", "alternative", "retained"} and geometry.event_type != "SE" else "#DDEBFA"
+            color = "#BFDBFE" if exon.role in {"event", "alternative", "retained"} and geometry.event_type != "SE" else "#E2E8F0"
             self._draw_exon_box(ax, mapper, exon, y_bottom, color, show_label=False)
 
         if annotate:
@@ -952,10 +1332,10 @@ class NativeSashimiAdapter:
         ax.set_ylim(0, 1)
         ax.axis("off")
         y_top, y_bottom = 0.70, 0.32
-        top_exons = sorted(geometry.exons, key=lambda item: (item.start, item.end))
+        top_exons = sorted(self._top_isoform_exons(geometry), key=lambda item: (item.start, item.end))
         bottom_exons = sorted(self._bottom_isoform_exons(geometry), key=lambda item: (item.start, item.end))
-        ax.hlines(y_top, 0, 100, color="#111827", linewidth=0.95)
-        ax.hlines(y_bottom, 0, 100, color="#111827", linewidth=0.95)
+        ax.hlines(y_top, 0, 100, color="#051C2C", linewidth=0.95)
+        ax.hlines(y_bottom, 0, 100, color="#051C2C", linewidth=0.95)
         self._draw_fishbone_direction(ax, geometry, mapper, y_top, top_exons)
         self._draw_fishbone_direction(ax, geometry, mapper, y_bottom, bottom_exons)
         for exon in top_exons:
@@ -985,24 +1365,25 @@ class NativeSashimiAdapter:
     @staticmethod
     def _draw_direction_tick(ax, x: float, y: float, direction: int) -> None:
         dx = 0.55 * direction
-        ax.plot([x - dx, x, x - dx], [y + 0.035, y, y - 0.035], color="#111827", linewidth=0.55, solid_capstyle="round")
+        ax.plot([x - dx, x, x - dx], [y + 0.035, y, y - 0.035], color="#051C2C", linewidth=0.55, solid_capstyle="round")
 
     def _draw_event_schematic(self, ax, geometry: EventGeometry, mapper: "_CompressedMapper") -> None:
         ax.set_xlim(0, 100)
         ax.set_ylim(0, 1)
         ax.axis("off")
-        y_top, y_bottom = 0.74, 0.36
-        ax.hlines(y_top, 9, 91, color="#111827", linewidth=0.95)
-        ax.hlines(y_bottom, 9, 91, color="#111827", linewidth=0.95)
+        y_top, y_bottom = 0.74, 0.34
+        ax.hlines(y_top, 9, 91, color="#051C2C", linewidth=0.95)
+        ax.hlines(y_bottom, 9, 91, color="#051C2C", linewidth=0.95)
         ax.text(7.2, y_top, self._top_isoform_label(geometry.event_type), ha="right", va="center", fontsize=8.4, color="#4B5563")
         ax.text(7.2, y_bottom, self._bottom_isoform_label(geometry.event_type), ha="right", va="center", fontsize=8.4, color="#4B5563")
 
-        for exon in sorted(geometry.exons, key=lambda item: (item.start, item.end)):
-            color = "#F8C9CF" if exon.role in {"event", "alternative", "retained", "skipped"} else "#DDEBFA"
-            self._draw_exon_box(ax, mapper, exon, y_top, color, show_label=True)
+        placed_x: list[float] = []
+        for exon in sorted(self._top_isoform_exons(geometry), key=lambda item: (item.start, item.end)):
+            color = "#BFDBFE" if exon.role in {"event", "alternative", "retained", "skipped"} else "#E2E8F0"
+            self._draw_exon_box(ax, mapper, exon, y_top, color, show_label=True, placed_x=placed_x)
 
         for exon in self._bottom_isoform_exons(geometry):
-            color = "#F8C9CF" if exon.role in {"event", "alternative", "retained"} and geometry.event_type != "SE" else "#DDEBFA"
+            color = "#BFDBFE" if exon.role in {"event", "alternative", "retained"} and geometry.event_type != "SE" else "#E2E8F0"
             self._draw_exon_box(ax, mapper, exon, y_bottom, color, show_label=False)
 
         strand_text = f"strand {geometry.strand or '?'}"
@@ -1085,15 +1466,28 @@ class NativeSashimiAdapter:
         return ", ".join(labels) if labels else "event region"
 
     @staticmethod
-    def _draw_exon_box(ax, mapper: "_CompressedMapper", exon: ExonBlock, y: float, color: str, show_label: bool) -> None:
+    def _draw_exon_box(
+        ax,
+        mapper: "_CompressedMapper",
+        exon: ExonBlock,
+        y: float,
+        color: str,
+        show_label: bool,
+        placed_x: list[float] | None = None,
+    ) -> None:
         x1 = mapper.map(exon.start)
         x2 = mapper.map(exon.end)
         width = max(1.2, abs(x2 - x1))
         left = min(x1, x2)
-        ax.add_patch(Rectangle((left, y - 0.05), width, 0.10, facecolor=color, edgecolor="#111827", linewidth=0.95))
+        ax.add_patch(Rectangle((left, y - 0.05), width, 0.10, facecolor=color, edgecolor="#051C2C", linewidth=0.95))
         if show_label:
-            ax.text(left + width / 2, y + 0.13, _display_exon_label(exon), ha="center", va="center", fontsize=9.4, fontweight="bold")
-            ax.text(left + width / 2, y - 0.14, _display_exon_role(exon), ha="center", va="center", fontsize=8.1, color="#4B5563")
+            cx = left + width / 2.0
+            if placed_x is not None and any(abs(cx - px) < 13.5 for px in placed_x):
+                return
+            if placed_x is not None:
+                placed_x.append(cx)
+            ax.text(cx, y + 0.13, _display_exon_label(exon), ha="center", va="center", fontsize=9.0, fontweight="bold", color="#051C2C")
+            ax.text(cx, y - 0.145, _display_exon_role(exon), ha="center", va="center", fontsize=7.8, color="#4B5563")
 
     @staticmethod
     def _draw_black_exon_box(ax, mapper: "_CompressedMapper", exon: ExonBlock, y: float) -> None:
@@ -1101,7 +1495,7 @@ class NativeSashimiAdapter:
         x2 = mapper.map(exon.end)
         width = max(1.2, abs(x2 - x1))
         left = min(x1, x2)
-        ax.add_patch(Rectangle((left, y - 0.055), width, 0.11, facecolor="black", edgecolor="black", linewidth=0.8))
+        ax.add_patch(Rectangle((left, y - 0.055), width, 0.11, facecolor="#051C2C", edgecolor="#051C2C", linewidth=0.8))
 
     @staticmethod
     def _top_isoform_label(event_type: str) -> str:
@@ -1124,20 +1518,20 @@ class NativeSashimiAdapter:
         }.get(event_type, "isoform B")
 
     @staticmethod
+    def _top_isoform_exons(geometry: EventGeometry) -> list[ExonBlock]:
+        if geometry.event_type in {"A3SS", "A5SS", "MXE"}:
+            return [exon for exon in geometry.exons if exon.role != "alternative"]
+        return list(geometry.exons)
+
+    @staticmethod
     def _bottom_isoform_exons(geometry: EventGeometry) -> list[ExonBlock]:
         if geometry.event_type == "SE":
             return [exon for exon in geometry.exons if exon.role != "skipped"]
         if geometry.event_type == "RI":
             return [exon for exon in geometry.exons if exon.role != "retained"]
-        if geometry.event_type == "MXE":
-            return [exon for exon in geometry.exons if exon.role != "event"] + [
-                ExonBlock(exon.start, exon.end, exon.label, exon.role)
-                for exon in geometry.exons
-                if exon.role == "alternative"
-            ]
-        return [exon for exon in geometry.exons if exon.role != "event"] + [
-            exon for exon in geometry.exons if exon.role == "alternative"
-        ]
+        if geometry.event_type in {"MXE", "A3SS", "A5SS"}:
+            return [exon for exon in geometry.exons if exon.role != "event"]
+        return [exon for exon in geometry.exons if exon.role != "event"]
 
     def _event_geometry(self, row: pd.Series, event_type: str) -> EventGeometry:
         chrom = str(row.get("chr", "")).strip()
@@ -1161,6 +1555,8 @@ class NativeSashimiAdapter:
             retained = _block(row, "riExonStart_0base", "riExonEnd", "retained", "retained")
             upstream = _block(row, "upstreamES", "upstreamEE", "upstream", "constitutive", required=False)
             downstream = _block(row, "downstreamES", "downstreamEE", "downstream", "constitutive", required=False)
+            if upstream and downstream and upstream.end < downstream.start:
+                retained = ExonBlock(upstream.end, downstream.start, "retained intron", "retained")
             exons = [item for item in [upstream, retained, downstream] if item is not None]
             if upstream and downstream:
                 junctions = [_junction(upstream, downstream, "spliced", "alternative")]
@@ -1194,12 +1590,28 @@ class NativeSashimiAdapter:
         return EventGeometry(chrom, strand, event_type, exons, junctions, region_start, region_end)
 
     def _augment_geometry_with_gtf(self, geometry: EventGeometry, gtf_path: Path, gene_symbol: str, gene_id: str) -> EventGeometry:
-        gtf_exons = self._gtf_exons_for_region(gtf_path, geometry.chrom, geometry.region_start, geometry.region_end, gene_symbol, gene_id)
+        gtf_exons: dict[str, list[tuple[int, int, str]]] = {}
+        try:
+            resolved_key = str(gtf_path.resolve())
+        except Exception:
+            resolved_key = str(gtf_path)
+        if self._gtf_cache_key == resolved_key and self._gtf_by_gene:
+            gs = gene_symbol.strip()
+            gid_core = gene_id.split(".", 1)[0].strip()
+            gtf_exons = (
+                self._gtf_by_gene.get(f"SYM:{geometry.chrom}:{gs}")
+                or self._gtf_by_gene.get(f"GID:{geometry.chrom}:{gid_core}")
+                or {}
+            )
+        else:
+            gtf_exons = self._gtf_exons_for_region(gtf_path, geometry.chrom, geometry.region_start, geometry.region_end, gene_symbol, gene_id)
         if not gtf_exons:
             return geometry
         exons: list[ExonBlock] = []
         for exon in geometry.exons:
             matched_label = _matching_gtf_exon_label(exon.start, exon.end, gtf_exons)
+            if matched_label.lower() in {"annotated exon", "annotated/exon", "exon"}:
+                matched_label = ""
             label = matched_label if matched_label and exon.role in {"event", "alternative", "retained", "skipped"} else exon.label
             exons.append(ExonBlock(exon.start, exon.end, label, exon.role))
         return EventGeometry(geometry.chrom, geometry.strand, geometry.event_type, sorted(exons, key=lambda exon: (exon.start, exon.end)), geometry.junctions, geometry.region_start, geometry.region_end)
@@ -1498,20 +1910,20 @@ def _draw_psi_strip(ax, mean: float, reps: object, color: str) -> None:
     center_x = 1.055
     left, right = 1.000, 1.110
     if np.isnan(mean):
-        ax.text(center_x, 0.86, "PSI: NA", transform=ax.transAxes, ha="center", va="center", fontsize=12, fontweight="bold")
+        ax.text(center_x, 0.87, "PSI: NA", transform=ax.transAxes, ha="center", va="center", fontsize=12, fontweight="bold", color="#051C2C", clip_on=False)
         return
-    ax.text(center_x, 0.86, f"PSI: {mean:.2f}", transform=ax.transAxes, ha="center", va="center", fontsize=12.5, fontweight="bold")
+    ax.text(center_x, 0.87, f"PSI: {mean:.2f}", transform=ax.transAxes, ha="center", va="center", fontsize=12.5, fontweight="bold", color=color, clip_on=False)
     values = [float(value) for value in reps if pd.notna(value)] if isinstance(reps, list) else []
     if not values:
         return
-    base = 0.755
-    ax.plot([left, right], [base, base], transform=ax.transAxes, color="#CBD5E1", linewidth=1.1, clip_on=False)
+    base = 0.71
+    ax.plot([left, right], [base, base], transform=ax.transAxes, color="#CBD5E1", linewidth=1.2, clip_on=False)
     for value in values:
         px = left + (right - left) * max(0.0, min(1.0, value))
-        ax.scatter([px], [base], transform=ax.transAxes, s=24, color=color, edgecolor="white", linewidth=0.6, clip_on=False, zorder=5)
+        ax.scatter([px], [base], transform=ax.transAxes, s=26, color=color, edgecolor="white", linewidth=0.6, clip_on=False, zorder=5)
     mx = left + (right - left) * max(0.0, min(1.0, mean))
-    ax.plot([mx, mx], [base - 0.025, base + 0.035], transform=ax.transAxes, color="#111827", linewidth=1.3, clip_on=False)
-    ax.text(center_x, base - 0.07, "replicate PSI", transform=ax.transAxes, ha="center", va="top", fontsize=8, color="#4B5563")
+    ax.plot([mx, mx], [base - 0.035, base + 0.045], transform=ax.transAxes, color="#051C2C", linewidth=1.4, clip_on=False)
+    ax.text(center_x, base - 0.085, "replicate PSI", transform=ax.transAxes, ha="center", va="top", fontsize=8.0, color="#4B5563", clip_on=False)
 
 
 def _display_exon_label(exon: ExonBlock) -> str:

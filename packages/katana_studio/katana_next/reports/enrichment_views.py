@@ -204,50 +204,63 @@ def render_editorial_ora_facets(
         if c not in set(all_standard)
     ]
 
-    per_cat_limit = 5 if len(ordered_cats) > 1 else 12
+    per_cat_limit = 6 if len(ordered_cats) > 1 else 12
+    wrap_w = 34 if len(ordered_cats) > 1 else 46
     blocks: list[tuple[str, pd.DataFrame, bool]] = []
     for cat in ordered_cats:
         sub_sig = df.loc[(df["_cat"] == cat) & (df["_fdr"] <= 0.05) & (df["_count"] >= 2)].sort_values(["_fdr", "_pval", "_term_raw"], kind="stable").head(per_cat_limit).copy() if not df.empty else pd.DataFrame()
         if sub_sig.empty and not df.empty and comp.empty:
             sub_sig = df.loc[df["_cat"] == cat].sort_values(["_fdr", "_pval", "_term_raw"], kind="stable").head(per_cat_limit).copy()
         if not sub_sig.empty:
-            sub_sig["_clean_label"] = sub_sig["_term_raw"].map(lambda t: clean_ora_term_label(t, wrap_width=46))
+            sub_sig["_clean_label"] = sub_sig["_term_raw"].map(lambda t: clean_ora_term_label(t, wrap_width=wrap_w))
             blocks.append((cat, sub_sig, False))
         elif not comp.empty:
             pool = comp.loc[(comp["_cat"] == cat) & (comp["_count"] >= 2)].sort_values(["_pval", "_fdr", "_term_raw"], kind="stable")
             if pool.empty:
                 pool = comp.loc[(comp["_cat"] == cat) & (comp["_count"] >= 1)].sort_values(["_pval", "_fdr", "_term_raw"], kind="stable")
-            sub_exp = pool.loc[pool["_pval"] <= 0.05].head(4).copy()
+            sub_exp = pool.loc[pool["_pval"] <= 0.05].head(5).copy()
             if sub_exp.empty:
-                sub_exp = pool.head(3).copy()
+                sub_exp = pool.head(4).copy()
             n_tot = int((comp["_cat"] == cat).sum())
             if not sub_exp.empty:
                 sub_exp["_exploratory"] = True
-                sub_exp["_clean_label"] = sub_exp["_term_raw"].map(lambda t: clean_ora_term_label(t, wrap_width=46))
-                blocks.append((f"{cat}  [0 at BH FDR ≤ 0.05 · Top nominal candidates of {n_tot} tested]", sub_exp, True))
+                sub_exp["_clean_label"] = sub_exp["_term_raw"].map(lambda t: clean_ora_term_label(t, wrap_width=wrap_w))
+                blocks.append((f"{cat} [0 BH FDR ≤ 0.05 · top nominal / {n_tot}]", sub_exp, True))
             else:
                 placeholder = pd.DataFrame([{
                     "_term_raw": f"No pathway with ≥2 overlapping genes ({n_tot} pathways tested)",
                     "_clean_label": f"0 terms with ≥2 gene overlap ({n_tot} tested)",
                     "_fdr": 1.0, "_pval": 1.0, "_neglog10": 0.0, "_ratio": 0.0, "_count": 0.0, "_exploratory": True,
                 }])
-                blocks.append((f"{cat}  [0 at BH FDR ≤ 0.05]", placeholder, True))
+                blocks.append((f"{cat} [0 BH FDR ≤ 0.05]", placeholder, True))
 
     if not blocks:
         return
 
-    height_ratios = [max(1.05, len(sub) * 0.56 + 0.38) for _, sub, _ in blocks]
-    fig_h = max(4.2, sum(height_ratios) + 1.70)
-
-    fig, axes = plt.subplots(
-        len(blocks), 1,
-        figsize=(12.0, fig_h),
-        gridspec_kw={"height_ratios": height_ratios, "hspace": 0.56},
-        sharex=False,
-        dpi=220,
-    )
-    if len(blocks) == 1:
-        axes = [axes]
+    import math
+    n_blocks = len(blocks)
+    use_grid_2col = n_blocks >= 2
+    if use_grid_2col:
+        ncols = 2
+        nrows = int(math.ceil(n_blocks / 2.0))
+        max_rows_per_panel = max(len(b[1]) for b in blocks)
+        row_h = max(3.55, max_rows_per_panel * 0.56 + 0.95)
+        fig_w = 16.4
+        fig_h = max(6.8, nrows * row_h + 1.55)
+        fig, axes_grid = plt.subplots(
+            nrows, ncols,
+            figsize=(fig_w, fig_h),
+            gridspec_kw={"wspace": 0.88, "hspace": 0.44},
+            sharex=False,
+            dpi=220,
+        )
+        axes_flat = list(np.asarray(axes_grid).ravel())
+    else:
+        height_ratios = [max(1.05, len(sub) * 0.56 + 0.38) for _, sub, _ in blocks]
+        fig_w = 12.0
+        fig_h = max(4.2, sum(height_ratios) + 1.70)
+        fig, ax_single = plt.subplots(1, 1, figsize=(fig_w, fig_h), dpi=220)
+        axes_flat = [ax_single]
     fig.patch.set_facecolor("white")
 
     cmap = LinearSegmentedColormap.from_list("mck_seq", ["#60A5FA", "#2251FF", "#051C2C"])
@@ -259,9 +272,10 @@ def render_editorial_ora_facets(
     norm = plt.Normalize(vmin=vmin, vmax=vmax)
 
     max_cnt = max(1.0, float(max(b[1]["_count"].max() for b in blocks)))
+    panel_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
     last_scatter = None
-    for ax, (cat_title, sub, is_exp_panel) in zip(axes, blocks):
+    for idx_b, (ax, (cat_title, sub, is_exp_panel)) in enumerate(zip(axes_flat, blocks)):
         sub_rev = sub.iloc[::-1].reset_index(drop=True)
         ys = np.arange(len(sub_rev))
         pvals = sub_rev["_pval"].to_numpy(dtype=float)
@@ -269,12 +283,12 @@ def render_editorial_ora_facets(
         cnts = sub_rev["_count"].to_numpy(dtype=float)
         ratios = sub_rev["_ratio"].fillna(vmin).to_numpy(dtype=float)
         panel_max = float(np.max(xs)) if len(xs) else 2.0
-        x_upper = max(2.35, panel_max * 1.28)
+        x_upper = max(2.45, panel_max * 1.44)
 
         ax.grid(axis="x", color="#E2E8F0", linewidth=0.6, zorder=0)
         ax.axvline(-np.log10(0.05), color="#94A3B8", linestyle="--" if not is_exp_panel else ":", linewidth=0.95, zorder=1)
-        ax.hlines(ys, 0, xs, color="#CBD5E1" if not is_exp_panel else "#BAE6FD", linewidth=2.1, linestyle="-" if not is_exp_panel else "--", zorder=2)
-        sizes = 48.0 + 220.0 * (cnts / max_cnt)
+        ax.hlines(ys, 0, xs, color="#CBD5E1" if not is_exp_panel else "#BAE6FD", linewidth=2.2, linestyle="-" if not is_exp_panel else "--", zorder=2)
+        sizes = 52.0 + 210.0 * (cnts / max_cnt)
         if is_exp_panel:
             ax.scatter(
                 xs, ys, s=np.where(cnts > 0, sizes * 0.85, 0.0),
@@ -283,8 +297,8 @@ def render_editorial_ora_facets(
             for y_i, x_i, c_i, p_i in zip(ys, xs, cnts, pvals):
                 if c_i > 0:
                     ax.text(
-                        x_i + x_upper * 0.016, y_i,
-                        f"n={int(round(c_i))} · nominal P={p_i:.3g} (ns)",
+                        x_i + x_upper * 0.042, y_i,
+                        f"n={int(round(c_i))} · P={p_i:.2g} (ns)",
                         va="center", ha="left", fontsize=7.6, color=EDITORIAL_SLATE, style="italic",
                     )
         else:
@@ -294,33 +308,51 @@ def render_editorial_ora_facets(
             )
             for y_i, x_i, c_i, r_i in zip(ys, xs, cnts, ratios):
                 ax.text(
-                    x_i + x_upper * 0.016, y_i,
-                    f"n={int(round(c_i))} ({r_i * 100:.1f}%)",
-                    va="center", ha="left", fontsize=7.8, color=EDITORIAL_SLATE,
+                    x_i + x_upper * 0.042, y_i,
+                    f"n={int(round(c_i))} ({r_i * 100:.0f}%)",
+                    va="center", ha="left", fontsize=7.9, color=EDITORIAL_SLATE,
                 )
 
         ax.set_yticks(ys)
-        ax.set_yticklabels(sub_rev["_clean_label"].tolist(), fontsize=8.5, color="#1E293B" if not is_exp_panel else "#475569", linespacing=1.12)
+        ax.set_yticklabels(sub_rev["_clean_label"].tolist(), fontsize=8.4, color="#1E293B" if not is_exp_panel else "#475569", linespacing=1.12)
         ax.set_ylim(-0.62, len(sub_rev) - 0.38)
         ax.set_xlim(0, x_upper)
-        ax.tick_params(axis="x", labelsize=7.8)
+        ax.tick_params(axis="x", labelsize=8.0)
         ax.spines["left"].set_color("#94A3B8")
         ax.spines["bottom"].set_color("#94A3B8")
-        ax.set_title(cat_title, loc="left", fontsize=9.5, fontweight="bold", color=EDITORIAL_NAVY if not is_exp_panel else "#334155", pad=5)
+        prefix_ltr = f"{panel_letters[idx_b]}. " if use_grid_2col and idx_b < len(panel_letters) else ""
+        ax.set_title(f"{prefix_ltr}{cat_title}", loc="left", fontsize=9.8, fontweight="bold", color=EDITORIAL_NAVY if not is_exp_panel else "#334155", pad=6)
+        if use_grid_2col and (idx_b >= n_blocks - 2):
+            ax.set_xlabel("−log10(BH FDR)" if not is_exp_panel else "−log10(nominal P)", fontsize=8.4, fontweight="bold", color=EDITORIAL_NAVY, labelpad=4)
 
-    axes[-1].set_xlabel("Significance: −log10(BH FDR) for solid markers; −log10(nominal P) for hollow exploratory panels   [line = 0.05]", fontsize=8.8, color=EDITORIAL_NAVY, labelpad=7)
+    for ax_unused in axes_flat[n_blocks:]:
+        ax_unused.axis("off")
 
-    fig.subplots_adjust(left=0.40, right=0.86, top=1.0 - (1.10 / fig_h), bottom=0.64 / fig_h)
+    if use_grid_2col:
+        fig.subplots_adjust(left=0.23, right=0.91, top=1.0 - (1.02 / fig_h), bottom=0.72 / fig_h)
+        if last_scatter is not None:
+            cax = fig.add_axes([0.935, 0.28, 0.013, 0.44])
+            cb = fig.colorbar(last_scatter, cax=cax)
+            cb.set_label("Gene ratio", fontsize=8.8, fontweight="bold", color=EDITORIAL_NAVY)
+            cb.ax.tick_params(labelsize=8.0)
+            cb.outline.set_edgecolor("#CBD5E1")
+        fig.text(
+            0.50, 0.012,
+            "Solid markers: −log10(BH FDR) for significant pathways (FDR ≤ 0.05); hollow markers: exploratory nominal P  ·  Dashed vertical line = 0.05 threshold",
+            fontsize=8.3, color=EDITORIAL_SLATE, ha="center", va="bottom",
+        )
+    else:
+        axes_flat[-1].set_xlabel("Significance: −log10(BH FDR) for solid markers; −log10(nominal P) for hollow exploratory panels   [line = 0.05]", fontsize=8.8, color=EDITORIAL_NAVY, labelpad=7)
+        fig.subplots_adjust(left=0.40, right=0.86, top=1.0 - (1.10 / fig_h), bottom=0.64 / fig_h)
+        if last_scatter is not None:
+            cax = fig.add_axes([0.89, 0.34, 0.018, min(0.42, 1.8 / fig_h + 0.12)])
+            cb = fig.colorbar(last_scatter, cax=cax)
+            cb.set_label("Gene ratio", fontsize=8.5, color=EDITORIAL_NAVY)
+            cb.ax.tick_params(labelsize=7.8)
+            cb.outline.set_edgecolor("#CBD5E1")
 
-    if last_scatter is not None:
-        cax = fig.add_axes([0.89, 0.34, 0.018, min(0.42, 1.8 / fig_h + 0.12)])
-        cb = fig.colorbar(last_scatter, cax=cax)
-        cb.set_label("Gene ratio", fontsize=8.5, color=EDITORIAL_NAVY)
-        cb.ax.tick_params(labelsize=7.8)
-        cb.outline.set_edgecolor("#CBD5E1")
-
-    fig.text(0.02, 1.0 - (0.18 / fig_h), title, fontsize=12.0, fontweight="bold", color=EDITORIAL_NAVY, ha="left", va="top")
-    fig.text(0.02, 1.0 - (0.48 / fig_h), subtitle, fontsize=8.4, color=EDITORIAL_SLATE, ha="left", va="top")
+    fig.text(0.015, 1.0 - (0.14 / fig_h), title, fontsize=12.4, fontweight="bold", color=EDITORIAL_NAVY, ha="left", va="top")
+    fig.text(0.015, 1.0 - (0.48 / fig_h), subtitle, fontsize=8.6, color=EDITORIAL_SLATE, ha="left", va="top")
 
     fig.savefig(png_path, dpi=220, bbox_inches="tight", facecolor="white")
     if svg_path:

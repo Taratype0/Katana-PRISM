@@ -7,10 +7,11 @@ dist/
 .pytest_cache/
 .venv*/
 
-# Nextflow runtime
+# Nextflow runtime & local inspection builds
 work/
 .nextflow*
 results*
+dummy_inspection_reports/
 
 # Node / Web
 node_modules/

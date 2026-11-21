@@ -81,15 +81,19 @@ def load_bundled_uniprot_domains(species: str = "auto") -> dict[str, dict]:
         df["feature_label"],
     ):
         gk = str(g_low)
+        acc_s = str(acc)
         ent = index.get(gk)
         if ent is None:
             ent = {
-                "uniprot_acc": str(acc),
+                "uniprot_acc": acc_s,
                 "uniprot_len": int(ulen),
                 "pfam_ids": "" if pd.isna(pfam) else str(pfam),
                 "features": [],
             }
             index[gk] = ent
+        elif ent["uniprot_acc"] != acc_s:
+            # Never merge intervals from a different UniProt accession/species into the same entry
+            continue
         ent["features"].append({"kind": str(kind), "start": int(s_aa), "end": int(e_aa), "label": str(lbl)})
     _DOMAIN_CACHE[cache_key] = index
     return index
@@ -138,7 +142,7 @@ def load_gtf_coding_transcripts(
             if len(parts) < 9:
                 continue
             ftype = parts[2]
-            if ftype not in ("exon", "CDS", "start_codon", "stop_codon"):
+            if ftype not in ("transcript", "exon", "CDS", "start_codon", "stop_codon"):
                 continue
             attrs = parts[8]
             mg = _ATTR_GENE_ID.search(attrs)
@@ -242,6 +246,17 @@ def _merge_sorted_blocks(blocks: list[tuple[int, int]]) -> list[tuple[int, int]]
 def _rank_host_transcripts(candidates: list[HostTranscriptModel], rec: dict) -> list[HostTranscriptModel]:
     if not candidates:
         return []
+    rec_strand = str(rec.get("strand") or "").strip()
+    rec_chr = str(rec.get("chr") or "").strip()
+    if rec_strand in ("+", "-"):
+        same_st = [m for m in candidates if m.strand == rec_strand]
+        if same_st:
+            candidates = same_st
+    if rec_chr:
+        norm_rc = rec_chr.lower().removeprefix("chr")
+        same_ch = [m for m in candidates if m.chrom.lower().removeprefix("chr") == norm_rc]
+        if same_ch:
+            candidates = same_ch
     kind = str(rec["event_type"])
     ev_coords = [
         int(rec[c])
@@ -320,20 +335,21 @@ def _build_full_isoform_exons(host_exons: list[tuple[int, int]], row: dict) -> t
                     found_u = True
                 left_exons.append((a, b))
             elif a < u1 < b:
-                # Host exon extends past u1 -> trim cleanly at u1
-                left_exons.append((min(a, u0), u1))
+                # Host exon extends past u1 -> trim strictly at u1 without expanding across upstream intron
+                left_exons.append((a, u1))
                 found_u = True
             if a >= d0:
                 if a == d0:
                     found_d = True
                 right_exons.append((a, b))
             elif a < d0 < b:
-                right_exons.append((d0, max(b, d1)))
+                # Host exon starts before d0 -> trim strictly at d0 without expanding across downstream intron
+                right_exons.append((d0, b))
                 found_d = True
         if not found_u:
-            left_exons.append((u0, u1))
+            left_exons = [(a, b) for a, b in left_exons if b <= u0] + [(u0, u1)]
         if not found_d:
-            right_exons.append((d0, d1))
+            right_exons = [(d0, d1)] + [(a, b) for a, b in right_exons if a >= d1]
 
         if kind == "SE":
             t0, t1 = int(row["exonStart_0base"]), int(row["exonEnd"])
@@ -362,23 +378,25 @@ def _build_full_isoform_exons(host_exons: list[tuple[int, int]], row: dict) -> t
     f0, f1 = int(row["flankingES"]), int(row["flankingEE"])
     if l1 <= f0:
         # Alternative exon is genomic-left of flanking exon
-        left_base = [(a, b) for a, b in host_exons if b <= l0]
         # Preserve upstream start of the alternative exon if host exon started earlier than l0
         for a, b in host_exons:
-            if a < l0 < b <= l1 + 5:
+            if a < l0 < b and b <= f0:
                 l0, s0 = a, a
+                break
+        left_base = [(a, b) for a, b in host_exons if b <= l0]
         right_base = [(a, b) for a, b in host_exons if a >= f0]
         if not any(a == f0 for a, _ in right_base):
-            right_base.append((f0, f1))
+            right_base = [(f0, f1)] + [(a, b) for a, b in right_base if a >= f1]
         return _merge_sorted_blocks(left_base + [(l0, l1)] + right_base), _merge_sorted_blocks(left_base + [(s0, s1)] + right_base)
     else:
         # Flanking exon is genomic-left of alternative exon
         left_base = [(a, b) for a, b in host_exons if b <= f1]
         if not any(b == f1 for _, b in left_base):
-            left_base.append((f0, f1))
+            left_base = [(a, b) for a, b in left_base if b <= f0] + [(f0, f1)]
         for a, b in host_exons:
-            if l0 - 5 <= a < l1 < b:
+            if f1 <= a < l1 < b:
                 l1, s1 = b, b
+                break
         right_base = [(a, b) for a, b in host_exons if a >= l1]
         return _merge_sorted_blocks(left_base + [(l0, l1)] + right_base), _merge_sorted_blocks(left_base + [(s0, s1)] + right_base)
 
@@ -542,17 +560,27 @@ def _map_uniprot_domains_to_isoforms(
                         e_map = max(s_map, min(canon_len, int(round(feat["end"] * scale))))
                 ov = max(0, min(e_map, c_alt_end) - max(s_map, c_alt_start) + 1) if c_alt_end >= c_alt_start else 0
                 dom_span = max(1, e_map - s_map + 1)
-                if prot_inc != prot_exc and ov >= 1 and not (nmd_inc and nmd_exc):
-                    if (nmd_inc or nmd_exc) and s_map > min_l:
-                        state = "lost_by_PTC_truncation"
+                is_internal_ins = (c_alt_end < c_alt_start) and (s_map <= pre) and (e_map >= pre + 1)
+                if prot_inc != prot_exc and (ov >= 1 or is_internal_ins) and not (nmd_inc and nmd_exc):
+                    if (nmd_inc or nmd_exc) and e_map > min_l:
+                        state = "lost_by_PTC_truncation" if s_map > min_l else "truncated_by_PTC"
+                        pct = min(100, int(round(100.0 * max(1, e_map - max(s_map - 1, min_l)) / dom_span)))
+                        tag_dir = f"{pct}% PTC"
+                    elif is_internal_ins:
+                        ins_len = abs(len_inc - len_exc)
+                        state = "inserted_by_inclusion" if len_inc > len_exc else "inserted_by_exclusion"
+                        tag_dir = f"+{ins_len} aa ins"
                     elif canon_is_inc and len_inc > len_exc and suf > 0:
                         state = "inserted_by_inclusion"
+                        pct = min(100, int(round(100.0 * ov / dom_span)))
+                        tag_dir = f"{pct}%"
                     elif (not canon_is_inc) and suf == 0:
                         state = "canonical_C_tail_replaced_by_inclusion"
+                        tag_dir = "replaced_C_tail"
                     else:
                         state = "spliced_indel_overlap"
-                    pct = min(100, int(round(100.0 * ov / dom_span)))
-                    tag_dir = "replaced_C_tail" if state == "canonical_C_tail_replaced_by_inclusion" else f"{pct}%"
+                        pct = min(100, int(round(100.0 * ov / dom_span)))
+                        tag_dir = f"{pct}%"
                     if feat["kind"] != "REGION" or "Disordered" not in feat["label"]:
                         disrupted_labels.append(f"{feat['label']} [{s_map}-{e_map} aa, {tag_dir}]")
                     elif len(disrupted_labels) == 0:
@@ -590,7 +618,11 @@ def trace_protein_and_nmd_consequences(
         | set(events_df.get("gene_name", pd.Series(dtype=str)).dropna().astype(str))
     )
     tx_index = load_gtf_coding_transcripts(gtf_path, target_genes=target_genes)
-    domain_db = load_bundled_uniprot_domains(species=species)
+    eff_species = str(species or "auto").lower()
+    if eff_species == "auto":
+        gids_str = events_df["gene_id"].dropna().astype(str) if "gene_id" in events_df.columns else pd.Series(dtype=str)
+        eff_species = "mouse" if gids_str.str.upper().str.startswith("ENSMUSG").any() else "human"
+    domain_db = load_bundled_uniprot_domains(species=eff_species)
     reader = indexed_fasta_cls(Path(fasta_path))
 
     rows: list[dict] = []
@@ -735,7 +767,7 @@ def trace_protein_and_nmd_consequences(
             elif not (t_inc["start_preserved"] and t_exc["start_preserved"]):
                 f_status = "translation_start_altered"
             elif abs(delta_nt) % 3 == 0:
-                f_status = "in_frame_indel"
+                f_status = "in_frame_PTC" if (t_inc["nmd_sensitive"] != t_exc["nmd_sensitive"]) else "in_frame_indel"
             else:
                 f_status = "frameshift"
 

@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --job-name=prism_sc_e2e
-#SBATCH --account=naiss2026-4-301
+#SBATCH --account=<naiss-compute-account>
 #SBATCH --partition=shared
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -15,8 +15,8 @@ set -euo pipefail
 # ==============================================================================
 # 1. EDIT ONLY THESE STUDY VARIABLES BEFORE RUNNING `sbatch` ON DARDEL
 # ==============================================================================
-export SLURM_ACCOUNT="naiss2026-4-301"
-export ROOT="/cfs/klemming/projects/supr/naiss2025-23-363"
+export SLURM_ACCOUNT="${SLURM_ACCOUNT:-<naiss-compute-account>}"
+export ROOT="${PROJECT_ROOT:-/cfs/klemming/projects/supr/<naiss-storage-project>}"
 export PRISM="${ROOT}/Katana-PRISM"
 export RUN_DIR="${PRISM}/runs/my_singlecell_study"
 

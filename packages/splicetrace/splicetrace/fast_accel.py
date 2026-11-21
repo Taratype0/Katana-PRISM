@@ -199,7 +199,7 @@ def fast_gene_block_maxt_permutations(
     rng = np.random.default_rng(int(seed))
 
     # Vectorized random argsort generates B independent permutations in C without Python loops
-    rand_keys = rng.random((B, G), dtype=np.float32)
+    rand_keys = rng.random((B, G), dtype=np.float64)
     perm_idx = np.argsort(rand_keys, axis=1)
     yc_f32 = np.asarray(yc, dtype=np.float32)
     perm_Y = yc_f32[perm_idx]

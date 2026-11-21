@@ -72,16 +72,22 @@ def main(argv: list[str] | None = None) -> int:
     eg_ser = eg_df.set_index("event_id")["gene_id"].astype(str)
 
     if args.select_budget > 0 and usage.shape[1] > args.select_budget:
+        from scsplicenet.input_contract import validate_sc_usage_input
+        u_val, md_val, s_val, eg_val, _ = validate_sc_usage_input(
+            usage, metadata, eg_df, support=support, require_qc_whitelist=("qc_pass" in metadata.columns)
+        )
         host_df = pd.read_csv(args.host_expr, sep="\t", index_col=0) if args.host_expr else None
-        aud = audit_sc_events(usage, eg_ser, support=support)
-        aud = attach_split_state_reliability_and_psix(aud, usage, metadata, support=support, host_log_expr=host_df, seed=args.seed)
+        eg_ser_val = eg_val.set_index("event_id")["gene_id"].astype(str)
+        aud = audit_sc_events(u_val, eg_ser_val, support=s_val)
+        aud = attach_split_state_reliability_and_psix(aud, u_val, md_val, support=s_val, host_log_expr=host_df, seed=args.seed)
         sel = select_sc_events(aud, budget=args.select_budget, max_per_gene=2, ranking_metric=args.selector)
         keep_ids = sel["event_id"].astype(str).tolist()
-        usage = usage.loc[:, keep_ids]
-        if support is not None:
-            support = support.loc[:, keep_ids]
-        eg_df = eg_df[eg_df["event_id"].astype(str).isin(set(keep_ids))].copy()
-        sel.to_csv(out / "scsplicenet_selected_events.tsv", sep="\t", index=False)
+        if keep_ids:
+            usage = u_val.loc[:, keep_ids]
+            support = s_val.loc[:, keep_ids] if s_val is not None else None
+            metadata = md_val
+            eg_df = eg_val[eg_val["event_id"].astype(str).isin(set(keep_ids))].copy()
+            sel.to_csv(out / "scsplicenet_selected_events.tsv", sep="\t", index=False)
 
     net = fit_scsplicenet(
         usage=usage, metadata=metadata, event_genes=eg_df, support=support,

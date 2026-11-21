@@ -73,6 +73,7 @@ def parse_rbp_expression_reference(
     rbp_expr_df: pd.DataFrame | None,
     *,
     module_scores_df: pd.DataFrame | None = None,
+    candidate_rbps: set[str] | None = None,
 ) -> tuple[dict[str, float], dict[str, float], pd.DataFrame | None]:
     """Parse either a gene summary table (`gene_symbol`/`RBP` + `mean_expr`/`tpm` [+ `stat_z`/`log2fc`])
     or a sample x gene / gene x sample expression matrix into `(mean_expr_map, expr_z_map, sample_by_gene_df)`.
@@ -117,12 +118,20 @@ def parse_rbp_expression_reference(
         sc_idx = set(module_scores_df.index.astype(str))
         if len(set(num_mat.columns.astype(str)) & sc_idx) > len(set(num_mat.index.astype(str)) & sc_idx):
             num_mat = num_mat.T
+    elif candidate_rbps:
+        col_hits = len(set(num_mat.columns.astype(str).str.strip().str.upper()) & candidate_rbps)
+        row_hits = len(set(num_mat.index.astype(str).str.strip().str.upper()) & candidate_rbps)
+        if row_hits > col_hits:
+            num_mat = num_mat.T
+        elif col_hits == 0 and row_hits == 0 and num_mat.shape[0] > num_mat.shape[1] * 3:
+            num_mat = num_mat.T
     elif num_mat.shape[0] > num_mat.shape[1] * 3:
         # Likely genes x samples -> transpose to samples x genes
         num_mat = num_mat.T
 
     num_mat.columns = num_mat.columns.astype(str).str.strip().str.upper()
-    num_mat = num_mat.groupby(level=0, axis=1).max() if num_mat.columns.duplicated().any() else num_mat
+    if num_mat.columns.duplicated().any():
+        num_mat = num_mat.T.groupby(level=0).max().T
     means = num_mat.mean(axis=0, skipna=True)
     mean_map = {str(k): float(v) for k, v in means.items() if np.isfinite(v)}
     return mean_map, {}, num_mat
@@ -143,14 +152,21 @@ def annotate_rbp_expression_disambiguation(
     """
     if ranking_df.empty or rbp_expr_df is None or rbp_expr_df.empty:
         return ranking_df
-    mean_map, z_map, samp_by_gene = parse_rbp_expression_reference(rbp_expr_df, module_scores_df=module_scores_df)
+    cand_rbps = set(ranking_df["RBP"].astype(str).str.strip().str.upper())
+    mean_map, z_map, samp_by_gene = parse_rbp_expression_reference(
+        rbp_expr_df,
+        module_scores_df=module_scores_df,
+        candidate_rbps=cand_rbps,
+    )
     if not mean_map and not z_map and samp_by_gene is None:
         return ranking_df
 
     out = ranking_df.copy()
     rbp_upper = out["RBP"].astype(str).str.strip().str.upper()
     out["rbp_mean_expr"] = [mean_map.get(u, np.nan) for u in rbp_upper]
-    if mean_map:
+    # Only enforce expression gating when at least one RBP symbol actually maps into the provided expression table
+    # (prevents Ensembl-ID-only matrices from falsely flagging 100% of RBPs as unexpressed)
+    if mean_map and any(u in mean_map for u in rbp_upper):
         out["rbp_expressed"] = [bool(mean_map.get(u, 0.0) >= float(min_rbp_expr)) for u in rbp_upper]
     else:
         out["rbp_expressed"] = True
@@ -280,6 +296,21 @@ def bridge_splicenet_modules_to_rbps(
 
     if "comparison_id" not in merged.columns:
         merged["comparison_id"] = "splicenet_bridge"
+    try:
+        import importlib as _imp
+        _ef_fn = _imp.import_module(f"{__name__.split('.')[0]}.rna_forms").event_forms
+        _valid_m = []
+        for _rec in merged.to_dict("records"):
+            try:
+                _ef_fn(_rec)
+                _valid_m.append(True)
+            except Exception:
+                _valid_m.append(False)
+        merged = merged.loc[_valid_m].reset_index(drop=True)
+    except Exception:
+        pass
+    if len(merged) < 20:
+        return pd.DataFrame(columns=["module", "module_events", "module_genes", "RBP", "best_region", "kme_direction", "stat_Z", "nominal_P", "module_P_FWER"])
     rna_df = extract_rna_fn(
         merged,
         Path(fasta_path),
@@ -572,7 +603,7 @@ def bridge_splicenet_modules_to_rbps(
             study_fwer_p = (1.0 + np.sum(min_p_null[:, None] <= p_obs_mod[None, :] + 1e-12, axis=0)) / (b_study + 1.0)
             order = np.argsort(-rbp_max)
             for rank_i, r_i in enumerate(order, 1):
-                flat_best = int(np.argmax(score_stack[:, :, r_i]))
+                flat_best = int(np.argmax(score_stack[:, :, r_i])) if float(np.max(score_stack[:, :, r_i])) > 0.0 else int(np.argmax(Z_stack[:, :, r_i]))
                 best_a, best_reg = divmod(flat_best, n_reg)
                 out_rows.append({
                     "module": m_lbl,

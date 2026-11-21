@@ -70,7 +70,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         usage = pd.read_csv(args.usage, sep="\t", index_col=0)
-        meta = pd.read_csv(args.samples, sep="\t", dtype={"sample_id": str, "biological_sample_id": str})
+        _s_sep = "," if str(args.samples).lower().endswith((".csv", ".csv.gz")) else "\t"
+        meta = pd.read_csv(args.samples, sep=_s_sep, dtype={"sample_id": str, "biological_sample_id": str})
         support = pd.read_csv(args.support, sep="\t", index_col=0) if args.support is not None else None
 
     masked, audit = unit_robust_audit(usage, meta, support)
@@ -81,8 +82,8 @@ def main(argv: list[str] | None = None) -> int:
         assignments = pd.DataFrame(columns=["event_key", "module", "block", "kME"])
         assignments.to_csv(out_dir / "module_assignments.tsv", sep="\t", index=False)
         pd.DataFrame(index=meta["sample_id"]).to_csv(out_dir / "module_scores.tsv", sep="\t", index_label="sample_id")
-        pd.DataFrame(columns=["module", "size"]).to_csv(out_dir / "module_summary.tsv", sep="\t", index=False)
-        pd.DataFrame(columns=["event_key", "module", "loading"]).to_csv(out_dir / "module_pc1_basis.tsv", sep="\t", index=False)
+        pd.DataFrame(columns=["module", "events", "pc1_variance_fraction", "evaluable_samples"]).to_csv(out_dir / "module_summary.tsv", sep="\t", index=False)
+        pd.DataFrame(columns=["event_key", "module", "center", "scale", "loading"]).to_csv(out_dir / "module_pc1_basis.tsv", sep="\t", index=False)
         receipt = {
             "version": __version__,
             "status": "insufficient_events_for_network",
@@ -102,25 +103,38 @@ def main(argv: list[str] | None = None) -> int:
 
     eff_min_mod = min(args.min_module_size, max(4, len(selected) // 3))
     assignments = fit_splicenet(
-        selected, out_dir / "wgcna_fit", power=args.power, min_module_size=eff_min_mod, backend=args.backend
+        selected,
+        out_dir / "wgcna_fit",
+        power=args.power,
+        min_module_size=eff_min_mod,
+        merge_cut_height=args.merge_cut_height,
+        backend=args.backend,
     )
     stability_metrics: dict[str, float] = {}
     if args.subsamples > 0:
         assignments, stability_metrics = consensus_core_audit(
             usage, meta, support, assignments,
             feature_cap=args.feature_cap, ranking_metric=args.ranking_metric,
-            min_module_size=args.min_module_size, n_subsamples=args.subsamples,
+            power=args.power,
+            merge_cut_height=args.merge_cut_height,
+            min_module_size=eff_min_mod,
+            n_subsamples=args.subsamples,
+            backend=args.backend,
         )
 
     assignments.to_csv(out_dir / "module_assignments.tsv", sep="\t", index=False)
     scores, _, mod_summary, basis = score_modules(selected, assignments)
     scores.to_csv(out_dir / "module_scores.tsv", sep="\t", index_label="sample_id")
+    if mod_summary.empty:
+        mod_summary = pd.DataFrame(columns=["module", "events", "pc1_variance_fraction", "evaluable_samples"])
+    if basis.empty:
+        basis = pd.DataFrame(columns=["event_key", "module", "center", "scale", "loading"])
     mod_summary.to_csv(out_dir / "module_summary.tsv", sep="\t", index=False)
     basis.to_csv(out_dir / "module_pc1_basis.tsv", sep="\t", index=False)
 
     gene_map = None
     if args.annotation is not None:
-        ann_df = pd.read_csv(args.annotation, sep="\t", dtype=str).set_index("event_key")
+        ann_df = pd.read_csv(args.annotation, sep="\t", dtype=str).drop_duplicates(subset=["event_key"]).set_index("event_key")
         gene_map = ann_df["gene_id"]
     elif auto_gene_map is not None and not auto_gene_map.empty:
         gene_map = auto_gene_map

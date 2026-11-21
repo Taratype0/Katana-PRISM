@@ -15,20 +15,32 @@ def score_modules(
     rows: list[dict] = []
     basis: list[dict] = []
 
+    if measured.shape[1] < 2:
+        return (
+            scores,
+            coverage,
+            pd.DataFrame(columns=["module", "events", "pc1_variance_fraction", "evaluable_samples"]),
+            pd.DataFrame(columns=["event_key", "module", "center", "scale", "loading"]),
+        )
     labels = assignments.set_index("event_key").reindex(measured.index)["module"]
     for mod in sorted(labels.dropna().unique()):
         if int(mod) == 0:
             continue
         block = measured.loc[labels.eq(mod)]
+        block = block.loc[block.notna().sum(axis=1) >= 2]
+        if block.empty:
+            continue
         name = f"M{int(mod)}"
-        means = block.mean(axis=1)
-        scales = block.std(axis=1, ddof=1).clip(lower=1e-8)
+        means = block.mean(axis=1).fillna(0.0)
+        scales = block.std(axis=1, ddof=1).fillna(1.0).clip(lower=1e-8)
         z = ((block.T.fillna(means) - means) / scales).to_numpy(dtype=float)
+        z = np.nan_to_num(z, nan=0.0, posinf=0.0, neginf=0.0)
         _, s_vals, vt = np.linalg.svd(z, full_matrices=False)
         load = vt[0]
         raw = z @ load
         sign = 1.0 if float(load.sum()) >= 0.0 else -1.0
-        scale = max(float(np.std(raw, ddof=1)), 1e-12)
+        raw_sd = float(np.std(raw, ddof=1)) if len(raw) >= 2 else 0.0
+        scale = raw_sd if (np.isfinite(raw_sd) and raw_sd > 1e-12) else 1.0
         load = load * sign / scale
         coverage[name] = block.notna().mean(axis=0)
         scores[name] = pd.Series(z @ load, index=measured.columns).where(coverage[name].ge(0.80))
@@ -246,14 +258,18 @@ def enrich_module_genes(
     from scipy.stats import hypergeom
     def _bh_fdr(p_values: np.ndarray) -> np.ndarray:
         p = np.asarray(p_values, dtype=float)
-        n = len(p)
-        if n == 0:
-            return p
-        order = np.argsort(p, kind="mergesort")
-        ranked = p[order] * n / np.arange(1, n + 1, dtype=float)
+        out = np.full(len(p), np.nan, dtype=float)
+        fin = np.isfinite(p)
+        m = int(fin.sum())
+        if m == 0:
+            return out
+        pf = p[fin]
+        order = np.argsort(pf, kind="mergesort")
+        ranked = pf[order] * m / np.arange(1, m + 1, dtype=float)
         q_sorted = np.minimum.accumulate(ranked[::-1])[::-1]
-        out = np.empty(n, dtype=float)
-        out[order] = np.clip(q_sorted, 0.0, 1.0)
+        qf = np.empty(m, dtype=float)
+        qf[order] = np.clip(q_sorted, 0.0, 1.0)
+        out[fin] = qf
         return out
 
     asg = assignments.set_index("event_key")["module"]

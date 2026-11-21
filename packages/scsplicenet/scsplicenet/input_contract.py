@@ -105,7 +105,11 @@ def validate_sc_usage_input(
             raise ValueError("Explicit qc_pass column required when require_qc_whitelist=True")
         if md["qc_pass"].isna().any():
             raise ValueError("Missing qc_pass decisions cannot be coerced to True")
-        md = md.loc[md["qc_pass"].eq(True)].copy()
+        if pd.api.types.is_bool_dtype(md["qc_pass"]):
+            qc_mask = md["qc_pass"].eq(True)
+        else:
+            qc_mask = md["qc_pass"].astype(str).str.strip().str.lower().isin({"true", "1", "yes", "pass"})
+        md = md.loc[qc_mask].copy()
         if md.empty:
             raise ValueError("Zero cells remain after applying qc_pass==True whitelist")
 

@@ -1,6 +1,6 @@
 process PREPARE_REFERENCES {
     label 'process_low'
-    container "${workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/gffread:0.12.1--h8b12597_0' : 'quay.io/biocontainers/gffread:0.12.1--h8b12597_0'}"
+    container "${workflow.containerEngine in ['singularity', 'apptainer'] ? 'https://depot.galaxyproject.org/singularity/gffread:0.12.1--h8b12597_0' : 'quay.io/biocontainers/gffread:0.12.1--h8b12597_0'}"
     input:
     // Input basenames may equal the normalized output names. Stage them in
     // separate directories so output redirection cannot truncate source links.
@@ -18,7 +18,9 @@ process PREPARE_REFERENCES {
     def gtf_cmd = gtf.name.endsWith('.gz') ? "gzip -cd -- ${shellQuote(gtf)}" : "cat -- ${shellQuote(gtf)}"
     """
     $fasta_cmd > genome.fasta
-    $gtf_cmd > annotation.gtf
+    $gtf_cmd > raw_annotation.gtf
+    awk 'NR==FNR{if(/^>/){c=substr(\$1,2); if(c!="MT" && c!="chrM") keep[c]=1}; next} /^#/ || (\$1 in keep)' genome.fasta raw_annotation.gtf > annotation.gtf
+    rm -f raw_annotation.gtf
     gffread annotation.gtf -g genome.fasta -w transcripts.fasta
     test -s genome.fasta
     test -s annotation.gtf

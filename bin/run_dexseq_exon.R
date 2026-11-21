@@ -90,13 +90,13 @@ vectorToDataFrame <- function(x) {
 
 write.plotDEXSeq <- function(x, file, ntop = 10) {
 
-    ind <- which(x$pvalue <= sort(x$pvalue)[ntop], arr.ind = TRUE)
-
-    ids <- x$groupID[ind]
+    valid_p <- sort(x$pvalue[!is.na(x$pvalue)])
+    k <- min(ntop, length(valid_p))
+    ids <- if (k > 0L) unique(x$groupID[which(x$pvalue <= valid_p[k])]) else character(0)
 
     pdf(file = file, width = 11.7, height = 8.3)
 
-    for (i in ids) {
+    for (i in head(ids, ntop)) {
 
         plotDEXSeq(x, geneID = i)
 

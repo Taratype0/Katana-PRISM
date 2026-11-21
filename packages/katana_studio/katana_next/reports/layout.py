@@ -198,14 +198,15 @@ def _motif_summary(record):
     minimum = record.get('min_native_fdr')
     note = (' Minimum recorded test FDR: ' + _cell(minimum) + '.') if minimum is not None else ''
     full = _link(record['ranking_path'], 'All models and original P / FDR') if record.get('ranking_path') else ''
-    notice_txt = record.get('notice', record.get('summary', 'Completed MotifTrace sequence summary; see complete output tables.'))
+    notice_txt = record.get('notice', record.get('summary', 'Completed SpliceTrace cis-regulatory sequence summary; see complete output tables.'))
     fam_txt = record.get('native_test_family', '')
-    return '<article class="exhibit wide motif-significance" id="motif-status-' + esc(record.get('contrast_id', 'all')) + '"' + _scope(record) + '><h3>SpliceTrace / MotifTrace: ' + heading + '</h3><p>' + esc(notice_txt) + note + '</p>' + ('<p class="fig-notes">' + esc(fam_txt) + '</p>' if fam_txt else '') + full + '</article>'
+    return '<article class="exhibit wide motif-significance" id="motif-status-' + esc(record.get('contrast_id', 'all')) + '"' + _scope(record) + '><h3>SpliceTrace: ' + heading + '</h3><p>' + esc(notice_txt) + note + '</p>' + ('<p class="fig-notes">' + esc(fam_txt) + '</p>' if fam_txt else '') + full + '</article>'
 
 
 def _network_browser(record):
     if record.get('whole_study'):
-        return '<article class="exhibit wide network-browser" id="' + esc(record['id']) + '"' + _scope(record) + '><div class="exhibit-head"><h3>CoSplice / SpliceNet | all study samples and conditions</h3></div><p class="fig-notes">One shared sample-level network across declared biological samples. Changing the comparison selector does not refit or subset this network. Each module has its own genes, events, sample response and enrichment.</p><div class="fig-links">' + _link(record['source'], 'Open whole-study network report') + '</div><iframe loading="lazy" data-src="' + esc(str(record['source']).replace('\\', '/')) + '" title="CoSplice whole-study modules" class="network-frame"></iframe></article>'
+        b_title = record.get('title') or 'SpliceNet — Co-splicing network | all study samples and conditions'
+        return '<article class="exhibit wide network-browser" id="' + esc(record['id']) + '"' + _scope(record) + '><div class="exhibit-head"><h3>' + esc(b_title) + '</h3></div><p class="fig-notes">One shared sample/donor-level network across declared biological units. Changing the comparison selector does not refit or subset this network. Each module has its own genes, events, sample response and enrichment.</p><div class="fig-links">' + _link(record['source'], 'Open whole-study network report') + '</div><iframe loading="lazy" data-src="' + esc(str(record['source']).replace('\\', '/')) + '" title="' + esc(b_title) + '" class="network-frame"></iframe></article>'
     return '<article class="exhibit wide network-browser" id="' + esc(record['id']) + '"' + _scope(record) + '><div class="exhibit-head"><h3>Module network and complete gene lists | ' + esc(record['contrast_id']) + '</h3></div><p class="fig-notes">Select a module below. The graph uses saved module membership and native adjacency; display-node and edge limits are stated in the browser. Gene symbols, IDs and all event memberships are searchable and downloadable.</p><div class="fig-links">' + _link(record['source'], 'Open network and module genes in a full window') + '</div><iframe loading="lazy" data-src="' + esc(str(record['source']).replace('\\', '/')) + '" title="Module network and gene lists" class="network-frame"></iframe></article>'
 
 
@@ -214,8 +215,14 @@ def render(builder):
     project = source['project']
     from katana_next.flow.selection import active_chapters
     active_set = set(active_chapters(builder.analyses))
-    # Only render Chapter 8 if integrative panels or tables were actually supplied
-    has_ch8 = any(p.get('chapter') == 8 for p in builder.panels) or any(t.get('chapter') == 8 for t in builder.tables) or any(r.get('chapter') == 8 for r in builder.top10)
+    interactive_blocks = getattr(builder, 'interactive_blocks', [])
+    # Only render Chapter 8 if integrative panels, tables, top10 or interactive workbenches were supplied
+    has_ch8 = (
+        any(p.get('chapter') == 8 for p in builder.panels)
+        or any(t.get('chapter') == 8 for t in builder.tables)
+        or any(r.get('chapter') == 8 for r in builder.top10)
+        or any(w.get('chapter') == 8 for w in interactive_blocks)
+    )
     if not has_ch8:
         active_set.discard(8)
     chapters = {n: v for n, v in CHAPTERS.items() if n in active_set}
@@ -273,6 +280,9 @@ def render(builder):
                             inserted.add(record['id'])
         if number in (3, 8):
             blocks.extend(_top10(r, output) for r in builder.top10 if r.get('chapter', 3) == number and r['id'] not in inserted)
+        for widget in interactive_blocks:
+            if widget.get('chapter') == number and widget.get('html'):
+                blocks.append(widget['html'])
 
         missing = [r for r in builder.exclusions if r.get('chapter') == number]
         available_analyses = {p.get('metadata', {}).get('analysis_id') for p in builder.panels}
@@ -342,12 +352,82 @@ def render(builder):
         sections[0] = sections[0].replace('<div class="figure-grid">', design + '<div class="figure-grid">', 1)
 
     # Clean consulting TOC: chapter number + title only (no KPI pill badges)
-    toc = ''.join('<a href="#chapter-' + str(n) + '"><b>' + str(CHAPTER_NUMBERS.get(n, n)).zfill(2) + '</b>' + esc(value[0]) + '</a>' for n, value in chapters.items())
+    toc = ''.join('<a href="#chapter-' + str(n) + '"><b>' + str(CHAPTER_NUMBERS.get(n, n)).zfill(2) + '</b><span>' + esc(value[0]) + '</span></a>' for n, value in chapters.items())
     options = ''.join('<option value="' + esc(c['contrast_id']) + '">' + esc(c.get('label', c['contrast_id'])) + '</option>' for c in contrasts)
-    pills = ''.join(
-        '<button type="button" class="comparison-pill" data-contrast-value="' + esc(c['contrast_id']) + '">' + esc(c.get('label', c['contrast_id'])) + '</button>'
-        for c in contrasts
-    ) if len(contrasts) > 1 else ''
+
+    # Detect two-level Single-Cell hierarchy: Experiment Comparison (top row) + Cell-Type Stratification (bottom row)
+    has_sc_subtypes = is_sc and any('__' in str(c['contrast_id']) for c in contrasts)
+    sc_hierarchy = None
+    if has_sc_subtypes:
+        by_exp = {}
+        exp_order = []
+        for c in contrasts:
+            cid = str(c['contrast_id'])
+            if '__' in cid:
+                ct_key, exp_key = cid.split('__', 1)
+                if ct_key.lower() in {'all_qc_cells', 'all_cells', 'all'}:
+                    ct_key = '__ALL__'
+            else:
+                ct_key, exp_key = '__ALL__', cid
+            if exp_key not in by_exp:
+                by_exp[exp_key] = {}
+                exp_order.append(exp_key)
+            by_exp[exp_key].setdefault(ct_key, cid)
+        # Ensure '__ALL__' (experiment-wide) comes first inside each experiment mapping when present
+        ordered_by_exp = {}
+        for ek in exp_order:
+            m = by_exp[ek]
+            ordered_m = {}
+            if '__ALL__' in m:
+                ordered_m['__ALL__'] = m['__ALL__']
+            for k, v in m.items():
+                if k != '__ALL__':
+                    ordered_m[k] = v
+            ordered_by_exp[ek] = ordered_m
+        init_exp = exp_order[0]
+        init_sub = '__ALL__' if '__ALL__' in ordered_by_exp[init_exp] else next(iter(ordered_by_exp[init_exp]))
+        sc_hierarchy = {
+            'by_exp': ordered_by_exp,
+            'exp_order': exp_order,
+            'initial_exp': init_exp,
+            'initial_subtype': init_sub,
+        }
+        exp_options = ''.join(
+            '<option value="' + esc(ek) + '">' + esc(ek.replace('_vs_', ' vs ')) + '</option>'
+            for ek in exp_order
+        )
+        exp_pills = ''.join(
+            '<button type="button" class="comparison-pill" data-exp-value="' + esc(ek) + '">' + esc(ek.replace('_vs_', ' vs ')) + '</button>'
+            for ek in exp_order
+        )
+        n_ct_total = len({k for m in ordered_by_exp.values() for k in m if k != '__ALL__'})
+        das_ctrl = ''
+        expand_btn = '<button type="button" id="expandAllScope">Show all comparisons</button>' if len(contrasts) > 1 else ''
+        scopebar_html = (
+            '<div class="scopebar sc-two-tier">'
+            '<select id="contrastSelect" style="display:none" aria-hidden="true">' + options + '</select>'
+            '<div class="scopebar-row">'
+            '<label>Experiment <select id="expContrastSelect">' + exp_options + '</select></label>'
+            + ('<div class="comparison-pills">' + exp_pills + '</div>' if len(exp_order) >= 1 else '')
+            + expand_btn + '<button type="button" id="resetScope">Reset</button><span id="scopeSummary" class="scope-summary"></span>'
+            '</div>'
+            '<div class="scopebar-row subtype-row">'
+            '<label>Cell Type (' + str(n_ct_total) + ') <select id="subtypeSelect"></select></label>'
+            '<div id="subtypePills" class="subtype-pills-scroll"></div>'
+            '</div></div>'
+        )
+    else:
+        pills = ''.join(
+            '<button type="button" class="comparison-pill" data-contrast-value="' + esc(c['contrast_id']) + '">' + esc(c.get('label', c['contrast_id'])) + '</button>'
+            for c in contrasts
+        ) if len(contrasts) > 1 else ''
+        das_ctrl = _policy_control('report-das-selection') if not is_sc else ''
+        expand_btn = '<button type="button" id="expandAllScope">Show all comparisons</button>' if len(contrasts) > 1 else ''
+        scopebar_html = (
+            '<div class="scopebar"><label>Comparison <select id="contrastSelect">' + options + '</select></label>'
+            + ('<div class="comparison-pills">' + pills + '</div>' if pills else '')
+            + das_ctrl + expand_btn + '<button type="button" id="resetScope">Reset</button><span id="scopeSummary" class="scope-summary"></span></div>'
+        )
 
     footnote = project.get('metadata', {}).get('gene_filter_policy', {}).get('footnote_en', 'Actual source filtering and fitting scope are retained in provenance. Missing filtering records are not inferred.')
     appendix = (
@@ -356,7 +436,7 @@ def render(builder):
         '<p>PS-DAS (Precision-Supported DAS): native caller FDR/effect criteria plus ≥75% replicate-quantile support on effective-length normalized counts (N_eff ≥ 10, or AS-NMD high-anchor rescue) and Jeffreys Binomial SE(ΔPSI) ≤ 0.16. Ordinary DAS: the same native caller criteria without the read-support gate. Original caller P/FDR and effects are preserved without refitting.</p>'
         '<p>Executive Top 10: native FDR ascending, absolute native effect descending when available, stable object identity. Complete machine-readable Parquet/TSV outputs retain every tested gene, event, module, motif test and background gene set with SHA256 verification.</p>'
         '<div class="fig-links">' + _link('outputs/index.html', 'Complete outputs index') + _link('provenance.json', 'Parameters & SHA256 provenance') + _link('REPORT.zip', 'Download portable REPORT.zip') + '</div>'
-        '<p class="fig-notes">Katana Alternative Splicing Suite · ' + _link('https://github.com/Taratype0/Katana-splicing-tool', 'Repository & documentation') + '.</p></section>'
+        '<p class="fig-notes">Katana-PRISM Alternative Splicing Suite · ' + _link('https://github.com/Taratype0/Katana-PRISM', 'Repository & documentation') + '.</p></section>'
     )
 
     facts_html = (
@@ -368,26 +448,29 @@ def render(builder):
         '</div>'
     )
 
-    das_ctrl = _policy_control('report-das-selection') if not is_sc else ''
-    expand_btn = '<button type="button" id="expandAllScope">Show all comparisons</button>' if len(contrasts) > 1 else ''
-
     eyebrow_prefix = 'SYNTHETIC DISPLAY REVIEW · ' if source.get('dummy') else 'ANALYTICAL STUDY REPORT · '
+    settings_payload = {
+        'event_set': builder.event_set,
+        'initial_comparison': (
+            sc_hierarchy['by_exp'][sc_hierarchy['initial_exp']][sc_hierarchy['initial_subtype']]
+            if sc_hierarchy else (contrasts[0]['contrast_id'] if contrasts else 'all')
+        ),
+        'sc_hierarchy': sc_hierarchy,
+    }
     page = (
         '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<title>' + esc(project.get('name', 'Katana report')) + '</title><link rel="stylesheet" href="assets/report.css"></head><body>'
-        '<header class="topbar"><a class="wordmark" href="REPORT.html">KATANA</a><small>' + ('SINGLE-CELL SMART-SEQ3 SPLICING SUITE' if is_sc else 'ALTERNATIVE SPLICING &amp; ISOFORM SUITE') + '</small>'
+        '<title>' + esc(project.get('name', 'Katana-PRISM report')) + '</title><link rel="stylesheet" href="assets/report.css"></head><body>'
+        '<header class="topbar"><a class="wordmark" href="REPORT.html">KATANA-PRISM</a><small>' + ('SINGLE-CELL SMART-SEQ3 SPLICING SUITE' if is_sc else 'ALTERNATIVE SPLICING &amp; ISOFORM SUITE') + '</small>'
         '<div class="top-actions">' + _link('outputs/index.html', 'Complete Outputs') + _link('REPORT.zip', 'Download REPORT.zip') + '<button id="printReport">Print / PDF</button></div></header>'
         '<section class="cover"><p class="eyebrow">' + eyebrow_prefix + esc(source['mode'].upper()) + '</p>'
-        '<h1>' + esc(project.get('name', 'Katana report')) + '</h1>'
+        '<h1>' + esc(project.get('name', 'Katana-PRISM report')) + '</h1>'
         '<p class="lead">Quantitative multi-layer transcriptomic, co-splicing network, cis-regulatory RBP motif, and mature-mRNA protein-domain / NMD report. Every visual exhibit links directly to its exact plotted coordinates and complete un-truncated statistical tables.</p>'
         + facts_html + '</section>'
         '<div class="shell"><nav class="toc"><p class="toc-title">Report Contents</p>' + toc + '<a href="#appendix"><b>A</b><span>Methods &amp; outputs</span></a></nav>'
-        '<main><div class="scopebar"><label>Comparison <select id="contrastSelect">' + options + '</select></label>'
-        + ('<div class="comparison-pills">' + pills + '</div>' if pills else '')
-        + das_ctrl + expand_btn + '<button type="button" id="resetScope">Reset</button><span id="scopeSummary" class="scope-summary"></span></div>'
+        '<main>' + scopebar_html
         + ''.join(sections) + appendix + '</main></div>'
         '<dialog id="figureModal"><div class="modal-top"><span id="modalTitle"></span><div class="modal-actions"><button id="fitFigure">Fit</button><button id="actualFigure">100%</button><a id="downloadFigure" download>Download PNG</a><button id="closeFigure">Close</button></div></div><div class="modal-scroll" id="modalScroll"><img id="modalImage" alt=""></div></dialog>'
-        '<script id="report-settings" type="application/json">' + json.dumps({'event_set': builder.event_set, 'initial_comparison': contrasts[0]['contrast_id'] if contrasts else 'all'}) + '</script>'
+        '<script id="report-settings" type="application/json">' + json.dumps(settings_payload) + '</script>'
         '<script src="assets/report.js"></script></body></html>'
     )
     (output / 'REPORT.html').write_text(page, encoding='utf-8')

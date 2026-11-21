@@ -167,7 +167,14 @@ def main(argv: list[str] | None = None) -> int:
         include_distal_flanks=(args.distal_intron_nt > 200),
     )
 
-    rbp_expr_df = pd.read_csv(args.expression, sep="\t" if not str(args.expression).lower().endswith(".csv") else ",") if args.expression is not None else None
+    def _read_tbl(path: Path) -> pd.DataFrame:
+        nm = path.name.lower()
+        if nm.endswith(".parquet"):
+            return pd.read_parquet(path)
+        sep = "," if nm.endswith((".csv", ".csv.gz")) else "\t"
+        return pd.read_csv(path, sep=sep)
+
+    rbp_expr_df = _read_tbl(args.expression) if args.expression is not None else None
 
     summary: dict = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "n_models": lib.n_models, "active_threads": int(active_threads), "status": "complete"}
     contrast_df = None
@@ -187,13 +194,21 @@ def main(argv: list[str] | None = None) -> int:
             if sup_df is not None:
                 sup_df = sup_df.T
         md = pd.read_csv(args.metadata, sep="\t")
-        eg = events_df.set_index("event_id")["gene_id"]
+        eg = events_df.assign(event_id=events_df["event_id"].astype(str)).set_index("event_id")["gene_id"]
         u_aligned = psi_df.reindex(columns=events_df["event_id"].astype(str))
         s_aligned = sup_df.reindex(columns=events_df["event_id"].astype(str)) if sup_df is not None else None
 
         d_col = args.donor_col if args.donor_col in md.columns else ("donor" if "donor" in md.columns else None)
-        n_donors = md[d_col].nunique() if d_col else 1
-        if 2 <= n_donors < 5:
+        md_pair = md.loc[md[args.group_col].astype(str).isin([str(args.numerator), str(args.denominator)])]
+        if "qc_pass" in md_pair.columns:
+            md_pair = md_pair.loc[md_pair["qc_pass"].astype(str).str.lower().isin(("true", "1", "yes", "pass"))]
+        if d_col:
+            d_num_s = set(md_pair.loc[md_pair[args.group_col].astype(str).eq(str(args.numerator)), d_col].astype(str))
+            d_den_s = set(md_pair.loc[md_pair[args.group_col].astype(str).eq(str(args.denominator)), d_col].astype(str))
+            n_paired_donors = len(d_num_s & d_den_s)
+        else:
+            n_paired_donors = 0
+        if 2 <= n_paired_donors < 5:
             contrast_df, _, c_info = compute_sc_stratified_meta_contrast(
                 u_aligned, md, eg, support=s_aligned, group_col=args.group_col,
                 numerator_group=args.numerator, denominator_group=args.denominator, donor_col=d_col, seed=args.seed,
@@ -204,6 +219,8 @@ def main(argv: list[str] | None = None) -> int:
                 u_aligned, md, eg, support=s_aligned, group_col=args.group_col,
                 numerator_group=args.numerator, denominator_group=args.denominator, donor_col=args.donor_col, seed=args.seed,
             )
+        summary["numerator_group"] = str(args.numerator)
+        summary["denominator_group"] = str(args.denominator)
 
         conseq_df = trace_sc_mature_motif_consequences(rna_df, contrast_df, lib)
         res = discover_sc_rbp_programs(

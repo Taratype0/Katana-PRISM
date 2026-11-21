@@ -188,7 +188,8 @@ def predict_sc_psi_precision(
                 raise RuntimeError(f"Preconditioned CG did not converge: info={info}, rel_res={rel_res}")
 
     weights_er = np.einsum("epr,pr->er", f, beta.reshape(n_pos, n_rbp))
-    pred = means[None, :] + np.einsum("cer,er->ce", (x[:, None, :] - obs_x[None, :, :]) / sd[None, None, :], weights_er)
+    w_scaled = weights_er / sd[None, :]
+    pred = means[None, :] + (x @ w_scaled.T) - np.sum(obs_x * w_scaled, axis=1)[None, :]
     return np.clip(pred, 0.0, 1.0), {
         "coefficient": beta,
         "event_mean": means,
@@ -238,7 +239,7 @@ def rank_rbp_target_events(
         rw = np.asarray(region_weights, dtype=float)
     else:
         # Emphasize mature consequence + proximal flanks slightly over distal flanks
-        rw = np.array([1.0 if "distal" not in rn else 0.6 for rn in region_names], dtype=float)
+        rw = np.array([0.6 if ("distal" in rn or "200_500" in rn) else 1.0 for rn in region_names], dtype=float)
     rw = rw / max(np.linalg.norm(rw), 1e-12)
 
     motif_susc = np.sqrt(np.sum((mat_er * rw[None, :]) ** 2, axis=1))
@@ -250,7 +251,7 @@ def rank_rbp_target_events(
 
     z_m = _zscore(motif_susc)
     if control_excess_bio_var is not None:
-        sp = np.maximum(np.asarray(control_excess_bio_var, dtype=float), 0.0)
+        sp = np.maximum(np.nan_to_num(np.asarray(control_excess_bio_var, dtype=float), nan=0.0, posinf=0.0, neginf=0.0), 0.0)
         z_s = _zscore(np.sqrt(sp))
         lam = float(np.clip(spliceability_blend, 0.0, 1.0))
         comb = (1.0 - lam) * z_m + lam * z_s

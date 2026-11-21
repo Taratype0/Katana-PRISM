@@ -174,6 +174,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-rbp-expr", type=float, default=1.0, help="Minimum mean expression (TPM/CPM) to mark an RBP as expressed (default: 1.0)")
     parser.add_argument("--threads", type=int, default=0, help="CPU threads for Numba acceleration (0 = auto-detect SLURM_CPUS_PER_TASK / all cores)")
     parser.add_argument("-o", "--output-dir", "--out", dest="output_dir", type=Path, required=False, help="Output directory")
+    parser.add_argument("--contrast-id", default=None, help="Comparison identifier for plot headers (defaults to output directory name)")
     parser.add_argument("--mode", choices=["auto", "discrete", "rescue"], default="auto")
     parser.add_argument("--models-json", type=Path, default=None)
     parser.add_argument("--assignments-tsv", type=Path, default=None)
@@ -237,7 +238,8 @@ def main(argv: list[str] | None = None) -> int:
         receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "n_models": lib.n_models, "mode": "continuous_rescue", "active_threads": int(active_threads), **rescue_res.diagnostics}
         if args.gtf is not None:
             fg_prot_ev = rescue_res.event_contrasts[rescue_res.event_contrasts["_is_fg"]]
-            receipt.update(_run_gtf_and_5plots(fg_prot_ev, rescue_res.mature_consequences, args.gtf, args.fasta, out_dir, args.species))
+            c_lbl = str(args.contrast_id or out_dir.name or "contrast")
+            receipt.update(_run_gtf_and_5plots(fg_prot_ev, rescue_res.mature_consequences, args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl))
 
     elif args.foreground is not None and args.background is not None:
         fg = _read_table(args.foreground).copy()
@@ -255,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
         matched, _, _ = match_events(fg, bg, flank_gc_caliper=caliper_val)
         m_ok = matched[matched["status"].eq("matched")]
         conseq_fg = pd.DataFrame()
-        if args.mode == "auto" and len(m_ok) < 250:
+        if args.mode == "auto" and len(m_ok) < 250 and "dpsi" in comb_all.columns and "baseline_PSI" in comb_all.columns:
             rescue_res = run_bulk_continuous_rescue(
                 comb_all,
                 args.fasta,
@@ -300,7 +302,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.gtf is not None:
             if "dpsi" not in fg.columns:
                 fg["dpsi"] = 0.0
-            receipt.update(_run_gtf_and_5plots(fg, conseq_fg, args.gtf, args.fasta, out_dir, args.species))
+            c_lbl = str(args.contrast_id or out_dir.name or "contrast")
+            receipt.update(_run_gtf_and_5plots(fg, conseq_fg, args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl))
 
     elif args.events is not None and (args.gtf is not None or args.splicenet_modules is not None):
         ev_only = _read_table(args.events).copy()
@@ -309,7 +312,8 @@ def main(argv: list[str] | None = None) -> int:
         bridge_pool_df = ev_only
         receipt = {"version": __version__, "library": lib.name, "mode": "consequences_or_bridge_only", "active_threads": int(active_threads)}
         if args.gtf is not None:
-            receipt.update(_run_gtf_and_5plots(ev_only, pd.DataFrame(), args.gtf, args.fasta, out_dir, args.species))
+            c_lbl = str(args.contrast_id or out_dir.name or "contrast")
+            receipt.update(_run_gtf_and_5plots(ev_only, pd.DataFrame(), args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl))
     else:
         parser.error("Provide --rmats, --foreground/--background, --events (with --gtf or --splicenet-modules), or a library flag (--list-rbps).")
 

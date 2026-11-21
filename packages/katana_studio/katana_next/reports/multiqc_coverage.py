@@ -252,11 +252,11 @@ def render_editorial_5to3_figure(
             zorder=3,
         )
         med = float(np.median(vals))
-        ax_ratio.plot([med, med], [yi - 0.26, yi + 0.26], color=EDITORIAL_NAVY, linewidth=2.2, zorder=4)
-        ax_ratio.text(med, yi + 0.31, f"{med:.2f}×", ha="center", va="bottom", fontsize=8, color=EDITORIAL_NAVY, fontweight="bold")
+        ax_ratio.plot([med, med], [yi - 0.22, yi + 0.22], color=EDITORIAL_NAVY, linewidth=2.2, zorder=4)
+        ax_ratio.text(med, yi + 0.28, f"{med:.2f}×", ha="center", va="top", fontsize=8.0, color=EDITORIAL_NAVY, fontweight="bold")
 
     ax_ratio.set_yticks(y_positions, conditions, fontsize=8.8, color=EDITORIAL_NAVY)
-    ax_ratio.set_ylim(-0.6, max(0.6, len(conditions) - 0.4))
+    ax_ratio.set_ylim(-0.55, max(0.75, len(conditions) - 0.22))
     ax_ratio.invert_yaxis()
     ax_ratio.set_xlabel("3′ / 5′ terminal coverage ratio (80–100% ÷ 0–20%)", fontsize=9.2, color=EDITORIAL_NAVY, labelpad=6)
     ax_ratio.set_title("B. 3′ / 5′ terminal balance", loc="left", fontsize=10.5, fontweight="bold", color=EDITORIAL_NAVY, pad=8)
