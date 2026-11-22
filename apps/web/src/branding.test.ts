@@ -3,7 +3,7 @@ import { displayModuleName } from "./branding";
 
 describe("Katana-Splice-Network public naming", () => {
   it("renames public legacy labels", () => {
-    expect(displayModuleName("CoSplice / Katana-CoSplice / Katana-Splice")).toBe("Katana-Splice-Network / Katana-Splice-Network / Katana-Splice-Network");
+    expect(displayModuleName("CoSplice / Katana-CoSplice / Katana-Splice")).toBe("SpliceNet / SpliceNet / SpliceNet");
   });
   it("preserves durable identifiers and comparator names", () => {
     const original = "CoSplicEx CoSpliceNet programs.cosplice 15_CoSplice CoSpliceConfig";
@@ -11,7 +11,7 @@ describe("Katana-Splice-Network public naming", () => {
   });
   it("is idempotent and preserves paths and CLI aliases", () => {
     const title = "Katana-Splice-Network / CoSplice完整结果";
-    expect(displayModuleName(displayModuleName(title))).toBe("Katana-Splice-Network / Katana-Splice-Network完整结果");
+    expect(displayModuleName(displayModuleName(title))).toBe("SpliceNet / SpliceNet完整结果");
     const paths = String.raw`E:/results/Katana-Splice/CoSplice.tsv E:\results\CoSplice\tables katana-splice`;
     expect(displayModuleName(paths)).toBe(paths);
   });

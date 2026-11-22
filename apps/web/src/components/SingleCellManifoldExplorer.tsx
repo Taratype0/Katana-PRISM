@@ -91,8 +91,8 @@ export function SingleCellManifoldExplorer({projectId}: {projectId: string}) {
         <label>
           Color Manifold By
           <select aria-label="Color manifold by" value={colorBy} onChange={e => setColorBy(e.target.value)}>
-            <option value="activation_arm">Activation State (Activated vs Resting)</option>
-            <option value="cell_type">CD4+ T-Cell Subtype</option>
+            <option value="activation_arm">Condition / Experimental Arm</option>
+            <option value="cell_type">Cell Type / Population</option>
             <option value="donor_id">Biological Donor</option>
             {data.module_columns.map(mc => (
               <option key={mc} value={mc}>SC-SpliceNet {mc.replace("module_", "")} Activity</option>

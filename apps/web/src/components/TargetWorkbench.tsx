@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "../api";
-import type { ManifestContrast, TargetBasketEntry, TargetBatch, TargetExport, TargetRun, TargetPlanMessage } from "../types";
+import type { ManifestContrast, TargetBasketEntry, TargetBatch, TargetExport, TargetResolveResponse, TargetRun, TargetPlanMessage } from "../types";
 import "./TargetWorkbench.css";
 import { PathPicker } from "./PathPicker";
 import { GeneCardDossier } from "./GeneCardDossier";
 
 type Props = {projectId: string; projectFingerprint: string; entries: TargetBasketEntry[];
   contrasts?: ManifestContrast[]; storageError?: string; initialGene?: string; initialEvent?: string; initialComparison?: string;
-  onRemove: (id: string) => void; onClear: () => void};
+  onAdd?: (entry: TargetBasketEntry) => void; onRemove: (id: string) => void; onClear: () => void};
 
 function planMessage(value: TargetPlanMessage) {
   if (typeof value === "string") return value;
@@ -16,7 +16,7 @@ function planMessage(value: TargetPlanMessage) {
   return `${identity ? `${identity}: ` : ""}${value.message || JSON.stringify(value)}`;
 }
 
-export function TargetWorkbench({projectId, projectFingerprint, entries, contrasts = [], storageError, initialGene = "", initialEvent = "", initialComparison = "", onRemove, onClear}: Props) {
+export function TargetWorkbench({projectId, projectFingerprint, entries, contrasts = [], storageError, initialGene = "", initialEvent = "", initialComparison = "", onAdd, onRemove, onClear}: Props) {
   const [modules, setModules] = useState(["gene_card", "event_card"]);
   const [exported, setExported] = useState<TargetExport>();
   const [bindings, setBindings] = useState<Record<string, string>>({});
@@ -24,6 +24,9 @@ export function TargetWorkbench({projectId, projectFingerprint, entries, contras
   const [manifestPath, setManifestPath] = useState("");
   const [comparisonScope, setComparisonScope] = useState<"source" | "all" | "custom">("source");
   const [customComparisons, setCustomComparisons] = useState<string[]>([]);
+  const [quickQueries, setQuickQueries] = useState("");
+  const [quickKind, setQuickKind] = useState<"gene" | "event">("gene");
+  const [resolveNote, setResolveNote] = useState<TargetResolveResponse>();
   const runKey = `katana:target-run:v1:${projectId}:${projectFingerprint}`;
   const [runId, setRunId] = useState(() => localStorage.getItem(runKey) || "");
   const [returned, setReturned] = useState<TargetRun>();
@@ -60,20 +63,78 @@ export function TargetWorkbench({projectId, projectFingerprint, entries, contras
     const request = exported ?? await exportRequest.mutateAsync();
     return api.runTargets(projectId, {request_id: request.request_id});
   }, onSuccess: acceptRun});
+  const resolveList = useMutation({
+    mutationFn: async () => {
+      const queries = quickQueries.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+      if (!queries.length) throw new Error("Enter at least one gene symbol or splicing event ID.");
+      return api.resolveTargets(projectId, {
+        queries,
+        target_kind: quickKind,
+        comparison: initialComparison || contrasts[0]?.contrast_id || "",
+      });
+    },
+    onSuccess: data => {
+      setResolveNote(data);
+      if (!onAdd) return;
+      const byRow = new Map(data.matched.map(m => [`${m.source_artifact_id}:${m.row_id}`, m]));
+      for (const sel of data.selections) {
+        onAdd({
+          basket_id: crypto.randomUUID(),
+          source_artifact_id: sel.source_artifact_id,
+          source_name: `Quick-Add (${quickKind})`,
+          row_ids: sel.row_ids,
+          target_kind: sel.target_kind,
+          labels: sel.row_ids.map(rid => {
+            const m = byRow.get(`${sel.source_artifact_id}:${rid}`);
+            if (!m) return rid;
+            return sel.target_kind === "gene" ? (m.gene_symbol || m.gene_id || rid) : `${m.gene_symbol || m.gene_id} ${m.event_id}`.trim();
+          }),
+          filters: sel.filters || {},
+        });
+      }
+      if (data.matched.length) setQuickQueries("");
+    },
+  });
   const imported = useMutation({mutationFn: () => api.importTargetResults(projectId, manifestPath.trim()), onSuccess: acceptRun});
   const status = useQuery({queryKey: ["target-run", projectId, runId], queryFn: () => api.targetRun(projectId, runId),
     enabled: Boolean(runId), refetchInterval: query => ["queued", "running"].includes(query.state.data?.status || "queued") ? 1000 : false});
   const current = status.data || returned;
   const active = current && ["queued", "running"].includes(current.status);
-  const errors = [cards.error?.message, pipeline.error?.message, storageError, exportRequest.error?.message, plan.error?.message, run.error?.message,
+  const errors = [resolveList.error?.message, cards.error?.message, pipeline.error?.message, storageError, exportRequest.error?.message, plan.error?.message, run.error?.message,
     imported.error?.message, status.error?.message, current?.error].filter(Boolean);
 
   return <section className="target-workbench" aria-label="Gene and event target workspace">
-    <GeneCardDossier projectId={projectId} contrasts={contrasts} entries={entries} initialGene={initialGene} initialEvent={initialEvent} initialComparison={initialComparison} />
+    <GeneCardDossier projectId={projectId} contrasts={contrasts} entries={entries} initialGene={initialGene} initialEvent={initialEvent} initialComparison={initialComparison} onAdd={onAdd} />
     {errors.map((message, i) => <p className="target-error" role="alert" key={i}>{message}</p>)}
     <section aria-label="Persistent target basket">
       <div className="target-heading"><h3>Selected · {entries.reduce((sum, item) => sum + item.row_ids.length, 0)} rows</h3>
         <button type="button" disabled={!entries.length} onClick={onClear}>Clear basket</button></div>
+      {onAdd && typeof api.resolveTargets === "function" && (
+        <div className="target-selection" style={{marginBottom: 10}}>
+          <div style={{display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center"}}>
+            <strong>Quick-Add Gene / Event List:</strong>
+            <select aria-label="Quick-add target kind" value={quickKind} onChange={e => setQuickKind(e.target.value as "gene" | "event")}>
+              <option value="gene">GeneCards (full gene loci)</option>
+              <option value="event">EventCards (exact splicing events)</option>
+            </select>
+            <input
+              aria-label="Paste gene symbols or event IDs"
+              placeholder="Paste genes or event IDs (comma/space/newline), e.g. Rbfox1, Snap25, Grin1"
+              value={quickQueries}
+              onChange={e => setQuickQueries(e.target.value)}
+              style={{flex: 1, minWidth: 240, padding: "5px 8px"}}
+            />
+            <button type="button" className="secondary-action compact" disabled={resolveList.isPending || !quickQueries.trim()} onClick={() => resolveList.mutate()}>
+              {resolveList.isPending ? "Resolving…" : "Resolve & Add to Basket"}
+            </button>
+          </div>
+          {resolveNote && (
+            <small style={{display: "block", marginTop: 4, color: "#475569"}}>
+              Matched {resolveNote.matched.length} target(s){resolveNote.unmatched.length ? ` · Unmatched: ${resolveNote.unmatched.join(", ")}` : " · All tokens resolved"}
+            </small>
+          )}
+        </div>
+      )}
       {!entries.length ? <p>Select genes or events from Results.</p> :
         entries.map(entry => <article className="target-selection" key={entry.basket_id}>
           <div><strong>{entry.target_kind === "gene" ? "Gene targets" : "Exact event targets"}</strong> · {entry.row_ids.length} source rows · {entry.source_name}
@@ -95,13 +156,13 @@ export function TargetWorkbench({projectId, projectFingerprint, entries, contras
       <button aria-label="Export portable target request" type="button" disabled={!entries.length || !modules.length || exportRequest.isPending || (comparisonScope === "custom" && !customComparisons.length)} onClick={() => exportRequest.mutate()}>
         {exportRequest.isPending ? "Preparing…" : "Export request"}</button>
       {exported && <div className="target-export" role="status"><strong>{exported.target_count} verified targets</strong>
-        <a href={exported.download_url}>Download request ZIP</a>
+        <div className="target-actions"><a href={exported.download_url}>Download request ZIP</a>{exported.targets_tsv_url && <a href={exported.targets_tsv_url}>Download targets.tsv</a>}</div>
         <ul>{exported.targets.map((target, index) => <li key={String(target.target_id || index)}>
           {String(target.target_kind === "gene" ? target.gene_symbol || target.gene_id || target.target_id : target.event_id || target.target_id)}:
           {" "}{Array.isArray(target.comparison_ids) ? target.comparison_ids.map(String).join(", ") : "Comparison scope not recorded"}</li>)}</ul>
       </div>}
     </section>
-    <section aria-label="Nextflow target task"><h3>Pipeline task</h3><button className="target-primary" aria-label="Create Nextflow target task" disabled={!entries.length || !modules.length || pipeline.isPending || exportRequest.isPending || (comparisonScope === "custom" && !customComparisons.length)} onClick={()=>pipeline.mutate()}>{pipeline.isPending ? "Preparing…" : "Create pipeline task"}</button>{pipeline.data && <div role="status"><p>Prepared · not submitted</p><a href={pipeline.data.download_url}>Download Nextflow task</a><details><summary>Run command</summary><pre>{pipeline.data.command}</pre><p>Bind BAM, index and reference paths in bindings.json on the execution machine.</p></details></div>}</section>
+    <section aria-label="Nextflow target task"><h3>Pipeline task</h3><button className="target-primary" aria-label="Create Nextflow target task" disabled={!entries.length || !modules.length || pipeline.isPending || exportRequest.isPending || (comparisonScope === "custom" && !customComparisons.length)} onClick={()=>pipeline.mutate()}>{pipeline.isPending ? "Preparing…" : "Create pipeline task"}</button>{pipeline.data && <div role="status"><p>Prepared · not submitted</p><div className="target-actions"><a href={pipeline.data.download_url}>Download Nextflow task</a>{pipeline.data.targets_tsv_url && <a href={pipeline.data.targets_tsv_url}>Download pipeline targets.tsv</a>}</div><details><summary>Run command</summary><pre>{pipeline.data.command}</pre><p>Bind BAM, index and reference paths in bindings.json on the execution machine.</p></details></div>}</section>
     <details open className="local-execution" aria-label="Target execution"><summary>Run locally</summary><p>Paths refer to this service host. No scheduler submission.</p>
       {modules.includes('sashimi') && exported?.resources.map(resource => <div className="target-resource" key={resource.resource_id}>
         <span>{resource.kind} · {resource.sample_id || "Reference"}</span>

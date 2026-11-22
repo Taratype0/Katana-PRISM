@@ -28,6 +28,8 @@ type NetworkData = {
   associations: Row[];
   pathways: Row[];
   bridge_rbps?: Row[];
+  active_scope?: string;
+  available_scopes?: Array<{scope_slug: string; scope_title: string; comparison_ids: string[]; artifact_id: string}>;
   event_usage: Record<string, (number | null)[]>;
   graphs: Record<string, GraphSpec>;
   module_files: Record<string, {genes: string; events: string}>;
@@ -117,16 +119,25 @@ function DataTable({
 
 export function ReportNetwork({
   projectId,
+  comparison = "",
   onGene,
   onInspectGeneCard,
 }: {
   projectId: string;
+  comparison?: string;
   onGene?: (gene: string) => void;
   onInspectGeneCard?: (gene: string, eventId?: string) => void;
 }) {
+  const [networkScope, setNetworkScope] = useState("");
   const query = useQuery({
-    queryKey: ["report-network", projectId],
-    queryFn: () => reportGet<NetworkData>(projectId, "report-network"),
+    queryKey: ["report-network", projectId, comparison, networkScope],
+    queryFn: () => {
+      const qs = new URLSearchParams();
+      if (comparison) qs.set("comparison", comparison);
+      if (networkScope) qs.set("scope", networkScope);
+      const q = qs.toString();
+      return reportGet<NetworkData>(projectId, q ? `report-network?${q}` : "report-network");
+    },
   });
   const [zoom, setZoom] = useState(1);
   const [minKme, setMinKme] = useState(0.0);
@@ -404,6 +415,20 @@ export function ReportNetwork({
 
         {/* Network Controls + Significant Enriched RBP Regulators (only real FE >= 1.15, P <= 0.05!) */}
         <div className="mck-controls-bar">
+          {d.available_scopes && d.available_scopes.length > 1 && (
+            <label>
+              Network Scope
+              <select
+                aria-label="SpliceNet scope"
+                value={networkScope || d.active_scope || ""}
+                onChange={e => { setNetworkScope(e.target.value); setViewScope("ALL"); setEvent(""); setSearch(""); }}
+              >
+                {d.available_scopes.map(s => (
+                  <option key={s.scope_slug} value={s.scope_slug}>{s.scope_title}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             Network View
             <select
@@ -434,7 +459,7 @@ export function ReportNetwork({
             <strong>Enriched Upstream Cis-Motif RBP Regulators ({isAllMode ? "Study-Wide" : focusedModName}): </strong>
             {modBridges.slice(0, 8).map((b, idx) => (
               <span key={idx} className="mck-tag mck-tag-blue" style={{marginRight: 6}}>
-                {isAllMode ? `${String(b.module)} ← ` : ""}{String(b.rbp || b.RBP)} ({b.fold_enrichment ? `${Number(b.fold_enrichment).toFixed(2)}×, ` : ""}P = {fmtP(b.p_value ?? b.fwer_p)})
+                {isAllMode ? `${String(b.module)} ← ` : ""}{String(b.rbp || b.RBP)} ({b.stat_z != null ? `Z=${Number(b.stat_z).toFixed(2)}, ` : b.fold_enrichment ? `${Number(b.fold_enrichment).toFixed(2)}×, ` : ""}{b.fdr_bh != null ? `FDR=${fmtP(b.fdr_bh)}, ` : ""}P={fmtP(b.p_value ?? b.fwer_p)})
               </span>
             ))}
           </div>

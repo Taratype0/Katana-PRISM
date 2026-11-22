@@ -37,6 +37,7 @@ from .studio_interactive import (
     _canon_eid,
     _clean_records,
     _find_contrast_artifact,
+    _find_das_artifact,
     _load_artifact_df,
     _norm_gene,
     _safe_float,
@@ -75,7 +76,7 @@ def _detect_species(context) -> str:
         return "mouse"
     # Fallback heuristic from sample gene symbols
     grouped = _artifacts_by_source_id(context)
-    for aid in ("differential.deg", "differential.as"):
+    for aid in ("differential.deg", "differential.as", "differential.sc_as"):
         if aid in grouped:
             df = _load_artifact_df(grouped[aid][0])
             for col in ("gene_id", "GeneID"):
@@ -231,7 +232,7 @@ def _scan_sequence_with_pwms(
 def _symbol_map_for_context(context, grouped: dict[str, list[Any]]) -> dict[str, str]:
     """Build unified gene_id -> gene_symbol map from display_names, DEG, DAS, and Proteome tables."""
     sym_map: dict[str, str] = {}
-    for aid in ("differential.as", "differential.deg", "prioritize.proteome_consequences"):
+    for aid in ("differential.as", "differential.sc_as", "differential.deg", "prioritize.proteome_consequences"):
         for art in grouped.get(aid, [])[:2]:
             try:
                 from .report_names import display_names
@@ -549,38 +550,42 @@ def _extract_workspace_psi_matrix(
     supervised_ids: set[str] = set()
     sym_map = _symbol_map_for_context(context, grouped)
 
-    das_art = _find_contrast_artifact(grouped, "differential.as", comparison)
+    das_art = _find_das_artifact(grouped, comparison)
     das_df = _load_artifact_df(das_art) if das_art else pd.DataFrame()
     if not das_df.empty:
         ec = next((c for c in ("event_id", "ID") if c in das_df.columns), das_df.columns[0])
         gc = next((c for c in ("gene_id", "GeneID") if c in das_df.columns), ec)
         sc = next((c for c in ("gene_symbol", "gene_name", "geneSymbol") if c in das_df.columns), None)
-        qc = next((c for c in ("FDR", "fdr", "padj") if c in das_df.columns), None)
-        dc = next((c for c in ("dpsi", "IncLevelDifference", "delta_psi") if c in das_df.columns), None)
-        for _, r in das_df.head(12000).iterrows():
+        qc = next((c for c in ("FDR", "fdr", "padj", "pvalue", "p_value") if c in das_df.columns), None)
+        dc = next((c for c in ("dpsi", "IncLevelDifference", "delta_psi", "raw_dpsi") if c in das_df.columns), None)
+        w = das_df.copy()
+        if "comparison_id" in w.columns and comparison:
+            w_cmp = w[w["comparison_id"].astype(str) == comparison]
+            if not w_cmp.empty:
+                w = w_cmp
+        for _, r in w.drop_duplicates(ec).head(12000).iterrows():
             eid = str(r[ec])
             gid = _norm_gene(r[gc])
             gsym = str(r[sc]) if (sc and pd.notna(r[sc]) and not str(r[sc]).startswith("ENS")) else sym_map.get(gid, gid)
             et = str(r.get("event_type") or infer_event_type(eid))
             event_meta[eid] = {"gene_symbol": gsym, "event_type": et}
         if qc and dc:
-            w = das_df.copy()
-            if "comparison_id" in w.columns and comparison:
-                w = w[w["comparison_id"].astype(str) == comparison]
             rs = w["passes_read_support"].astype(str).str.lower().isin({"true", "1"}) if "passes_read_support" in w.columns else True
             sig = rs & (pd.to_numeric(w[qc], errors="coerce").fillna(1.0) <= 0.05) & (pd.to_numeric(w[dc], errors="coerce").abs().fillna(0.0) >= 0.10)
             supervised_ids = set(w.loc[sig, ec].astype(str).tolist())
 
     # 1. Single-Cell PSI matrix (`single_cell.psi_matrix` or report `sc_cell_psi_*.parquet`)
-    if is_sc and "single_cell.psi_matrix" in grouped:
+    if (is_sc or "single_cell.psi_matrix" in grouped) and "single_cell.psi_matrix" in grouped:
         sc_psi = _load_artifact_df(grouped["single_cell.psi_matrix"][0])
         ec = "event_id" if "event_id" in sc_psi.columns else sc_psi.columns[0]
-        psi_mat = sc_psi.set_index(ec)
+        s_cols_sc = [sm["sample_id"] for sm in sample_meta if sm["sample_id"] in sc_psi.columns]
+        psi_mat = sc_psi.set_index(ec)[s_cols_sc] if s_cols_sc else sc_psi.set_index(ec)
         # Enrich cell_type & donor_id from single_cell.cell_embedding if present
         if "single_cell.cell_embedding" in grouped:
             emb = _load_artifact_df(grouped["single_cell.cell_embedding"][0])
-            if "cell_id" in emb.columns:
-                emb_idx = emb.set_index("cell_id")
+            id_c_e = "cell_id" if "cell_id" in emb.columns else ("sample_id" if "sample_id" in emb.columns else None)
+            if id_c_e:
+                emb_idx = emb.drop_duplicates(id_c_e).set_index(id_c_e)
                 for sm in sample_meta:
                     if sm["sample_id"] in emb_idx.index:
                         er = emb_idx.loc[sm["sample_id"]]
@@ -782,7 +787,7 @@ def compute_live_go_kegg_ora(
     sym_map = _symbol_map_for_context(context, grouped)
     cid = comparison or (context.manifest.contrasts[0].contrast_id if context.manifest.contrasts else "")
 
-    das_art = _find_contrast_artifact(grouped, "differential.as", cid)
+    das_art = _find_das_artifact(grouped, cid)
     deg_art = _find_contrast_artifact(grouped, "differential.deg", cid)
     das_df = _load_artifact_df(das_art) if das_art else pd.DataFrame()
     deg_df = _load_artifact_df(deg_art) if deg_art else pd.DataFrame()
@@ -878,13 +883,11 @@ def compute_live_go_kegg_ora(
                 preset_label = f"PS-DAS (Precision-Supported) genes (FDR ≤ {fdr_cutoff}, |ΔPSI| ≥ {effect_cutoff:.2f})"
 
     fg_clean = {g for g in fg_genes if g and not g.startswith("ENS") and g != "NAN"}
-    if not bg_genes or len(bg_genes) < len(fg_clean):
-        # Union all catalog genes if workspace table lacked background
-        for cmap in catalog.values():
-            for tset in cmap.values():
-                bg_genes.update(tset)
-    else:
-        bg_genes |= fg_clean
+    catalog_union = {g for cmap in catalog.values() for tset in cmap.values() for g in tset}
+    if not bg_genes or len(bg_genes & catalog_union) < 50 or len(bg_genes) < len(fg_clean):
+        # Union full ontology catalog universe when workspace table is sparse or unmapped
+        bg_genes |= catalog_union
+    bg_genes |= fg_clean
 
     fg_in_bg = fg_clean & bg_genes
     M = len(bg_genes)
@@ -1063,7 +1066,7 @@ def compute_live_motif_scan(
     if matched_pwm:
         search_rbps.add(str(matched_pwm["rbp"]).upper())
 
-    tgt_art = _find_contrast_artifact(grouped, "prioritize.splicetrace_targets", cid)
+    tgt_art = _find_contrast_artifact(grouped, "prioritize.splicetrace_targets", cid) or _find_contrast_artifact(grouped, "prioritize.motif_consequences", cid)
     prot_art = _find_contrast_artifact(grouped, "prioritize.proteome_consequences", cid)
     tgt_df = _load_artifact_df(tgt_art) if tgt_art else pd.DataFrame()
     prot_df = _load_artifact_df(prot_art) if prot_art else pd.DataFrame()
@@ -1143,16 +1146,33 @@ def compute_live_target_ranker(
     """Dynamically score & rank splicing targets across all 5 orthogonal evidence pillars."""
     grouped = _artifacts_by_source_id(context)
     cid = comparison or (context.manifest.contrasts[0].contrast_id if context.manifest.contrasts else "")
+    das_art_ref = _find_das_artifact(grouped, cid)
+    das_row_lookup: dict[str, str] = {}
+    if das_art_ref is not None:
+        das_ref_df = _load_artifact_df(das_art_ref)
+        if "comparison_id" in das_ref_df.columns and cid:
+            sub_ref = das_ref_df[das_ref_df["comparison_id"].astype(str) == cid]
+            if not sub_ref.empty:
+                das_ref_df = sub_ref
+        ec_ref = next((c for c in ("event_id", "ID") if c in das_ref_df.columns), None)
+        if ec_ref and "row_id" in das_ref_df.columns:
+            for eid_r, rid_r in zip(das_ref_df[ec_ref].astype(str), das_ref_df["row_id"].astype(str)):
+                das_row_lookup.setdefault(eid_r, rid_r)
 
     # Prefer integrative_targets table if present; otherwise assemble live from DAS + DEG + UniProt!
     int_art = _find_contrast_artifact(grouped, "prioritize.integrative_targets", cid)
+    ranker_note = ""
     if int_art is not None:
         df = _load_artifact_df(int_art)
         if "comparison_id" in df.columns and cid:
-            df = df[df["comparison_id"].astype(str) == cid].copy()
+            sub_cmp = df[df["comparison_id"].astype(str) == cid].copy()
+            if not sub_cmp.empty:
+                df = sub_cmp
         if not df.empty:
             dpsi = pd.to_numeric(df["dpsi"], errors="coerce").fillna(0.0)
-            fdr = pd.to_numeric(df["fdr"], errors="coerce").fillna(1.0)
+            fdr_col_i = next((c for c in ("fdr", "FDR", "padj") if c in df.columns), "fdr")
+            pv_col_i = next((c for c in ("pvalue", "p_value", "PValue") if c in df.columns), None)
+            fdr = pd.to_numeric(df[fdr_col_i], errors="coerce").fillna(1.0)
             mask = (dpsi.abs() >= min_abs_dpsi) & (fdr <= max_fdr)
             if deg_independent_only and "deg_fdr" in df.columns:
                 deg_q = pd.to_numeric(df["deg_fdr"], errors="coerce").fillna(1.0)
@@ -1160,8 +1180,30 @@ def compute_live_target_ranker(
                 deg_fc = pd.to_numeric(fc_s, errors="coerce").abs().fillna(0.0)
                 mask &= (deg_q > 0.05) | (deg_fc < 0.5)
             sub = df.loc[mask].copy()
+            if len(sub) < 5 and max_fdr < 0.99:
+                # Single-cell / sparse studies may have 0 BH-FDR hits; surface top exploratory candidates cleanly
+                fb_mask = dpsi.abs() >= min_abs_dpsi
+                if deg_independent_only and "deg_fdr" in df.columns:
+                    deg_q = pd.to_numeric(df["deg_fdr"], errors="coerce").fillna(1.0)
+                    fc_s = df["host_log2fc"] if "host_log2fc" in df.columns else (df["deg_log2fc"] if "deg_log2fc" in df.columns else pd.Series(0.0, index=df.index))
+                    deg_fc = pd.to_numeric(fc_s, errors="coerce").abs().fillna(0.0)
+                    fb_mask &= (deg_q > 0.05) | (deg_fc < 0.5)
+                fb_sub = df.loc[fb_mask].copy()
+                if fb_sub.empty:
+                    fb_sub = df.copy()
+                sort_fb = pv_col_i if pv_col_i else fdr_col_i
+                sub = fb_sub.sort_values(sort_fb).head(80).copy()
+                ranker_note = f"Showing top exploratory candidates (fewer than 5 events passed FDR ≤ {max_fdr:g} in {cid})."
             s_dpsi = pd.to_numeric(sub["dpsi"], errors="coerce").fillna(0.0).abs().clip(0, 1.0)
-            s_iso = (sub["dtu_corroborated"].fillna(False).astype(float) * 0.6 + sub["dexseq_corroborated"].fillna(False).astype(float) * 0.4) if "dtu_corroborated" in sub.columns else pd.Series(0.0, index=sub.index)
+            def _bool_col(col_names: tuple[str, ...]) -> pd.Series:
+                for cn in col_names:
+                    if cn in sub.columns:
+                        return sub[cn].astype(str).str.lower().isin({"true", "1", "yes"}).astype(float)
+                return pd.Series(0.0, index=sub.index)
+            dtu_s = _bool_col(("dtu_corroborated", "dtu_sig"))
+            dex_s = _bool_col(("dexseq_corroborated", "dexseq_sig"))
+            sup_s = _bool_col(("suppa_sig",))
+            s_iso = (dtu_s * 0.5 + dex_s * 0.35 + sup_s * 0.35).clip(0, 1.0)
             if "module_abs_kME" in sub.columns:
                 s_net = pd.to_numeric(sub["module_abs_kME"], errors="coerce").fillna(0.0).clip(0, 1.0)
             elif "splicenet_module" in sub.columns:
@@ -1174,7 +1216,7 @@ def compute_live_target_ranker(
             if require_domain_or_nmd:
                 keep_dn = has_dom | has_nmd
                 sub = sub.loc[keep_dn].copy()
-                s_dpsi, s_iso, s_net, s_mot = s_dpsi.loc[sub.index], (s_iso.loc[sub.index] if isinstance(s_iso, pd.Series) else 0.0), s_net.loc[sub.index], s_mot.loc[sub.index]
+                s_dpsi, s_iso, s_net, s_mot = s_dpsi.loc[sub.index], s_iso.loc[sub.index], s_net.loc[sub.index], s_mot.loc[sub.index]
                 has_dom, has_nmd = has_dom.loc[sub.index], has_nmd.loc[sub.index]
             s_prot = (has_dom.astype(float) * 0.65 + has_nmd.astype(float) * 0.65).clip(0, 1.0)
             sub["composite_score"] = (
@@ -1184,21 +1226,27 @@ def compute_live_target_ranker(
                 + float(w_motif) * s_mot
                 + float(w_proteome) * s_prot
             ).round(4)
-            sub = sub.sort_values(["composite_score", "fdr"], ascending=[False, True])
+            if das_art_ref is not None and "event_id" in sub.columns:
+                sub["source_artifact_id"] = das_art_ref.artifact_id
+                sub["das_row_id"] = sub["event_id"].astype(str).map(lambda e: das_row_lookup.get(e, ""))
+            sub = sub.sort_values(["composite_score", fdr_col_i], ascending=[False, True])
             return {
                 "available": True,
                 "comparison_id": cid,
+                "note": ranker_note,
                 "total_qualified": int(len(sub)),
                 "rows": _clean_records(sub.head(100)),
             }
 
     # Live fallback for reports without prebuilt integrative_targets
-    das_art = _find_contrast_artifact(grouped, "differential.as", cid)
+    das_art = das_art_ref
     if das_art is None:
         return {"available": False, "comparison_id": cid, "total_qualified": 0, "rows": []}
     das_df = _load_artifact_df(das_art)
     if "comparison_id" in das_df.columns and cid:
-        das_df = das_df[das_df["comparison_id"].astype(str) == cid].copy()
+        sub_c = das_df[das_df["comparison_id"].astype(str) == cid].copy()
+        if not sub_c.empty:
+            das_df = sub_c
     sym_map = _symbol_map_for_context(context, grouped)
     species = _detect_species(context)
     uniprot_idx = _load_uniprot_catalog()
@@ -1206,8 +1254,8 @@ def compute_live_target_ranker(
     ec = next((c for c in ("event_id", "ID") if c in das_df.columns), das_df.columns[0])
     gc = next((c for c in ("gene_id", "GeneID") if c in das_df.columns), ec)
     sc = next((c for c in ("gene_symbol", "gene_name", "geneSymbol") if c in das_df.columns), None)
-    dc = next((c for c in ("dpsi", "IncLevelDifference", "delta_psi") if c in das_df.columns), None)
-    qc = next((c for c in ("FDR", "fdr", "padj") if c in das_df.columns), None)
+    dc = next((c for c in ("dpsi", "IncLevelDifference", "delta_psi", "raw_dpsi") if c in das_df.columns), None)
+    qc = next((c for c in ("FDR", "fdr", "padj", "pvalue", "p_value") if c in das_df.columns), None)
     if not dc or not qc:
         return {"available": False, "comparison_id": cid, "total_qualified": 0, "rows": []}
 
@@ -1217,8 +1265,10 @@ def compute_live_target_ranker(
     rs = w["passes_read_support"].astype(str).str.lower().isin({"true", "1"}) if "passes_read_support" in w.columns else True
     sub = w[rs & (w["_dpsi"].abs() >= min_abs_dpsi) & (w["_fdr"] <= max_fdr)].copy()
     if sub.empty:
-        # Relax FDR if 0 pass strict FDR so ranker remains informative
         sub = w[rs & (w["_dpsi"].abs() >= min_abs_dpsi)].sort_values("_fdr").head(80).copy()
+        if sub.empty:
+            sub = w.sort_values("_fdr").head(50).copy()
+        ranker_note = f"Showing top exploratory candidates (0 events passed FDR ≤ {max_fdr:g} at |ΔPSI| ≥ {min_abs_dpsi:g})."
 
     rows_out = []
     for _, r in sub.head(200).iterrows():
@@ -1245,11 +1295,14 @@ def compute_live_target_ranker(
             "nmd_switch_class": nmd_cls,
             "disrupted_uniprot_domains": doms,
             "composite_score": round(score, 4),
+            "source_artifact_id": das_art.artifact_id,
+            "das_row_id": str(r.get("row_id", "")),
         })
     rows_out.sort(key=lambda x: (-x["composite_score"], x["fdr"]))
     return {
         "available": True,
         "comparison_id": cid,
+        "note": ranker_note,
         "total_qualified": len(rows_out),
         "rows": rows_out[:100],
     }

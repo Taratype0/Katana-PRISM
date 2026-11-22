@@ -178,7 +178,7 @@ it("MotifTrace exposes custom-library controls, not unused legacy inference thre
   expect(screen.getByText("Completed result asset ID")).toBeInTheDocument();
   expect(screen.getByText("Matched count / coverage result asset ID (optional)")).toBeInTheDocument();
   expect(screen.getByText("Display comparisons")).toBeInTheDocument();
-  expect(screen.getByRole("option", {name:"Katana MotifTrace: completed SE RNA and motifs"})).toBeInTheDocument();
+  expect(screen.getByRole("option", {name:"SpliceTrace: completed SE RNA and motifs"})).toBeInTheDocument();
   expect(screen.getByText("User motif library path (optional)")).toBeInTheDocument();
   expect(screen.getByRole("option", {name:"User library: sequence positions only (no new P/FDR)"})).toBeInTheDocument();
 });

@@ -1097,6 +1097,7 @@ def render_ch4_cross_comparison_suite(
     outdir: Path,
     panels: list[dict[str, Any]],
     policies: tuple[tuple[str | None, str, str], ...] = (("stable_significant", "report_rs_das", "PS-DAS"), ("significant", "report_das", "Ordinary DAS")),
+    tables: list[dict[str, Any]] | None = None,
 ) -> None:
     """Chapter 04: Pairwise Overlap Matrix, Exact Intersections, and Exact Event Direction Concordance."""
     cids = [c["contrast_id"] for c in contrasts_list if c["contrast_id"] in das_by_contrast]
@@ -1107,6 +1108,7 @@ def render_ch4_cross_comparison_suite(
     fig_dir = outdir / "figures/comparisons"
     fig_dir.mkdir(parents=True, exist_ok=True)
 
+    registered_cross_table = False
     for pol, flag_c, pol_lbl in policies:
         pol_slug = pol or "common"
         sets_c = {
@@ -1127,6 +1129,17 @@ def render_ch4_cross_comparison_suite(
         ov_df = pd.DataFrame(mat, index=cids, columns=cids).reset_index(names="contrast_id")
         ov_tsv = comp_out / f"DAS-events-overlaps-{pol_slug}.tsv"
         ov_df.to_csv(ov_tsv, sep="\t", index=False)
+        if tables is not None and not registered_cross_table:
+            registered_cross_table = True
+            tables.append({
+                "name": f"Cross-comparison {pol_lbl} overlap matrix ({len(cids)} contrasts)",
+                "analysis_id": "differential.cross_comparison",
+                "chapter": 4,
+                "contrast_id": "all",
+                "rows": len(ov_df),
+                "columns": list(ov_df.columns),
+                "source": ov_tsv.relative_to(outdir).as_posix(),
+            })
         ov_png = fig_dir / f"DAS-events-overlaps-{pol_slug}.png"
 
         # Scale gracefully when >12 contrasts (e.g., 43 single-cell subtype contrasts):
@@ -1679,6 +1692,21 @@ def render_ch7_splicetrace_suite(
             q_rc = next((c for c in ("regional_P_FWER", "region_P_FWER", "rbp_P_FWER", "P_FWER", "fdr", "p_value") if c in reg_df.columns), None)
             nom_rc = next((c for c in ("nominal_P", "raw_P", "p_value") if c in reg_df.columns), None)
             fdr_rc = next((c for c in ("region_FDR_BH", "rbp_FDR_BH", "whole_q_BH", "FDR_BH", "q_BH") if c in reg_df.columns), None)
+            if not reg_df.empty:
+                reg_long_out = reg_df.copy()
+                if fdr_rc is None and nom_rc:
+                    reg_long_out["region_FDR_BH"] = _bh_fdr_vec(pd.to_numeric(reg_long_out[nom_rc], errors="coerce").fillna(1.0))
+                reg_pq = st_out / "region_tests.parquet"
+                reg_long_out.to_parquet(reg_pq, index=False, compression="zstd")
+                tables.append({
+                    "name": f"SpliceTrace full 13-channel region tests ({cid})",
+                    "analysis_id": "prioritize.splicetrace_regions",
+                    "chapter": 7,
+                    "contrast_id": cid,
+                    "rows": len(reg_long_out),
+                    "columns": list(reg_long_out.columns),
+                    "source": reg_pq.relative_to(outdir).as_posix(),
+                })
             if rbp_rc and ch_rc and z_rc and not reg_df.empty:
                 rw = reg_df.copy()
                 rw["_rbp"] = rw[rbp_rc].map(lambda x: _short_rbp_name(x, 18))
@@ -1707,13 +1735,15 @@ def render_ch7_splicetrace_suite(
                     piv_out.insert(0, "min_nominal_P", best_nom.round(5))
                     piv_out.insert(0, "min_FDR_BH", best_fdr.round(5))
                     piv_out.insert(0, "min_FWER", best_fwer.round(5))
-                    piv_out.reset_index().rename(columns={"_rbp": "RBP"}).to_csv(map_tsv, sep="\t", index=False)
+                    piv_df = piv_out.reset_index().rename(columns={"_rbp": "RBP"})
+                    piv_df.to_csv(map_tsv, sep="\t", index=False)
                     tables.append({
                         "name": f"SpliceTrace positional splicing-map channel Z-scores ({cid})",
                         "analysis_id": "prioritize.splicetrace_region_map",
                         "chapter": 7,
-                        "rows": len(reg_df),
-                        "columns": list(reg_df.columns),
+                        "contrast_id": cid,
+                        "rows": len(piv_df),
+                        "columns": list(piv_df.columns),
                         "source": map_tsv.relative_to(outdir).as_posix(),
                     })
 
@@ -1778,7 +1808,7 @@ def render_ch7_splicetrace_suite(
     if rk_f is not None and not rk_df.empty:
         rk_pq = st_out / "splicetrace_rbp_ranking.parquet"
         rk_df.to_parquet(rk_pq, index=False)
-        tables.append({"name": f"SpliceTrace {species} RBP ranking ({cid})", "analysis_id": "prioritize.splicetrace_ranking", "chapter": 7, "rows": len(rk_df), "columns": list(rk_df.columns), "source": rk_pq.relative_to(outdir).as_posix()})
+        tables.append({"name": f"SpliceTrace {species} RBP ranking ({cid})", "analysis_id": "prioritize.splicetrace_ranking", "chapter": 7, "contrast_id": cid, "rows": len(rk_df), "columns": list(rk_df.columns), "source": rk_pq.relative_to(outdir).as_posix()})
 
         rbp_c = next((c for c in ("RBP", "mouse_symbol", "symbol") if c in rk_df.columns), rk_df.columns[0])
         z_c = next((c for c in ("stat_Z", "rbp_pivotal_Z", "best_z", "Z") if c in rk_df.columns), None)
@@ -1907,15 +1937,54 @@ def render_ch7_splicetrace_suite(
             if not cdf.empty:
                 conseq_df_out = cdf
                 c_pq = st_out / "motif_consequence_changes.parquet"
-                cdf.to_parquet(c_pq, index=False)
+                cdf.to_parquet(c_pq, index=False, compression="zstd")
                 tables.append({
                     "name": f"Mature-mRNA isoform cis-motif gain/loss consequences ({cid})",
                     "analysis_id": "prioritize.motif_consequences",
                     "chapter": 7,
+                    "contrast_id": cid,
                     "rows": len(cdf),
                     "columns": list(cdf.columns),
                     "source": c_pq.relative_to(outdir).as_posix(),
                 })
+                if "event_id" in cdf.columns:
+                    rc_c = next((c for c in ("RBP", "rbp", "top_rbps", "rbp_list") if c in cdf.columns), None)
+                    reg_c_m = next((c for c in ("instance_state", "region", "motif_location") if c in cdf.columns), None)
+                    opp_c = next((c for c in ("delta_sequence_opportunity", "delta_motif_score", "mature_delta_score") if c in cdf.columns), None)
+                    if rc_c:
+                        tgt_rows = []
+                        for eid_t, grp_t in cdf.groupby("event_id", sort=False):
+                            rbps_u = [str(x).strip() for x in grp_t[rc_c].dropna().tolist() if str(x).strip() and str(x).lower() not in ("none", "nan")]
+                            uniq_rbps = list(dict.fromkeys(rbps_u))
+                            if not uniq_rbps:
+                                continue
+                            opp_v = pd.to_numeric(grp_t[opp_c], errors="coerce").dropna() if opp_c else pd.Series(dtype=float)
+                            max_d = float(opp_v.iloc[int(np.argmax(np.abs(opp_v.to_numpy())))]) if len(opp_v) else None
+                            reg_lbl = str(grp_t[reg_c_m].dropna().iloc[0]) if (reg_c_m and not grp_t[reg_c_m].dropna().empty) else "mature_consequence"
+                            tgt_rows.append({
+                                "event_id": str(eid_t),
+                                "gene_id": str(grp_t["gene_id"].iloc[0]) if "gene_id" in grp_t.columns else "",
+                                "event_type": str(grp_t["event_type"].iloc[0]) if "event_type" in grp_t.columns else "",
+                                "rbp_list": ", ".join(uniq_rbps[:12]),
+                                "top_rbps": ", ".join(uniq_rbps[:6]),
+                                "n_motif_hits": int(len(grp_t)),
+                                "delta_motif_score": max_d,
+                                "region": reg_lbl,
+                                "comparison_id": cid,
+                            })
+                        if tgt_rows:
+                            tgt_df_out = pd.DataFrame(tgt_rows)
+                            tgt_pq = st_out / "splicetrace_targets.parquet"
+                            tgt_df_out.to_parquet(tgt_pq, index=False, compression="zstd")
+                            tables.append({
+                                "name": f"SpliceTrace event-level RBP motif targets ({cid})",
+                                "analysis_id": "prioritize.splicetrace_targets",
+                                "chapter": 7,
+                                "contrast_id": cid,
+                                "rows": len(tgt_df_out),
+                                "columns": list(tgt_df_out.columns),
+                                "source": tgt_pq.relative_to(outdir).as_posix(),
+                            })
         except Exception:
             pass
 
@@ -1927,7 +1996,7 @@ def render_ch7_splicetrace_suite(
             br_df_out = br_df
             br_pq = st_out / "module_rbp_bridge.parquet"
             br_df.to_parquet(br_pq, index=False)
-            tables.append({"name": f"SpliceNet-to-SpliceTrace Module-RBP Regulatory Bridge ({cid})", "analysis_id": "prioritize.module_rbp_bridge", "chapter": 7, "rows": len(br_df), "columns": list(br_df.columns), "source": br_pq.relative_to(outdir).as_posix()})
+            tables.append({"name": f"SpliceNet-to-SpliceTrace Module-RBP Regulatory Bridge ({cid})", "analysis_id": "prioritize.module_rbp_bridge", "chapter": 7, "contrast_id": cid, "rows": len(br_df), "columns": list(br_df.columns), "source": br_pq.relative_to(outdir).as_posix()})
             mc = next((c for c in ("module", "module_id") if c in br_df.columns), None)
             rc = next((c for c in ("RBP", "rbp") if c in br_df.columns), None)
             zc = next((c for c in ("stat_Z", "bridge_Z", "z_score") if c in br_df.columns), None)
@@ -1963,7 +2032,7 @@ def render_ch7_splicetrace_suite(
             prot_tsv = st_out / "protein_and_nmd_consequences.tsv"
             prot_df.to_parquet(prot_pq, index=False)
             shutil.copy2(prot_f, prot_tsv)
-            tables.append({"name": f"Mature-mRNA 50-nt EJC NMD & UniProt consequences ({cid})", "analysis_id": "prioritize.proteome_consequences", "chapter": 7, "rows": len(prot_df), "columns": list(prot_df.columns), "source": prot_pq.relative_to(outdir).as_posix()})
+            tables.append({"name": f"Mature-mRNA 50-nt EJC NMD & UniProt consequences ({cid})", "analysis_id": "prioritize.proteome_consequences", "chapter": 7, "contrast_id": cid, "rows": len(prot_df), "columns": list(prot_df.columns), "source": prot_pq.relative_to(outdir).as_posix()})
 
             style_specs = [
                 (("style1_proteome_consequence_landscape", "sc_style1_proteome_landscape"), f"Mature-mRNA NMD & Coding Consequence Landscape | {cid}"),
@@ -2560,6 +2629,7 @@ def render_sc_donor_deg_and_overlap(
             "name": f"Donor-pseudobulk host-gene DEG complete table ({cid})",
             "analysis_id": "differential.deg",
             "chapter": 3,
+            "contrast_id": cid,
             "rows": len(df_deg),
             "columns": list(df_deg.columns),
             "source": deg_pq.relative_to(outdir).as_posix(),

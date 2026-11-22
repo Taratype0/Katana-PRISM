@@ -26,7 +26,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   browseLocalFiles: (path = "") => request<import("./components/PathPicker").LocalDirectory>("/local-files/browse", {method:"POST",body:JSON.stringify({path})}),
-  prepareTargetPipeline: (project:string,payload:unknown) => request<{task_id:string;status:string;command:string;download_url:string}>(`/projects/${encodeURIComponent(project)}/targets/nextflow`, {method:"POST",body:JSON.stringify(payload)}),
+  prepareTargetPipeline: (project:string,payload:unknown) => request<{task_id:string;status:string;command:string;download_url:string;targets_tsv_url?:string}>(`/projects/${encodeURIComponent(project)}/targets/nextflow`, {method:"POST",body:JSON.stringify(payload)}),
   importReport: (payload: {report_path:string;output_root:string}) => request<ProjectPayload>("/projects/import-report", {method:"POST",body:JSON.stringify(payload)}),
   browseReport: (project:string, artifact:string, payload:unknown) => request<TablePage>(`/projects/${encodeURIComponent(project)}/report-tables/${encodeURIComponent(artifact)}`, {method:"POST",body:JSON.stringify(payload)}),
   plotReport: (project:string, artifact:string, payload:unknown) => request<import("./components/PopulationPlot").Population>(`/projects/${encodeURIComponent(project)}/report-tables/${encodeURIComponent(artifact)}/plot`, {method:"POST",body:JSON.stringify(payload)}),
@@ -154,6 +154,8 @@ export const api = {
   cancelJob: (jobId: string) => request<Job>(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }),
   exportTargets: (projectId: string, payload: import("./types").TargetBatch) =>
     request<import("./types").TargetExport>(`/projects/${encodeURIComponent(projectId)}/targets/export`, {method: "POST", body: JSON.stringify(payload)}),
+  resolveTargets: (projectId: string, payload: {queries: string[]; target_kind: "gene" | "event"; comparison?: string}) =>
+    request<import("./types").TargetResolveResponse>(`/projects/${encodeURIComponent(projectId)}/targets/resolve`, {method: "POST", body: JSON.stringify(payload)}),
   planTargets: (projectId: string, payload: import("./types").TargetBatch) =>
     request<import("./types").TargetPlan>(`/projects/${encodeURIComponent(projectId)}/targets/plan`, {method: "POST", body: JSON.stringify(payload)}),
   runTargets: (projectId: string, payload: import("./types").TargetBatch) =>
@@ -192,12 +194,13 @@ export type SpliceTracePayload = {
     best_region: string;
     stat_z: number | null;
     nominal_p: number | null;
+    fdr_bh?: number | null;
     fwer_p: number | null;
     host_deg_log2fc: number | null;
     host_deg_fdr: number | null;
     pwm?: {motif_id: string; matrix: number[][]} | null;
   }>;
-  regions: Record<string, Array<{region: string; stat_z: number | null; nominal_p: number | null}>>;
+  regions: Record<string, Array<{region: string; stat_z: number | null; nominal_p: number | null; fdr_bh?: number | null; fwer_p?: number | null}>>;
   targets: Array<{
     event_id: string;
     gene_id: string;
@@ -440,6 +443,7 @@ export type LiveTargetRankerResult = {
   available: boolean;
   comparison_id: string;
   total_qualified: number;
+  note?: string;
   rows: Array<{
     comparison_id: string;
     event_id: string;
@@ -448,6 +452,8 @@ export type LiveTargetRankerResult = {
     event_type: string;
     dpsi: number;
     fdr: number;
+    source_artifact_id?: string;
+    das_row_id?: string;
     splicenet_module?: string;
     cis_rbp_motifs?: string;
     nmd_switch_class?: string;

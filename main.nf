@@ -21,6 +21,7 @@ nextflow.enable.dsl = 2
 include { KATANA_PIPELINE }           from './workflows/katana_core'
 include { KATANA_MODULAR_DOWNSTREAM } from './workflows/katana_modular_downstream'
 include { KATANA_SINGLE_CELL; KATANA_SINGLE_CELL_FROM_FASTQ } from './workflows/katana_singlecell'
+include { KATANA_TARGETS }            from './workflows/katana_targets'
 
 def requireParameters(names) {
     names.each { name -> if (!params[name]) error("Required parameter missing: --${name}") }
@@ -82,14 +83,19 @@ workflow {
 
            4) Single-Cell Smart-seq3 End-to-End (SpliceManifold + scSpliceNet + scSpliceTrace + Katana Report):
               nextflow run main.nf --mode single-cell --sc_events events.tsv --sc_psi psi.tsv.gz --sc_metadata cells.tsv --sc_event_genes event_genes.tsv --fasta genome.fa --gtf annotation.gtf --outdir results_sc
+
+           5) Selected-Target 4-Track GeneCard / EventCard + Native Sashimi Follow-up:
+              nextflow run main.nf -entry TARGETS --target_request request.zip --bams_dir /path/to/bams --gtf annotation.gtf --outdir results_targets
         ================================================================================
         """.stripIndent()
     } else {
-        if (!(params.mode in ['complete', 'upstream-only', 'downstream-only', 'single-cell'])) {
-            error("Invalid --mode '${params.mode}'; choose complete, upstream-only, downstream-only, or single-cell")
+        if (!(params.mode in ['complete', 'upstream-only', 'downstream-only', 'single-cell', 'targets'])) {
+            error("Invalid --mode '${params.mode}'; choose complete, upstream-only, downstream-only, single-cell, or targets")
         }
 
-        if (params.mode == 'single-cell') {
+        if (params.mode == 'targets') {
+            TARGETS()
+        } else if (params.mode == 'single-cell') {
             SINGLE_CELL()
         } else if (params.mode == 'downstream-only') {
             requireParameters(['bundle', 'contrasts', 'fasta', 'gtf'])
@@ -118,4 +124,32 @@ workflow {
             }
         }
     }
+}
+
+// A new follow-up run from a portable request exported by the browser.
+workflow TARGETS {
+    if (params.help) { log.info "Katana-PRISM -entry TARGETS --target_request request.zip [--bams_dir DIR --gtf FILE | --target_bindings bindings.json] --outdir results"; return }
+    if (!params.target_request) error('TARGETS requires --target_request')
+    def bindings = params.target_bindings ? new groovy.json.JsonSlurper().parse(file(params.target_bindings).toFile()) : [resources:[:]]
+    if (bindings.schema && bindings.schema != 'katana.target_bindings/v1') error('Unsupported target bindings schema')
+    def base = params.target_bindings ? file(params.target_bindings).toAbsolutePath().parent : launchDir
+    def resourceMap = bindings.resources ?: [:]
+    def resourceIds = resourceMap.keySet().findAll { k -> resourceMap[k] != null && resourceMap[k].toString().trim() != '' }.toList().sort()
+    def resourcePaths = resourceIds.collect { key ->
+        def location = java.nio.file.Paths.get(resourceMap[key].toString())
+        file(location.isAbsolute() ? location.toString() : base.resolve(location).toString(), checkIfExists:true)
+    }
+    def ch_bams   = params.bams_dir ? Channel.value(file(params.bams_dir, checkIfExists: true)) : Channel.value(file('NO_BAMS_DIR'))
+    def ch_scbam  = params.sc_bam ? Channel.value(file(params.sc_bam, checkIfExists: true)) : Channel.value(file('NO_SC_BAM'))
+    def ch_shares = params.sc_barcode_shares ? Channel.value(file(params.sc_barcode_shares, checkIfExists: true)) : Channel.value(file('NO_SC_SHARES'))
+    def ch_gtf    = params.gtf ? Channel.value(file(params.gtf, checkIfExists: true)) : Channel.value(file('NO_GTF'))
+    KATANA_TARGETS(
+        Channel.value(file(params.target_request, checkIfExists: true)),
+        Channel.value(resourceIds),
+        Channel.value(resourcePaths),
+        ch_bams,
+        ch_scbam,
+        ch_shares,
+        ch_gtf
+    )
 }

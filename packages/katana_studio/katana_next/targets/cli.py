@@ -28,6 +28,16 @@ def _parser() -> argparse.ArgumentParser:
         if name in ("plan", "run"):
             command.add_argument("--bindings", "--resources", dest="bindings", type=Path,
                                  help="Resource-ID to execution-machine path bindings JSON.")
+            command.add_argument("--bams-dir", dest="bams_dir", type=Path,
+                                 help="Directory containing sample BAM/BAI files for auto-binding.")
+            command.add_argument("--gtf", dest="gtf", type=Path,
+                                 help="Reference GTF path for auto-binding transcript annotations.")
+            command.add_argument("--sc-bam", dest="sc_bam", type=Path,
+                                 help="Single-cell multiplexed coordinate-sorted BAM path.")
+            command.add_argument("--sc-barcode-shares", dest="sc_barcode_shares", type=Path,
+                                 help="Optional single-cell barcode alias shares TSV.")
+            command.add_argument("--sc-bc-tag", dest="sc_bc_tag", default="BC",
+                                 help="SAM cell barcode tag for multiplexed sc_bam (default: BC).")
             command.add_argument("--outdir", type=Path, required=(name == "run"))
         if name == "run":
             command.add_argument("--workers", type=int, help="Local worker budget; default derives from the allocation.")
@@ -35,6 +45,11 @@ def _parser() -> argparse.ArgumentParser:
                                  help="Execute this target only; repeat for a subset. Use a separate outdir per scheduler task.")
         if name == "tasks":
             command.add_argument("--format", choices=("json", "tsv"), default="json")
+    agg = sub.add_parser("aggregate", help="Merge parallel per-target directories into one verified multi-target report.")
+    agg.add_argument("--request", required=True, type=Path, help="Request ZIP, directory or request.json.")
+    agg.add_argument("--part", action="append", dest="parts", required=True, type=Path,
+                     help="Completed per-target output directory; repeat for multiple targets.")
+    agg.add_argument("--outdir", required=True, type=Path, help="Destination unified target report directory.")
     inspect = sub.add_parser("results", help="Verify a returned result directory or manifest.")
     inspect.add_argument("--outdir", required=True, type=Path)
     restore = sub.add_parser("restore", help="Restore verified result ZIP/directory to a new resumable local workspace.")
@@ -78,13 +93,20 @@ def main(argv: list[str] | None = None) -> int:
                                             for row in request["targets"]]}
             elif args.action == "plan":
                 from .runner import plan_targets
-                result = plan_targets(args.request, resources=args.bindings, outdir=args.outdir)
+                result = plan_targets(args.request, resources=args.bindings, outdir=args.outdir,
+                                      bams_dir=args.bams_dir, gtf=args.gtf, sc_bam=args.sc_bam,
+                                      sc_barcode_shares=args.sc_barcode_shares)
             elif args.action == "run":
                 from .runner import run_targets
                 if args.workers is not None and args.workers < 1:
                     raise ValueError("--workers must be positive.")
                 result = run_targets(args.request, args.outdir, resources=args.bindings,
-                                     workers=args.workers, target_ids=args.target_ids)
+                                     workers=args.workers, target_ids=args.target_ids,
+                                     bams_dir=args.bams_dir, gtf=args.gtf, sc_bam=args.sc_bam,
+                                     sc_barcode_shares=args.sc_barcode_shares, sc_bc_tag=args.sc_bc_tag)
+            elif args.action == "aggregate":
+                from .runner import aggregate_target_results
+                result = aggregate_target_results(args.request, args.parts, args.outdir)
             elif args.action == "restore":
                 from .restore import restore_results
                 result = restore_results(args.results, args.outdir, expected_project_id=args.project_id)

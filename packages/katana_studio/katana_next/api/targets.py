@@ -41,6 +41,13 @@ class TargetImportRequest(BaseModel):
     manifest_path: str
 
 
+class TargetResolveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    queries: list[str] = Field(default_factory=list)
+    target_kind: Literal["gene", "event"] = "gene"
+    comparison: str = ""
+
+
 def export_targets(*args, **kwargs):
     from katana_next.targets.bundle import export_targets as export
     return export(*args, **kwargs)
@@ -136,8 +143,11 @@ def create_targets_router(runtime) -> APIRouter:
         request_id = _identity(str(result["request_id"]))
         for key in ("request_path", "archive_path", "bundle_directory"):
             _bounded(scope, result[key], file=key != "bundle_directory")
+        if result.get("targets_tsv_path"):
+            _bounded(scope, result["targets_tsv_path"], file=True)
         result = {**result, "archive_sha256": _sha256(Path(result["archive_path"])),
-                  "download_url": f"/api/projects/{quote(project_id, safe='')}/targets/exports/{quote(request_id, safe='')}/download"}
+                  "download_url": f"/api/projects/{quote(project_id, safe='')}/targets/exports/{quote(request_id, safe='')}/download",
+                  "targets_tsv_url": f"/api/projects/{quote(project_id, safe='')}/targets/exports/{quote(request_id, safe='')}/targets.tsv"}
         _write(record_path(project_id, "exports", request_id), result)
         return result
 
@@ -197,6 +207,107 @@ def create_targets_router(runtime) -> APIRouter:
             record.update(status="failed", error=str(exc))
         _write(path, record)
 
+    @router.post("/resolve")
+    def resolve_route(project_id: str, payload: TargetResolveRequest):
+        from katana_next.services.studio_interactive import (
+            _artifacts_by_source_id,
+            _canon_eid,
+            _find_contrast_artifact,
+            _find_das_artifact,
+            _load_artifact_df,
+            _norm_gene,
+        )
+        try:
+            ctx = context(project_id)
+            grouped = _artifacts_by_source_id(ctx)
+            cid = payload.comparison or (ctx.manifest.contrasts[0].contrast_id if ctx.manifest.contrasts else "")
+            das_art = _find_das_artifact(grouped, cid)
+            deg_art = _find_contrast_artifact(grouped, "differential.deg", cid)
+            tokens = [str(q).strip() for q in payload.queries if str(q).strip()]
+            if not tokens:
+                return {"selections": [], "matched": [], "unmatched": []}
+
+            cand_arts = [a for a in (das_art, deg_art) if a is not None]
+            matched: list[dict[str, Any]] = []
+            selections_map: dict[str, list[str]] = {}
+            unmatched: list[str] = []
+
+            loaded = []
+            for art in cand_arts:
+                df = _load_artifact_df(art)
+                if df.empty or "row_id" not in df.columns:
+                    continue
+                if "comparison_id" in df.columns and cid:
+                    sub_c = df[df["comparison_id"].astype(str) == cid]
+                    if not sub_c.empty:
+                        df = sub_c
+                ec = next((c for c in ("event_id", "event_uid", "ID") if c in df.columns), None)
+                gc = next((c for c in ("gene_id", "GeneID") if c in df.columns), None)
+                sc = next((c for c in ("gene_symbol", "gene_name", "geneSymbol") if c in df.columns), gc)
+                loaded.append((art, df, ec, gc, sc))
+
+            for tok in tokens:
+                tok_u = tok.upper()
+                tok_gid = _norm_gene(tok).upper()
+                tok_ceid = _canon_eid(tok)
+                found_row = None
+                found_art = None
+                for art, df, ec, gc, sc in loaded:
+                    if payload.target_kind == "event" and ec:
+                        hit = df[(df[ec].astype(str) == tok) | (df[ec].map(_canon_eid) == tok_ceid)]
+                        if not hit.empty:
+                            found_art, found_row = art, hit.iloc[0]
+                            break
+                    if ec and (df[ec].astype(str).str.upper() == tok_u).any():
+                        hit = df[df[ec].astype(str).str.upper() == tok_u]
+                        found_art, found_row = art, hit.iloc[0]
+                        break
+                    if sc and (df[sc].astype(str).str.upper() == tok_u).any():
+                        hit = df[df[sc].astype(str).str.upper() == tok_u]
+                        if "FDR" in hit.columns or "fdr" in hit.columns:
+                            qc_h = "FDR" if "FDR" in hit.columns else "fdr"
+                            hit = hit.sort_values(qc_h)
+                        found_art, found_row = art, hit.iloc[0]
+                        break
+                    if gc and (df[gc].map(_norm_gene).str.upper() == tok_gid).any():
+                        hit = df[df[gc].map(_norm_gene).str.upper() == tok_gid]
+                        if "FDR" in hit.columns or "fdr" in hit.columns:
+                            qc_h = "FDR" if "FDR" in hit.columns else "fdr"
+                            hit = hit.sort_values(qc_h)
+                        found_art, found_row = art, hit.iloc[0]
+                        break
+                if found_art is not None and found_row is not None:
+                    rid = str(found_row["row_id"])
+                    selections_map.setdefault(found_art.artifact_id, [])
+                    if rid not in selections_map[found_art.artifact_id]:
+                        selections_map[found_art.artifact_id].append(rid)
+                    matched.append({
+                        "query": tok,
+                        "source_artifact_id": found_art.artifact_id,
+                        "row_id": rid,
+                        "gene_symbol": str(found_row.get("gene_symbol") or found_row.get("gene_id") or tok),
+                        "gene_id": str(found_row.get("gene_id") or tok),
+                        "event_id": str(found_row.get("event_id") or ""),
+                    })
+                else:
+                    unmatched.append(tok)
+
+            return {
+                "selections": [
+                    {
+                        "source_artifact_id": aid,
+                        "row_ids": rids,
+                        "target_kind": payload.target_kind,
+                        "filters": {"comparison": cid} if cid else {},
+                    }
+                    for aid, rids in selections_map.items()
+                ],
+                "matched": matched,
+                "unmatched": unmatched,
+            }
+        except (ValueError, OSError, KeyError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+
     @router.post("/nextflow")
     def prepare_nextflow(project_id: str, payload: TargetBatchRequest):
         from katana_next.targets.nextflow import prepare_task
@@ -206,7 +317,8 @@ def create_targets_router(runtime) -> APIRouter:
             result = prepare_task(exported["archive_path"], workspace(project_id) / "nextflow" / task_id,
                                   resources=payload.resources)
             return {**result, "task_id": task_id,
-                "download_url": f"/api/projects/{quote(project_id, safe='')}/targets/nextflow/{task_id}/download"}
+                "download_url": f"/api/projects/{quote(project_id, safe='')}/targets/nextflow/{task_id}/download",
+                "targets_tsv_url": f"/api/projects/{quote(project_id, safe='')}/targets/nextflow/{task_id}/targets.tsv"}
         except (ValueError, OSError, KeyError) as exc:
             raise HTTPException(422, str(exc)) from exc
 
@@ -214,6 +326,11 @@ def create_targets_router(runtime) -> APIRouter:
     def download_nextflow(project_id: str, task_id: str):
         path = _bounded(workspace(project_id), workspace(project_id) / "nextflow" / _identity(task_id) / "NEXTFLOW_TASK.zip", file=True)
         return FileResponse(path, filename="NEXTFLOW_TASK.zip")
+
+    @router.get("/nextflow/{task_id}/targets.tsv")
+    def download_nextflow_targets_tsv(project_id: str, task_id: str):
+        path = _bounded(workspace(project_id), workspace(project_id) / "nextflow" / _identity(task_id) / "targets.tsv", file=True)
+        return FileResponse(path, filename="targets.tsv", media_type="text/tab-separated-values")
 
     @router.post("/export")
     def export_route(project_id: str, payload: TargetBatchRequest):
@@ -269,6 +386,18 @@ def create_targets_router(runtime) -> APIRouter:
                 raise ValueError("Exported target archive was modified after verification")
             return FileResponse(path, filename=f"katana-targets-{request_id}.zip", media_type="application/zip")
         except (ValueError, OSError, KeyError) as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @router.get("/exports/{request_id}/targets.tsv")
+    def download_targets_tsv_route(project_id: str, request_id: str):
+        try:
+            record = read_record(project_id, "exports", request_id)
+            tsv_path = record.get("targets_tsv_path")
+            if not tsv_path:
+                raise FileNotFoundError("targets.tsv was not recorded for this export")
+            path = _bounded(workspace(project_id) / "exports", tsv_path, file=True)
+            return FileResponse(path, filename=f"katana-targets-{request_id}.tsv", media_type="text/tab-separated-values")
+        except (ValueError, OSError, KeyError, FileNotFoundError) as exc:
             raise HTTPException(404, str(exc)) from exc
 
     @router.get("/runs/{run_id}")

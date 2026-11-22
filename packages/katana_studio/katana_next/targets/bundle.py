@@ -165,14 +165,34 @@ def _scope(table, column, allowed):
     return pc.or_(_in(table, column, allowed | {""}), pc.is_null(table[column]))
 
 
+def _gene_match_array(table, column, target_gene_id):
+    if not column or not target_gene_id:
+        return pa.array([False] * table.num_rows, type=pa.bool_())
+    gid = str(target_gene_id).strip()
+    base = gid.split(".", 1)[0]
+    accepted = {gid, base}
+    vals = table[column].to_pylist()
+    flags = [
+        (str(v).strip() in accepted or str(v).strip().split(".", 1)[0] == base)
+        if v is not None and str(v).strip() != ""
+        else False
+        for v in vals
+    ]
+    return pa.array(flags, type=pa.bool_())
+
+
 def _target_mask(table, target, events):
-    """Gene IDs are authoritative; shared loci/symbols do not alias genes."""
+    """Gene IDs are authoritative; match with Ensembl version normalization when needed."""
     gc, ec = _column(table, _GENE_COLUMNS), _column(table, _EVENT_COLUMNS)
     if gc:
-        gene = _in(table, gc, {target["gene_id"]})
+        gene = _gene_match_array(table, gc, target["gene_id"])
         if target["target_kind"] == "gene" or not ec:
             return gene
-        return pc.and_(gene, _in(table, ec, events))
+        ev_mask = _in(table, ec, events)
+        # Keep gene-only tables (e.g. DEG, normalized counts) even if event_id isn't applicable,
+        # while tables with populated event_id rows remain restricted to the exact event(s).
+        has_any_ev = pc.any(pc.and_(gene, ev_mask)).as_py()
+        return pc.and_(gene, ev_mask) if has_any_ev else _in(table, None, set())
     return _in(table, ec, events)
 
 
@@ -270,16 +290,25 @@ def _resources(context, samples):
         if path:
             references[kind + "_resource_id"] = add(kind, path)
     if context.manifest.metadata.get("report_workspace"):
-        for row in sample_entries:
-            for kind in ("bam", "bai"):
-                rid = "resource-" + hashlib.sha256(_canonical([kind, row["sample_id"]])).hexdigest()[:24]
-                row[kind + "_resource_id"] = rid
-                resources.append({"resource_id": rid, "kind": kind, "sample_id": row["sample_id"],
-                    "sha256": None, "bytes": None, "verification": {"state": "not_verified", "hash_method": "unavailable"}})
-        rid = "resource-" + hashlib.sha256(_canonical(["gtf", "reference"])).hexdigest()[:24]
-        references["gtf_resource_id"] = rid
-        resources.append({"resource_id": rid, "kind": "gtf", "sha256": None, "bytes": None,
-            "verification": {"state": "not_verified", "hash_method": "unavailable"}})
+        assay_str = str(context.manifest.metadata.get("assay_mode", "bulk")).lower()
+        is_sc_ws = any(tok in assay_str for tok in ("single", "scrna", "snrna"))
+        if is_sc_ws:
+            for kind, ref_key in (("sc_bam", "sc_bam_resource_id"), ("sc_bai", "sc_bai_resource_id"), ("sc_barcode_shares", "sc_barcode_shares_resource_id"), ("gtf", "gtf_resource_id")):
+                rid = "resource-" + hashlib.sha256(_canonical([kind, "reference"])).hexdigest()[:24]
+                references[ref_key] = rid
+                resources.append({"resource_id": rid, "kind": kind, "sha256": None, "bytes": None,
+                    "verification": {"state": "not_verified", "hash_method": "unavailable"}})
+        else:
+            for row in sample_entries:
+                for kind in ("bam", "bai"):
+                    rid = "resource-" + hashlib.sha256(_canonical([kind, row["sample_id"]])).hexdigest()[:24]
+                    row[kind + "_resource_id"] = rid
+                    resources.append({"resource_id": rid, "kind": kind, "sample_id": row["sample_id"],
+                        "sha256": None, "bytes": None, "verification": {"state": "not_verified", "hash_method": "unavailable"}})
+            rid = "resource-" + hashlib.sha256(_canonical(["gtf", "reference"])).hexdigest()[:24]
+            references["gtf_resource_id"] = rid
+            resources.append({"resource_id": rid, "kind": "gtf", "sha256": None, "bytes": None,
+                "verification": {"state": "not_verified", "hash_method": "unavailable"}})
     return resources, sample_entries, references, bindings, path_ids
 
 
@@ -438,13 +467,14 @@ def export_targets(context, selections, output_dir, *, modules=None, contrast_id
     target_modules = {t["target_id"]: set() for t in targets.values()}
     # Discover every measured event for gene targets before slicing a wide PSI
     # matrix or module-context table; no significance or Top-N gate is applied.
+    selected_aids = {r["source_artifact_id"] for r in selection_records}
     for table in tables.values():
         gc, ec = _column(table, _GENE_COLUMNS), _column(table, _EVENT_COLUMNS)
         if gc and ec:
             for target in targets.values():
                 if target["target_kind"] != "gene":
                     continue
-                mask = _in(table, gc, {target["gene_id"]})
+                mask = _gene_match_array(table, gc, target["gene_id"])
                 cc = _column(table, ("comparison_id", "contrast_id"))
                 if cc:
                     mask = pc.and_(mask, _scope(table, cc, set(requested)))
@@ -459,6 +489,7 @@ def export_targets(context, selections, output_dir, *, modules=None, contrast_id
     root = Path(output_dir).expanduser().resolve()
     archive = root.with_suffix(root.suffix + ".zip")
     template = root.with_name(root.name + ".local-bindings.template.json")
+    targets_tsv = root.with_name(root.name + ".targets.tsv")
     if archive.exists() or template.exists():
         raise FileExistsError("Target archive or bindings template already exists; choose a new export directory")
     if root.exists() and (not root.is_dir() or any(root.iterdir())):
@@ -470,6 +501,7 @@ def export_targets(context, selections, output_dir, *, modules=None, contrast_id
     evidence, members = [], {}
     for aid, table in tables.items():
         artifact = sources[aid]
+        is_primary_sel = aid in selected_aids
         gc, ec, mc = (_column(table, c) for c in (_GENE_COLUMNS, _EVENT_COLUMNS, _MODULE_COLUMNS))
         keep, matches, target_masks = _in(table, None, set()), set(), {}
         for target in targets.values():
@@ -488,9 +520,9 @@ def export_targets(context, selections, output_dir, *, modules=None, contrast_id
                 if column not in table.column_names:
                     continue
                 values = {str(v) for v in table[column].filter(related).to_pylist() if v is not None and v != ""}
-                if values - known:
+                if is_primary_sel and (values - known):
                     raise ValueError(f"Related evidence refers to a foreign {column}")
-                related = pc.and_(related, _scope(table, column, chosen))
+                related = pc.and_(related, _scope(table, column, chosen) if column != "sample_id" else _in(table, column, chosen))
             if pc.any(related).as_py():
                 matches.add(tid)
                 keep = pc.or_(keep, related)
@@ -565,10 +597,39 @@ def export_targets(context, selections, output_dir, *, modules=None, contrast_id
             z.write(root / name, name)
     with template.open("x", encoding="utf-8") as handle:
         json.dump({"schema": "katana.target_bindings/v1", "resources": bindings}, handle, indent=2)
+    write_targets_tsv(request, targets_tsv)
     return {"request_id": request["request_id"], "request_path": str(request_path),
             "bundle_directory": str(root), "archive_path": str(archive),
-            "local_bindings_template": str(template), "target_count": len(targets),
-            "targets": request["targets"], "resources": resources}
+            "local_bindings_template": str(template), "targets_tsv_path": str(targets_tsv),
+            "target_count": len(targets), "targets": request["targets"], "resources": resources}
+
+
+def write_targets_tsv(request, destination):
+    """Write a pipeline-readable targets.tsv manifest for `-entry TARGETS` and server inspection."""
+    import pandas as _pd
+    cols = [
+        "target_id", "target_kind", "gene_id", "gene_symbol", "event_id", "event_type",
+        "comparison_ids", "chr", "strand", *[c for c in _GEOMETRY_COLUMNS if c not in {"chr", "strand"}],
+    ]
+    rows = []
+    for target in request.get("targets", []):
+        geom = target.get("event_geometry") or {}
+        row = {
+            "target_id": target.get("target_id", ""),
+            "target_kind": target.get("target_kind", ""),
+            "gene_id": target.get("gene_id", ""),
+            "gene_symbol": target.get("gene_symbol", ""),
+            "event_id": target.get("event_id", ""),
+            "event_type": target.get("event_type", ""),
+            "comparison_ids": ",".join(target.get("comparison_ids", [])),
+        }
+        for col in cols[7:]:
+            row[col] = geom.get(col, "")
+        rows.append(row)
+    out = Path(destination)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    _pd.DataFrame(rows, columns=cols).to_csv(out, sep="\t", index=False)
+    return out
 
 
 def validate_request(request, root, *, verify_files=True):

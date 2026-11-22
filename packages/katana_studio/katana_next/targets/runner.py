@@ -13,8 +13,11 @@ import os
 from pathlib import Path
 import re
 import shutil
+import threading
 import uuid
 import zipfile
+
+_PLOT_LOCK = threading.RLock()
 
 import pandas as pd
 
@@ -210,9 +213,11 @@ def _select_frame(frame, target):
     genes = canonical or [c for c in ("gene_symbol", "geneSymbol", "gene") if c in selected.columns]
     ids = {str(target["gene_id"])} if canonical else {str(v) for v in (target.get("gene_id"), target.get("gene_symbol")) if v is not None and str(v)}
     if genes and ids:
-        mask = selected[genes[0]].astype(str).isin(ids)
-        for c in genes[1:]:
-            mask |= selected[c].astype(str).isin(ids)
+        bases = {i.split(".", 1)[0] for i in ids}
+        mask = pd.Series(False, index=selected.index)
+        for c in genes:
+            col_s = selected[c].astype(str)
+            mask |= col_s.isin(ids) | col_s.map(lambda x: x.split(".", 1)[0]).isin(bases)
         selected = selected.loc[mask]
     return selected.copy()
 
@@ -245,7 +250,11 @@ def _event_cards(request, target, tables):
         if event_column is None:
             continue
         for _, row in frame.iterrows():
-            event_type = row.get("event_type", evidence.get("metadata", {}).get("event_type", target.get("event_type")))
+            raw_et = row.get("event_type", evidence.get("metadata", {}).get("event_type", target.get("event_type")))
+            if pd.isna(raw_et) or not str(raw_et).strip():
+                eid_tmp = str(row[event_column]) if event_column else ""
+                raw_et = eid_tmp.split(":", 1)[0] if eid_tmp.split(":", 1)[0] in {"SE", "RI", "A3SS", "A5SS", "MXE"} else None
+            event_type = str(raw_et) if raw_et is not None else ""
             if event_type not in {"SE", "RI", "A3SS", "A5SS", "MXE"}:
                 continue
             if event_column and pd.isna(row[event_column]):
@@ -291,6 +300,9 @@ def _sashimi_events(cards):
         # never choose the most significant or first convenient rMATS result.
         candidates = [e for e in card["evidence"] if any(k in e["row"] for k in ("IncLevel1", "IJC_SAMPLE_1"))]
         if not candidates:
+            geom = card.get("event_geometry") or {}
+            if not (geom.get("chr") or geom.get("chrom") or geom.get("chromosome")):
+                continue
             candidates = [{"row": {}, "metadata": {}, "parameters": {}, "evidence_id": "geometry-only"}]
         seen = set()
         for evidence in candidates:
@@ -316,7 +328,10 @@ def _target_identity(request, target, resources, method):
     relevant = {str(s) for c in request["project"].get("contrasts", []) if c["contrast_id"] in cids
                 for arm in ("numerator", "denominator") for s in c.get(arm, {}).get("sample_ids", [])}
     ids = {s.get(name) for s in samples if str(s["sample_id"]) in relevant for name in ("bam_resource_id", "bai_resource_id")}
-    ids.add(request["project"].get("references", {}).get("gtf_resource_id"))
+    refs = request["project"].get("references", {})
+    for ref_key in ("gtf_resource_id", "sc_bam_resource_id", "sc_bai_resource_id", "sc_barcode_shares_resource_id"):
+        if refs.get(ref_key):
+            ids.add(refs[ref_key])
     bound = {rid: r for rid, r in _resource_public(resources).items() if rid in ids}
     return fingerprint({"project": request["project"], "target": target,
                         "evidence": [e for e in request.get("evidence", []) if target["target_id"] in e.get("target_ids", [])],
@@ -423,10 +438,11 @@ def _target_execute(request, bundle_root, output_root, target, resources, method
             measurements.to_parquet(directory / "sample-measurements.parquet", index=False)
             measurements.to_csv(directory / "sample-measurements.tsv", sep="\t", index=False, float_format="%.17g")
             render_table(directory / "sample-measurements.html", "All saved biological sample measurements", measurements)
-            plots = render_sample_plots(directory, measurements)
-            sashimi = [{"status": "not_requested", "reason": "Native Sashimi was not requested", "files": []}]
-            if "sashimi" in request.get("modules", []):
-                sashimi = generate_sashimi(request, target, _sashimi_events(cards), resources, directory / "sashimi")
+            with _PLOT_LOCK:
+                plots = render_sample_plots(directory, measurements)
+                sashimi = [{"status": "not_requested", "reason": "Native Sashimi was not requested", "files": []}]
+                if "sashimi" in request.get("modules", []):
+                    sashimi = generate_sashimi(request, target, _sashimi_events(cards), resources, directory / "sashimi")
             status = ("failed" if any(r["status"] == "failed" for r in sashimi) else
                       "complete" if all(r["status"] in {"complete", "not_requested"} for r in sashimi) else "partial")
             record.update(status=status, event_count=len(cards), evidence=evidence_outputs,
@@ -497,11 +513,64 @@ def _plan(request, root, resources, outdir=None):
             "executor": "local Python, usable inside any scheduler allocation; no scheduler submission"}
 
 
-def plan_targets(request_path, resources=None, *, outdir=None):
+def resolve_auto_bindings(request, *, bams_dir=None, gtf=None, sc_bam=None, sc_barcode_shares=None):
+    """Discover execution-machine BAM/BAI/GTF/sc_bam paths matching logical resource IDs."""
+    bindings = {}
+    samples = {str(s["sample_id"]): s for s in request["project"].get("samples", [])}
+    resources = {r["resource_id"]: r for r in request.get("resources", [])}
+
+    def _find_bai(bam_path: Path) -> Path | None:
+        for cand in (Path(str(bam_path) + ".bai"), bam_path.with_suffix(".bai")):
+            if cand.is_file():
+                return cand
+        return None
+
+    bams_root = Path(bams_dir).expanduser().resolve() if bams_dir else None
+    if bams_root and bams_root.is_dir():
+        for rid, res in resources.items():
+            sid = res.get("sample_id")
+            if res.get("kind") == "bam" and sid in samples:
+                for pat in (f"{sid}.bam", f"{sid}.sorted.bam", f"{sid}.markdup.sorted.bam", f"{sid}.Aligned.sortedByCoord.out.bam"):
+                    cand = bams_root / pat
+                    if cand.is_file():
+                        bindings[rid] = str(cand)
+                        bai_rid = samples[sid].get("bai_resource_id")
+                        bai_p = _find_bai(cand)
+                        if bai_rid and bai_p:
+                            bindings[bai_rid] = str(bai_p)
+                        break
+
+    gtf_p = Path(gtf).expanduser().resolve() if gtf else None
+    if gtf_p and gtf_p.is_file():
+        gtf_rid = request["project"].get("references", {}).get("gtf_resource_id")
+        if gtf_rid:
+            bindings[gtf_rid] = str(gtf_p)
+
+    sc_bam_p = Path(sc_bam).expanduser().resolve() if sc_bam else None
+    if sc_bam_p and sc_bam_p.is_file():
+        refs = request["project"].get("references", {})
+        if refs.get("sc_bam_resource_id"):
+            bindings[refs["sc_bam_resource_id"]] = str(sc_bam_p)
+        bai_p = _find_bai(sc_bam_p)
+        if bai_p and refs.get("sc_bai_resource_id"):
+            bindings[refs["sc_bai_resource_id"]] = str(bai_p)
+
+    shares_p = Path(sc_barcode_shares).expanduser().resolve() if sc_barcode_shares else None
+    if shares_p and shares_p.is_file():
+        refs = request["project"].get("references", {})
+        if refs.get("sc_barcode_shares_resource_id"):
+            bindings[refs["sc_barcode_shares_resource_id"]] = str(shares_p)
+    return bindings
+
+
+def plan_targets(request_path, resources=None, *, outdir=None, bams_dir=None, gtf=None, sc_bam=None, sc_barcode_shares=None):
     from .bundle import open_bundle
     bindings, _ = _load_bindings(resources)
     with open_bundle(request_path) as bundle:
-        verified = _bound_resources(bundle.request, bindings)
+        auto = resolve_auto_bindings(bundle.request, bams_dir=bams_dir, gtf=gtf, sc_bam=sc_bam, sc_barcode_shares=sc_barcode_shares)
+        merged = {**auto, **{k: str(v) for k, v in bindings.items()}}
+        merged_paths = {k: Path(v) for k, v in merged.items()}
+        verified = _bound_resources(bundle.request, merged_paths)
         return _plan(bundle.request, bundle.root, verified, outdir=outdir)
 
 
@@ -600,6 +669,10 @@ def _archive(root, members):
 def _accepted_batch_members(root, request, manifest):
     """Only accepted products enter a download, never unknown/orphan files."""
     names = {"request.json", "INDEX.html", *request["members"]}
+    if (root / "REPORT.html").is_file():
+        names.add("REPORT.html")
+    if (root / "targets.tsv").is_file():
+        names.add("targets.tsv")
     for target in manifest["targets"]:
         if not target.get("manifest"):
             continue
@@ -618,23 +691,29 @@ def _accepted_batch_members(root, request, manifest):
     return result
 
 
-def run_targets(request_path, output_dir, resources=None, *, workers=None, target_ids=None, progress=None):
-    from .bundle import open_bundle
+def run_targets(request_path, output_dir, resources=None, *, workers=None, target_ids=None, progress=None,
+                bams_dir=None, gtf=None, sc_bam=None, sc_barcode_shares=None, sc_bc_tag=None):
+    from .bundle import open_bundle, write_targets_tsv
     root = Path(output_dir).expanduser().resolve()
     bindings, _ = _load_bindings(resources)
     if workers is not None and (not isinstance(workers, int) or isinstance(workers, bool) or workers <= 0):
         raise ValueError("workers must be a positive integer")
     with open_bundle(request_path) as bundle:
-        request = bundle.request
+        request = dict(bundle.request)
+        if sc_bc_tag:
+            request = {**request, "execution": {**request.get("execution", {}), "sc_bc_tag": sc_bc_tag}}
+        auto = resolve_auto_bindings(request, bams_dir=bams_dir, gtf=gtf, sc_bam=sc_bam, sc_barcode_shares=sc_barcode_shares)
+        merged_paths = {**{k: Path(v) for k, v in auto.items()}, **bindings}
         requested_ids = set(target_ids) if target_ids is not None else {t["target_id"] for t in request["targets"]}
         available_ids = {t["target_id"] for t in request["targets"]}
         if not requested_ids or requested_ids - available_ids:
             raise ValueError("target_ids must be a nonempty subset of the portable request")
-        resources_checked = _bound_resources(request, bindings)
+        resources_checked = _bound_resources(request, merged_paths)
         method = _method_identity()
         _owner(root, request)
         with owned_claim(root / ".claims" / "inputs.json", request["request_id"], wait_seconds=10):
             _copy_inputs(request, bundle.root, root)
+            write_targets_tsv(request, root / "targets.tsv")
         selected = [t for t in request["targets"] if t["target_id"] in requested_ids]
         latest = []
         count = min(len(selected), workers if workers is not None else _capacity())
@@ -677,6 +756,44 @@ def run_targets(request_path, output_dir, resources=None, *, workers=None, targe
         result["cache"] = {"hits": sum(bool(t.get("cache_hit")) for t in latest), "requested": len(latest)}
         result["requested_target_ids"] = sorted(requested_ids)
         result["execution_status"] = _execution_status(latest)
+        return result
+
+
+def aggregate_target_results(request_path, part_dirs, output_dir):
+    """Merge parallel per-target output directories into one verified multi-target batch report."""
+    from .bundle import open_bundle, write_targets_tsv
+    root = Path(output_dir).expanduser().resolve()
+    with open_bundle(request_path) as bundle:
+        request = bundle.request
+        _owner(root, request)
+        with owned_claim(root / ".claims" / "inputs.json", request["request_id"], wait_seconds=10):
+            _copy_inputs(request, bundle.root, root)
+            write_targets_tsv(request, root / "targets.tsv")
+        merged_targets = []
+        for pdir in part_dirs:
+            p_verified = inspect_results(Path(pdir))
+            if p_verified.get("request_id") != request["request_id"]:
+                raise ValueError(f"Part directory belongs to a different request: {pdir}")
+            part_root = Path(pdir).expanduser().resolve()
+            for t in p_verified.get("targets", []):
+                if not t.get("manifest"):
+                    continue
+                t_rel_dir = Path(t["manifest"]).parent
+                src_t_dir = bounded(part_root, t_rel_dir.as_posix())
+                dst_t_dir = bounded(root, t_rel_dir.as_posix())
+                if not dst_t_dir.exists():
+                    dst_t_dir.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(src_t_dir, dst_t_dir)
+                merged_targets.append(t)
+        with owned_claim(root / ".claims" / "batch-index.json", request["request_id"], wait_seconds=30):
+            manifest = _summarize(request, root, merged_targets)
+            render_index(root, manifest)
+            members = _accepted_batch_members(root, request, manifest)
+            manifest["members"] = members
+            atomic_json(root / "result-manifest.json", manifest)
+            _archive(root, members)
+            result = inspect_results(root)
+        result["execution_status"] = _execution_status(merged_targets) if merged_targets else manifest["status"]
         return result
 
 

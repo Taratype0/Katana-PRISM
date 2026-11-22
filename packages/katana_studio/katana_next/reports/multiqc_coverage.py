@@ -88,15 +88,23 @@ def parse_multiqc_5to3_coverage(qc_root: str | Path, sample_conditions: dict[str
         if curves_rows:
             break
 
-    # 2. Check MultiQC flat export text tables (`mqc_rseqc_gene_body_coverage*.txt` / `mqc_qualimap_gene_coverage*.txt`)
+    # 2. Check MultiQC flat export text tables (legacy mqc_* and MultiQC >= 1.25 qualimap_gene_coverage_profile_*.txt)
     if not curves_rows:
         flat_candidates = sorted(
             p for p in root.rglob("*.txt")
-            if any(tag in p.name.lower() for tag in ("mqc_rseqc_gene_body_coverage", "mqc_qualimap_gene_coverage", "genebodycoverage"))
+            if any(tag in p.name.lower() for tag in (
+                "mqc_rseqc_gene_body_coverage",
+                "mqc_qualimap_gene_coverage",
+                "qualimap_gene_coverage_profile",
+                "rseqc_gene_body_coverage",
+                "genebodycoverage",
+            ))
         ) + sorted(
             p for p in root.rglob("*.tsv")
             if "gene_body_coverage" in p.name.lower() or "coverage_bias" in p.name.lower()
         )
+        # Prefer Normalised over Counts if both exist
+        flat_candidates.sort(key=lambda p: (0 if "normalised" in p.name.lower() or "normalized" in p.name.lower() else 1, p.name))
         for cand in flat_candidates:
             try:
                 raw = pd.read_csv(cand, sep="\t")
@@ -110,7 +118,7 @@ def parse_multiqc_5to3_coverage(qc_root: str | Path, sample_conditions: dict[str
                 provenance_source = f"Precomputed coverage table ({cand.name})"
                 break
             elif len(cols) >= 11:
-                # Wide matrix: row = Sample, columns = percentiles 1..100
+                # Wide matrix: row = Sample, columns = percentiles 0..100 (or 1..100)
                 num_cols = []
                 for c in cols[1:]:
                     try:
@@ -127,6 +135,27 @@ def parse_multiqc_5to3_coverage(qc_root: str | Path, sample_conditions: dict[str
                     if curves_rows:
                         provenance_source = f"MultiQC / RSeQC flat table ({cand.name})"
                         break
+
+    # 3. Raw Qualimap per-sample files: <sample>/raw_data_qualimapReport/coverage_profile_along_genes_(total|high).txt
+    if not curves_rows:
+        for qual_name in ("coverage_profile_along_genes_(total).txt", "coverage_profile_along_genes_(high).txt"):
+            qual_files = sorted(root.rglob(qual_name))
+            if not qual_files:
+                continue
+            for qf in qual_files:
+                sid = qf.parent.parent.name if qf.parent.name == "raw_data_qualimapReport" else qf.parent.name
+                try:
+                    qdf = pd.read_csv(qf, sep="\t", comment="#", header=None, names=["percentile", "coverage"])
+                    qdf["percentile"] = pd.to_numeric(qdf["percentile"], errors="coerce")
+                    qdf["coverage"] = pd.to_numeric(qdf["coverage"], errors="coerce")
+                    qdf = qdf.dropna()
+                    for _, qr in qdf.iterrows():
+                        curves_rows.append({"sample_id": sid, "percentile": float(qr["percentile"]), "coverage": float(qr["coverage"])})
+                except Exception:
+                    continue
+            if curves_rows:
+                provenance_source = f"Qualimap raw gene-body profile ({qual_name})"
+                break
 
     if not curves_rows:
         return None

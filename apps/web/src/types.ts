@@ -176,7 +176,12 @@ export type TargetResource = {resource_id: string; kind: string; sample_id?: str
 export type TargetExport = {
   request_id: string; request_path: string; archive_path: string; bundle_directory: string;
   target_count: number; targets: Array<Record<string, unknown>>; resources: TargetResource[];
-  download_url: string;
+  download_url: string; targets_tsv_url?: string;
+};
+export type TargetResolveResponse = {
+  selections: TargetSelection[];
+  matched: Array<{query: string; source_artifact_id: string; row_id: string; gene_symbol: string; gene_id: string; event_id: string}>;
+  unmatched: string[];
 };
 export type TargetBatch = {
   selections?: TargetSelection[]; request_id?: string; modules?: string[];

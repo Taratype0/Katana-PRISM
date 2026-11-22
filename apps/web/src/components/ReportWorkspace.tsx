@@ -99,14 +99,14 @@ export function ReportWorkspace({
 
       {route.id === "network" ? (
         <>
-          <ReportNetwork projectId={pid} onGene={setGene} onInspectGeneCard={inspectGene} />
+          <ReportNetwork projectId={pid} comparison={comparison} onGene={setGene} onInspectGeneCard={inspectGene} />
           {gene && (
             <section className="result-card mck-panel">
               <h3>Gene follow-up · {gene}</h3>
               <ReportExplorer
                 key={gene}
                 projectId={pid}
-                artifacts={artifacts.filter(a => /^(differential.deg|differential.as)$/.test(String(a.metadata.source_analysis_id)))}
+                artifacts={artifacts.filter(a => /^(differential\.deg|differential\.as|differential\.sc_as)$/.test(String(a.metadata.source_analysis_id)))}
                 initialSearch={gene}
                 onAdd={onAdd}
               />
@@ -249,7 +249,7 @@ export function ReportWorkspace({
 
           {/* 08.x · Sashimi / Scorecard quick preview */}
           {(route.id === "sashimi" || route.id === "candidates") && (
-            <GeneCardDossier projectId={pid} contrasts={project.manifest.contrasts} entries={[]} initialComparison={comparison} />
+            <GeneCardDossier projectId={pid} contrasts={project.manifest.contrasts} entries={[]} initialComparison={comparison} onAdd={onAdd} />
           )}
 
           {/* Delivered High-Resolution Consulting Report Exhibits */}

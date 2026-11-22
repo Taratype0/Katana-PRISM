@@ -315,6 +315,7 @@ export function GeneCardDossier({
   initialGene = "",
   initialEvent = "",
   initialComparison = "",
+  onAdd,
 }: {
   projectId: string;
   contrasts: ManifestContrast[];
@@ -322,6 +323,7 @@ export function GeneCardDossier({
   initialGene?: string;
   initialEvent?: string;
   initialComparison?: string;
+  onAdd?: (entry: TargetBasketEntry) => void;
 }) {
   const basketCandidates = entries.flatMap(entry =>
     entry.labels.map((lbl, idx) => ({
@@ -466,20 +468,42 @@ export function GeneCardDossier({
           <div className="mck-filter-pills" style={{marginTop: 8}}>
             <small style={{fontWeight: 600, color: "#051C2C"}}>Top Ranked Priority Targets (1-Click Load):</small>
             {ranked.rows.slice(0, 10).map(r => (
-              <button
-                key={r.event_id}
-                type="button"
-                className={`mck-chip ${d?.event_id === r.event_id ? "active" : ""}`}
-                onClick={() => {
-                  setGeneInput(r.gene_symbol);
-                  setActiveGene(r.gene_symbol);
-                  setActiveEvent(r.event_id);
-                }}
-              >
-                {r.gene_symbol} · {r.composite_score.toFixed(2)} pts
-              </button>
+              <span key={r.event_id} style={{display: "inline-flex", alignItems: "center", gap: 3}}>
+                <button
+                  type="button"
+                  className={`mck-chip ${d?.event_id === r.event_id ? "active" : ""}`}
+                  onClick={() => {
+                    setGeneInput(r.gene_symbol);
+                    setActiveGene(r.gene_symbol);
+                    setActiveEvent(r.event_id);
+                  }}
+                >
+                  {r.gene_symbol} · {r.composite_score.toFixed(2)} pts
+                </button>
+                {onAdd && r.source_artifact_id && r.das_row_id && (
+                  <button
+                    type="button"
+                    className="ghost-action"
+                    title={`Add ${r.gene_symbol} (${r.event_id}) to Target Basket`}
+                    aria-label={`Add ${r.gene_symbol} event to target basket`}
+                    style={{padding: "2px 6px", fontSize: 12, fontWeight: 700}}
+                    onClick={() => onAdd({
+                      basket_id: crypto.randomUUID(),
+                      source_artifact_id: r.source_artifact_id!,
+                      source_name: "5-Pillar Target Ranker",
+                      row_ids: [r.das_row_id!],
+                      target_kind: "event",
+                      labels: [`${r.gene_symbol} ${r.event_type || ""} ${r.event_id}`.trim()],
+                      filters: {source_comparison_ids: comparison ? [comparison] : []},
+                    })}
+                  >
+                    +
+                  </button>
+                )}
+              </span>
             ))}
           </div>
+          {ranked.note && <p className="mck-hint" style={{marginTop: 6}}>{ranked.note}</p>}
         </div>
       )}
 
@@ -555,10 +579,44 @@ export function GeneCardDossier({
               <h4>{d.gene_symbol} <small>({d.gene_id})</small></h4>
               <span>Event: <code>{d.event_id}</code> ({d.event_type})</span>
             </div>
-            <div className="mck-kpi-strip">
+            <div className="mck-kpi-strip" style={{alignItems: "center"}}>
               <span><strong>ΔPSI:</strong> {d.dpsi != null ? `${d.dpsi >= 0 ? "+" : ""}${d.dpsi.toFixed(3)}` : "NA"}</span>
               <span><strong>DAS FDR:</strong> {d.fdr != null ? d.fdr.toExponential(2) : "NA"}</span>
               <span><strong>Host DEG log2FC:</strong> {d.track1_quantification?.deg.log2fc != null ? `${d.track1_quantification.deg.log2fc >= 0 ? "+" : ""}${d.track1_quantification.deg.log2fc.toFixed(2)}` : "NS / NA"}</span>
+              {onAdd && d.das_artifact_id && d.das_row_id && (
+                <>
+                  <button
+                    type="button"
+                    className="secondary-action compact"
+                    onClick={() => onAdd({
+                      basket_id: crypto.randomUUID(),
+                      source_artifact_id: d.das_artifact_id!,
+                      source_name: "GeneCard Dossier",
+                      row_ids: [d.das_row_id!],
+                      target_kind: "gene",
+                      labels: [String(d.gene_symbol || d.gene_id)],
+                      filters: {source_comparison_ids: comparison ? [comparison] : []},
+                    })}
+                  >
+                    + Add Gene to Target Basket
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-action compact"
+                    onClick={() => onAdd({
+                      basket_id: crypto.randomUUID(),
+                      source_artifact_id: d.das_artifact_id!,
+                      source_name: "GeneCard Dossier",
+                      row_ids: [d.das_row_id!],
+                      target_kind: "event",
+                      labels: [`${d.gene_symbol || d.gene_id} ${d.event_type || ""} ${d.event_id}`.trim()],
+                      filters: {source_comparison_ids: comparison ? [comparison] : []},
+                    })}
+                  >
+                    + Add Event to Target Basket
+                  </button>
+                </>
+              )}
             </div>
           </div>
 

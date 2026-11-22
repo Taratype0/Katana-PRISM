@@ -1074,6 +1074,426 @@ def test_per_celltype_ch6_networks_and_studio_zip_import(tmp_path: Path) -> None
         assert len(ctx.catalog.list_artifacts(ctx.manifest.project_id)) > 0
 
 
+def test_bulk_report_studio_contract_end_to_end(tmp_path: Path) -> None:
+    """Verify Bulk REPORT.zip carries normalized counts, MultiQC coverage, SpliceNet edges, and 13-channel FDR/FWER SpliceTrace for Katana Studio."""
+    import importlib.util as _ilu
+    from katana_studio.report_builder import run_bulk
+
+    fx = _create_synthetic_study(tmp_path)
+    rmats_df = pd.read_csv(fx["rmats"] / "SE.MATS.JCEC.txt", sep="\t")
+    sample_ids = ["KO_1", "KO_2", "KO_3", "WT_1", "WT_2", "WT_3"]
+
+    # 1. DESeq2 results + all.normalised_counts.tsv
+    deg_dir = tmp_path / "deseq2"
+    deg_dir.mkdir()
+    deg_rows = []
+    cnt_rows = []
+    for g_idx in range(1, 16):
+        gid = f"ENSMUSG{g_idx:011d}"
+        gsym = f"Gene{g_idx}"
+        deg_rows.append({
+            "gene_id": gid, "gene_symbol": gsym, "baseMean": 450.0 + g_idx * 20,
+            "log2FoldChange": 1.65 if g_idx <= 4 else (-1.45 if g_idx <= 8 else 0.15),
+            "pvalue": 1e-4 if g_idx <= 8 else 0.52,
+            "padj": 0.008 if g_idx <= 8 else 0.78,
+        })
+        row_c = {"gene_id": gid, "gene_symbol": gsym}
+        for s_i, sid in enumerate(sample_ids):
+            base_v = 320.0 if (g_idx <= 4 and s_i < 3) or (4 < g_idx <= 8 and s_i >= 3) else 110.0
+            row_c[sid] = round(base_v + (g_idx * 7 + s_i * 5), 2)
+        cnt_rows.append(row_c)
+    pd.DataFrame(deg_rows).to_csv(deg_dir / "KO_vs_WT.deseq2.results.tsv", sep="\t", index=False)
+    pd.DataFrame(cnt_rows).to_csv(deg_dir / "all.normalised_counts.tsv", sep="\t", index=False)
+
+    # 2. MultiQC Qualimap gene-body coverage
+    mqc_dir = tmp_path / "multiqc"
+    mqc_dir.mkdir()
+    cov_cols = {str(p): [round(0.4 + 0.012 * p + 0.03 * s_i, 4) for s_i in range(len(sample_ids))] for p in range(1, 101)}
+    cov_df = pd.DataFrame({"Sample": sample_ids, **cov_cols})
+    cov_df.to_csv(mqc_dir / "qualimap_gene_coverage_profile_Normalised.txt", sep="\t", index=False)
+
+    # 3. SpliceNet module assignments, scores & pairwise edges
+    sn_dir = tmp_path / "splicenet"
+    sn_dir.mkdir()
+    ev_keys = [
+        f"SE|{r['chr']}|{r['strand']}|{int(r['exonStart_0base'])}|{int(r['exonEnd'])}|{int(r['upstreamEE'])}|{int(r['downstreamES'])}"
+        for _, r in rmats_df.iterrows()
+    ]
+    pd.DataFrame({
+        "event_key": ev_keys,
+        "gene_id": rmats_df["GeneID"],
+        "gene_symbol": rmats_df["geneSymbol"],
+        "module": ["M1" if i < 20 else ("M2" if i < 40 else "M0") for i in range(len(ev_keys))],
+        "kME": [round(0.88 - 0.008 * (i % 15), 4) if i < 40 else 0.05 for i in range(len(ev_keys))],
+    }).to_csv(sn_dir / "module_assignments.tsv", sep="\t", index=False)
+    pd.DataFrame({
+        "sample_id": sample_ids,
+        "M1": [0.42, 0.38, 0.45, -0.40, -0.36, -0.44],
+        "M2": [-0.31, -0.28, -0.35, 0.32, 0.29, 0.34],
+    }).to_csv(sn_dir / "module_scores.tsv", sep="\t", index=False)
+    pd.DataFrame([
+        {"event_a": ev_keys[i], "event_b": ev_keys[i + 1], "weight": round(0.84 - 0.02 * i, 4), "correlation": round(0.86 - 0.02 * i, 4)}
+        for i in range(18)
+    ]).to_csv(sn_dir / "splicenet_edges.tsv", sep="\t", index=False)
+
+    # 4. SpliceTrace ranking, 13-channel region_tests, bridge, proteome & motif consequences
+    st_dir = tmp_path / "splicetrace_KO_vs_WT"
+    st_dir.mkdir()
+    pd.DataFrame([
+        {"RBP": "RBFOX1", "best_region": "downstream_intron_0_35", "stat_Z": 4.25, "nominal_P": 0.00012, "rbp_FDR_BH": 0.0042, "rbp_P_FWER": 0.018},
+        {"RBP": "PTBP1", "best_region": "upstream_intron_0_35", "stat_Z": -3.15, "nominal_P": 0.0048, "rbp_FDR_BH": 0.042, "rbp_P_FWER": 0.14},
+    ]).to_csv(st_dir / "rbp_ranking.tsv", sep="\t", index=False)
+    all_13_regs = [
+        "upstream_intron_200_500", "upstream_intron_85_200", "upstream_intron_35_85", "upstream_intron_0_35",
+        "upstream_exon_3p_50", "alt_exon_5p_50", "alt_exon_3p_50", "downstream_exon_5p_50",
+        "downstream_intron_0_35", "downstream_intron_35_85", "downstream_intron_85_200", "downstream_intron_200_500",
+        "mature_consequence_delta",
+    ]
+    reg_rows = []
+    for rbp_n, peak_r, peak_z in [("RBFOX1", "downstream_intron_0_35", 4.25), ("PTBP1", "upstream_intron_0_35", -3.15)]:
+        for rg in all_13_regs:
+            zv = peak_z if rg == peak_r else 0.4
+            pv = 0.00012 if rg == peak_r else 0.65
+            reg_rows.append({"RBP": rbp_n, "region": rg, "stat_Z": zv, "nominal_P": pv, "region_FDR_BH": pv * 3, "region_P_FWER": min(1.0, pv * 13)})
+    pd.DataFrame(reg_rows).to_csv(st_dir / "region_tests.tsv", sep="\t", index=False)
+    pd.DataFrame([
+        {"module": "M1", "module_events": 20, "module_genes": 10, "RBP": "RBFOX1", "best_region": "downstream_intron_0_35", "kme_direction": "signed", "stat_Z": 3.9, "nominal_P": 0.0008, "module_FDR_BH": 0.015, "module_P_FWER": 0.04, "study_P_FWER": 0.04},
+    ]).to_csv(st_dir / "module_rbp_bridge.tsv", sep="\t", index=False)
+    pd.DataFrame([
+        {"event_id": ev_keys[0], "gene_id": rmats_df.iloc[0]["GeneID"], "gene_symbol": rmats_df.iloc[0]["geneSymbol"], "event_type": "SE", "dpsi": rmats_df.iloc[0]["IncLevelDifference"], "uniprot_acc": "Q9JJ43", "frame_status": "frameshift", "nmd_switch_class": "NMD_inclusion_trigger", "aa_len_inclusion": 180, "aa_len_exclusion": 420, "delta_aa": -240, "disrupted_protein_features": "DOMAIN:RRM_1", "functional_consequence_summary": "Inclusion triggers 50-nt EJC NMD"},
+    ]).to_csv(st_dir / "protein_and_nmd_consequences.tsv", sep="\t", index=False)
+    pd.DataFrame([
+        {"event_id": ev_keys[0], "gene_id": rmats_df.iloc[0]["GeneID"], "gene_symbol": rmats_df.iloc[0]["geneSymbol"], "rbp_list": "RBFOX1;PTBP1", "region": "downstream_intron_0_35", "hit_RNA": "UGCAUG", "delta_motif_score": 3.4},
+    ]).to_csv(st_dir / "motif_consequences.tsv", sep="\t", index=False)
+
+    rep_dir = tmp_path / "bulk_report"
+    receipt = run_bulk(
+        outdir=rep_dir,
+        rmats=fx["rmats"],
+        samples=fx["samples"],
+        contrasts=fx["contrasts"],
+        deseq2=deg_dir,
+        multiqc=mqc_dir,
+        fasta=fx["fasta"],
+        gtf=fx["gtf"],
+        splicenet_dir=sn_dir,
+        splicetrace_dirs={"KO_vs_WT": st_dir},
+        study_name="Bulk Contract Regression Study",
+        species="mouse",
+    )
+    assert receipt["missing_plot_data"] == 0
+    manifest = json.loads((rep_dir / "report-manifest.json").read_text(encoding="utf-8"))
+    comp_results = manifest.get("complete_results", [])
+    table_aids = {t.get("analysis_id") for t in comp_results}
+    assert {"quality.read_coverage_bias", "expression.normalised_counts", "programs.splicenet_edges", "prioritize.splicetrace_regions"}.issubset(table_aids)
+    cov_rec = next(t for t in comp_results if t.get("analysis_id") == "quality.read_coverage_bias")
+    assert int(cov_rec.get("rows", 0)) == len(sample_ids) * 100
+    assert (rep_dir / str(cov_rec["source"])).is_file()
+
+    if _ilu.find_spec("duckdb") is not None:
+        from katana_next.services.report_archive import report_source
+        from katana_next.services.report_import import import_report
+        from katana_next.services.studio_compute import (
+            compute_live_go_kegg_ora,
+            compute_live_motif_scan,
+            compute_live_psi_landscape,
+            compute_live_target_ranker,
+        )
+        from katana_next.services.studio_interactive import (
+            genecard_preview,
+            quadrant_data,
+            splicetrace_workbench,
+            unified_network,
+        )
+
+        ctx = import_report(report_source(rep_dir / "REPORT.zip", tmp_path / "cache"), tmp_path / "ws_bulk")
+        net = unified_network(ctx, comparison="KO_vs_WT")
+        assert net["available"] is True
+        assert any(g.get("edges") for g in net.get("graphs", {}).values())
+        assert len(net.get("bridge_rbps", [])) >= 1
+
+        st = splicetrace_workbench(ctx, comparison="KO_vs_WT")
+        assert st["available"] is True and st["rbps"][0]["fdr_bh"] is not None
+        assert len(st["regions"].get("RBFOX1", [])) == 13
+
+        qd = quadrant_data(ctx, comparison="KO_vs_WT")
+        assert len(qd["rows"]) > 0
+
+        gc = genecard_preview(ctx, gene_query="Gene1", comparison="KO_vs_WT")
+        assert gc["found"] is True and gc["das_artifact_id"] and gc["das_row_id"]
+        assert len(gc["track1_quantification"]["expression_samples"]) == len(sample_ids)
+
+        pl = compute_live_psi_landscape(ctx, comparison="KO_vs_WT")
+        assert pl["available"] is True
+        ora = compute_live_go_kegg_ora(
+            ctx,
+            comparison="KO_vs_WT",
+            custom_genes=["Rbfox1", "Rbfox2", "Ptbp1", "Srsf1", "Nrxn1", "Snap25", "Grin1"],
+        )
+        assert ora["available"] is True and len(ora.get("top_rows", [])) > 0
+        ms = compute_live_motif_scan(ctx, comparison="KO_vs_WT", query_motif_or_rbp="RBFOX1")
+        assert ms.get("consensus") and ms.get("catalog_size", 0) > 100 and len(ms.get("matched_events", [])) > 0
+        tr = compute_live_target_ranker(ctx, comparison="KO_vs_WT")
+        assert tr["available"] is True and tr["rows"]
+        assert tr["rows"][0]["source_artifact_id"] and tr["rows"][0]["das_row_id"]
+
+
+def test_sc_report_studio_contract_end_to_end(tmp_path: Path) -> None:
+    """Verify Single-Cell REPORT.zip exports manifold embeddings, compact PSI/expr matrices, and scope-switchable Ch06 networks for Studio."""
+    import importlib.util as _ilu
+    from katana_studio.report_builder import run_single_cell
+
+    fx = _create_synthetic_study(tmp_path)
+    meta_df = pd.read_csv(fx["sc_meta"], sep="\t")
+    ev_df = pd.read_csv(fx["sc_events"], sep="\t")
+    psi_df = pd.read_csv(fx["sc_psi"], sep="\t", index_col=0)
+    sup_df = pd.read_csv(fx["sc_sup"], sep="\t", index_col=0)
+    expr_df = pd.read_csv(fx["sc_expr"], sep="\t", index_col=0)
+
+    # Manifold coordinates for SingleCellManifoldExplorer
+    sm_dir = tmp_path / "sc_manifold"
+    sm_dir.mkdir()
+    coords = pd.DataFrame({
+        "sample_id": meta_df["cell_id"],
+        "condition": meta_df["condition"],
+        "donor_id": meta_df["donor_id"],
+        "cell_type": meta_df["cell_type"],
+        "PC1": np.linspace(-2.0, 2.0, len(meta_df)),
+        "PC2": np.sin(np.linspace(0, 6.0, len(meta_df))),
+        "psi_UMAP1": np.linspace(-1.5, 1.5, len(meta_df)),
+        "psi_UMAP2": np.cos(np.linspace(0, 5.0, len(meta_df))),
+        "expr_UMAP1": np.linspace(-1.0, 1.0, len(meta_df)),
+        "expr_UMAP2": np.sin(np.linspace(0, 4.0, len(meta_df))),
+    })
+    coords.to_csv(sm_dir / "sc_cell_manifold_coordinates.tsv", sep="\t", index=False)
+
+    sub_dirs: list[Path] = []
+    for pop_name, ct_match, mod_assign in [
+        ("PopA", "T_cell", ["M1"] * 18 + ["M2"] * 17 + ["M0"] * 10),
+        ("PopB", "Monocyte", ["M1"] * 12 + ["M2"] * 12 + ["M3"] * 11 + ["M0"] * 10),
+    ]:
+        cid = f"{pop_name}__Activated_vs_Resting"
+        sd = tmp_path / "sc_subtypes" / cid
+        (sd / "sc_matrices").mkdir(parents=True)
+        (sd / "scsplicenet").mkdir(parents=True)
+        (sd / "scsplicetrace").mkdir(parents=True)
+
+        meta_df[meta_df["cell_type"] == ct_match].to_csv(sd / "sc_matrices/sc_cells.tsv", sep="\t", index=False)
+        s_ev = ev_df.copy()
+        s_ev["pvalue"] = [0.0015 if j < 15 else 0.72 for j in range(len(s_ev))]
+        s_ev["fdr"] = [0.009 if j < 15 else 0.85 for j in range(len(s_ev))]
+        s_ev.to_csv(sd / "sc_matrices/sc_events.tsv", sep="\t", index=False)
+        pd.DataFrame({
+            "event_id": ev_df["event_id"], "gene_id": ev_df["gene_id"], "gene_symbol": ev_df["gene_symbol"],
+            "module": mod_assign, "kME": [0.85 if m != "M0" else 0.0 for m in mod_assign],
+        }).to_csv(sd / "scsplicenet/scsplicenet_modules.tsv", sep="\t", index=False)
+        pd.DataFrame([
+            {"source_event": ev_df.iloc[i]["event_id"], "target_event": ev_df.iloc[i + 1]["event_id"], "shrunk_correlation": round(0.85 - 0.03 * i, 4)}
+            for i in range(10)
+        ]).to_csv(sd / "scsplicenet/scsplicenet_edges.tsv", sep="\t", index=False)
+        pd.DataFrame([
+            {"RBP": "RBFOX1", "best_region": "downstream_exon_5p_50", "stat_Z": 3.4, "nominal_P": 0.001, "rbp_FDR_BH": 0.03, "rbp_P_FWER": 0.12}
+        ]).to_csv(sd / "scsplicetrace/scsplicetrace_rbp_ranking.tsv", sep="\t", index=False)
+        sub_dirs.append(sd)
+
+    rep_dir = tmp_path / "sc_studio_rep"
+    run_single_cell(
+        outdir=rep_dir, events=ev_df, cells=meta_df,
+        psi_matrix=psi_df.T, support_matrix=sup_df.T, expression=expr_df.T,
+        gtf=fx["gtf"], splicemanifold_dir=sm_dir, subtypes_dirs=sub_dirs,
+        study_name="Single-Cell Studio Contract Study", species="mouse",
+    )
+    manifest = json.loads((rep_dir / "report-manifest.json").read_text(encoding="utf-8"))
+    sc_aids = {t.get("analysis_id") for t in manifest.get("complete_results", [])}
+    assert {"single_cell.cell_embedding", "single_cell.psi_matrix", "single_cell.expression_matrix"}.issubset(sc_aids)
+
+    if _ilu.find_spec("duckdb") is not None:
+        from katana_next.services.report_archive import report_source
+        from katana_next.services.report_import import import_report
+        from katana_next.services.studio_compute import compute_live_target_ranker
+        from katana_next.services.studio_interactive import genecard_preview, single_cell_manifold, unified_network
+
+        ctx = import_report(report_source(rep_dir / "REPORT.zip", tmp_path / "sc_cache"), tmp_path / "ws_sc")
+        mf = single_cell_manifold(ctx)
+        assert mf["available"] is True and len(mf["cells"]) == len(meta_df)
+        assert len(mf["psi_events"]) > 0 and len(mf["expr_genes"]) > 0
+
+        n1 = unified_network(ctx)
+        scopes = n1.get("available_scopes", [])
+        assert len(scopes) >= 2
+        n2 = unified_network(ctx, scope=scopes[1]["scope_slug"])
+        assert n2["active_scope"] == scopes[1]["scope_slug"]
+        assert n2["active_scope"] != n1["active_scope"]
+
+        gc_sc = genecard_preview(ctx, gene_query="Gene1", comparison="PopA__Activated_vs_Resting")
+        assert gc_sc["found"] is True and gc_sc["das_artifact_id"] and gc_sc["das_row_id"]
+        rk_sc = compute_live_target_ranker(ctx, comparison="PopA__Activated_vs_Resting")
+        assert rk_sc["available"] is True and len(rk_sc["rows"]) > 0
+
+
+def test_selected_target_genecard_eventcard_workflow(tmp_path: Path) -> None:
+    """Verify /targets/resolve, strict request.zip + sibling targets.tsv, NEXTFLOW_TASK.zip, execution & restore ledger."""
+    import importlib.util as _ilu
+    from katana_studio.report_builder import run_bulk
+
+    fx = _create_synthetic_study(tmp_path)
+    rep_dir = tmp_path / "tgt_rep"
+    run_bulk(
+        outdir=rep_dir, rmats=fx["rmats"], samples=fx["samples"], contrasts=fx["contrasts"],
+        fasta=fx["fasta"], gtf=fx["gtf"], study_name="Target Workflow Study", species="mouse",
+    )
+
+    if _ilu.find_spec("duckdb") is None:
+        return
+
+    from katana_next.services.report_archive import report_source
+    from katana_next.services.report_import import import_report
+    from katana_next.targets.nextflow import prepare_task
+    from katana_next.targets.restore import restore_results
+    from katana_next.targets.runner import inspect_results, run_targets
+
+    ws_dir = tmp_path / "ws_tgt"
+    ctx = import_report(report_source(rep_dir / "REPORT.zip", tmp_path / "tgt_cache"), ws_dir)
+    pid = ctx.manifest.project_id
+    das_art = next(a for a in ctx.catalog.list_artifacts(pid) if a.metadata.get("source_analysis_id") == "differential.as")
+    das_df = pd.read_parquet(das_art.path)
+    gene_row_id = str(das_df.iloc[0]["row_id"])
+    event_row_id = str(das_df.iloc[1]["row_id"])
+
+    if _ilu.find_spec("fastapi") is not None and _ilu.find_spec("httpx") is not None:
+        from fastapi.testclient import TestClient
+        from katana_next.api.app import PlatformRuntime, create_app
+
+        app = create_app(PlatformRuntime(application_root=tmp_path / "studio_root"))
+        client = TestClient(app)
+        open_res = client.post("/api/projects/open", json={"manifest_path": str(ws_dir / "katana.project.json")})
+        assert open_res.status_code == 200, open_res.text
+
+        res_resolve = client.post(f"/api/projects/{pid}/targets/resolve", json={"queries": ["Gene1", "Gene2"], "target_kind": "gene", "comparison": "KO_vs_WT"})
+        assert res_resolve.status_code == 200, res_resolve.text
+        rj = res_resolve.json()
+        assert len(rj["selections"]) >= 1 and len(rj["matched"]) >= 2
+
+        exp_res = client.post(f"/api/projects/{pid}/targets/export", json={
+            "selections": [
+                {"source_artifact_id": das_art.artifact_id, "row_ids": [gene_row_id], "target_kind": "gene", "filters": {}},
+                {"source_artifact_id": das_art.artifact_id, "row_ids": [event_row_id], "target_kind": "event", "filters": {}},
+            ],
+            "modules": ["gene_card", "event_card", "sashimi"],
+        })
+        assert exp_res.status_code == 200, exp_res.text
+        ej = exp_res.json()
+        assert ej["target_count"] == 2 and ej.get("targets_tsv_url")
+
+        with zipfile.ZipFile(ej["archive_path"]) as zf:
+            names = set(zf.namelist())
+            assert "request.json" in names
+            assert "targets.tsv" not in names  # strict manifest separation inside request.zip
+
+        tsv_res = client.get(ej["targets_tsv_url"])
+        assert tsv_res.status_code == 200 and "target_id" in tsv_res.text
+
+        nf_res = client.post(f"/api/projects/{pid}/targets/nextflow", json={"request_id": ej["request_id"]})
+        assert nf_res.status_code == 200, nf_res.text
+        nfj = nf_res.json()
+        assert nfj.get("targets_tsv_url")
+        with zipfile.ZipFile(nfj["archive"]) as zf:
+            nf_names = set(zf.namelist())
+            assert {"katana_targets.nf", "targets.tsv", "request.zip"}.issubset(nf_names)
+
+        req_path = Path(ej["request_path"])
+    else:
+        if _ilu.find_spec("fastapi") is not None:
+            from katana_next.api.app import PlatformRuntime, create_app
+            from katana_next.api.targets import TargetResolveRequest, create_targets_router
+            rt = PlatformRuntime(application_root=tmp_path / "studio_root")
+            app = create_app(rt)
+            assert app is not None
+            opened = rt.projects.open_project(ws_dir / "katana.project.json")
+            router = create_targets_router(rt)
+            ep_resolve = next(r.endpoint for r in router.routes if getattr(r, "path", "").endswith("/targets/resolve"))
+            rj = ep_resolve(opened.manifest.project_id, TargetResolveRequest(queries=["Gene1", "Gene2"], target_kind="gene", comparison="KO_vs_WT"))
+            assert len(rj["selections"]) >= 1 and len(rj["matched"]) >= 2
+
+        from katana_next.targets.bundle import export_targets
+        ej = export_targets(
+            ctx,
+            [
+                {"source_artifact_id": das_art.artifact_id, "row_ids": [gene_row_id], "target_kind": "gene", "filters": {}},
+                {"source_artifact_id": das_art.artifact_id, "row_ids": [event_row_id], "target_kind": "event", "filters": {}},
+            ],
+            tmp_path / "exp_bundle",
+            modules=["gene_card", "event_card"],
+        )
+        with zipfile.ZipFile(ej["archive_path"]) as zf:
+            assert "request.json" in zf.namelist() and "targets.tsv" not in zf.namelist()
+        assert Path(ej["targets_tsv_path"]).is_file()
+        nf_out = prepare_task(ej["archive_path"], tmp_path / "nf_prep")
+        with zipfile.ZipFile(nf_out["archive"]) as zf:
+            assert {"katana_targets.nf", "targets.tsv", "request.zip"}.issubset(set(zf.namelist()))
+        req_path = Path(ej["request_path"])
+
+    run_out = tmp_path / "tgt_run_out"
+    run_res = run_targets(req_path, run_out)
+    assert run_res["status"] in {"complete", "partial"}
+    verified = inspect_results(run_out)
+    assert verified["verified"] is True
+    assert (run_out / "INDEX.html").is_file() and (run_out / "REPORT.html").is_file()
+    assert (run_out / "targets.tsv").is_file() and (run_out / "REPORT.zip").is_file()
+    idx_html = (run_out / "INDEX.html").read_text(encoding="utf-8")
+    assert "katana-grid-2x2" in idx_html and "target-select" in idx_html
+    assert "All gene events" not in idx_html and "SpliceNet" not in idx_html
+    m_data = re.search(r"<script id='katana-batch-data' type='application/json'>(.*?)</script>", idx_html, re.S)
+    assert m_data is not None
+    batch_payload = json.loads(m_data.group(1))
+    assert len(batch_payload["targets"]) == 2
+    assert any(
+        ev.get("stats_by_comparison")
+        for t in batch_payload["targets"]
+        for ev in t.get("events", [])
+    )
+    rendered_htmls = [p.read_text(encoding="utf-8") for p in (run_out / "targets").rglob("REPORT.html")]
+    assert rendered_htmls and all("katana-grid-2x2" in h and "All gene events" not in h and "SpliceNet" not in h for h in rendered_htmls)
+    restored = tmp_path / "tgt_restored"
+    restore_results(run_out / "REPORT.zip", restored, expected_project_id=pid)
+    assert (restored / "INDEX.html").is_file()
+
+
+def test_sashimi_events_skips_coordinate_less_annotation_cards() -> None:
+    from katana_next.targets.runner import _sashimi_events
+
+    cards = [
+        {
+            "event_id": "SE|chr1|+|3700|3745|3380|4100",
+            "event_type": "SE",
+            "comparison_id": "KO_vs_WT",
+            "event_geometry": {},
+            "evidence": [{"evidence_id": "ev_motif", "row": {"hit_RNA": "UGCAUG"}, "metadata": {}, "parameters": {}}],
+        },
+        {
+            "event_id": "SE:chr1:+:3700:3745:3200:3380:4100:4280",
+            "event_type": "SE",
+            "comparison_id": "KO_vs_WT",
+            "event_geometry": {"chr": "chr1", "strand": "+"},
+            "evidence": [{"evidence_id": "ev_geom", "row": {}, "metadata": {}, "parameters": {}}],
+        },
+        {
+            "event_id": "SE:chr1:+:5700:5809:5200:5360:6200:6380",
+            "event_type": "SE",
+            "comparison_id": "KO_vs_WT",
+            "event_geometry": {"chr": "chr1", "strand": "+"},
+            "evidence": [{"evidence_id": "ev_rmats", "row": {"IncLevel1": "0.7,0.8", "IJC_SAMPLE_1": "30,35"}, "metadata": {}, "parameters": {}}],
+        },
+    ]
+    out = _sashimi_events(cards)
+    assert [e["event_id"] for e in out] == [
+        "SE:chr1:+:3700:3745:3200:3380:4100:4280",
+        "SE:chr1:+:5700:5809:5200:5360:6200:6380",
+    ]
+    assert out[0]["source_evidence_id"] == "geometry-only"
+    assert out[1]["source_evidence_id"] == "ev_rmats"
+
+
 # ---------------------------------------------------------------------------
 # 4. Repository-Wide Confidentiality, Brand & Naming Hygiene Audit
 # ---------------------------------------------------------------------------

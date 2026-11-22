@@ -450,18 +450,51 @@ def build_chapter6_splicenet_suite(
         ora_df.to_csv(tbl_dir / "module_go_kegg_enrichment.tsv", sep="\t", index=False)
 
     scope_lbl = f" ({scope_slug})" if scope_slug else ""
-    t_base_a: dict[str, Any] = {"name": f"SpliceNet co-splicing module assignments (all events & kME){scope_lbl}", "analysis_id": "programs.splicenet", "chapter": 6, "rows": len(df), "columns": list(df.columns), "source": (tbl_dir / "module_assignments_complete.tsv").relative_to(outdir).as_posix()}
-    t_base_b: dict[str, Any] = {"name": f"SpliceNet module omnibus & contrast associations (ΔME, P, BH FDR){scope_lbl}", "analysis_id": "programs.splicenet_associations", "chapter": 6, "rows": len(assoc_df), "columns": list(assoc_df.columns), "source": (tbl_dir / "module_associations_complete.tsv").relative_to(outdir).as_posix()}
-    if comparison_ids:
-        t_base_a["comparison_ids"] = comparison_ids
-        t_base_b["comparison_ids"] = comparison_ids
-    tables.append(t_base_a)
-    tables.append(t_base_b)
-    if not ora_df.empty:
-        t_base_c: dict[str, Any] = {"name": f"SpliceNet deduplicated host-gene GO & KEGG pathway enrichment{scope_lbl}", "analysis_id": "programs.splicenet_pathways", "chapter": 6, "rows": len(ora_df), "columns": list(ora_df.columns), "source": (tbl_dir / "module_go_kegg_enrichment.tsv").relative_to(outdir).as_posix()}
+    scope_cid = comparison_ids[0] if (comparison_ids and len(comparison_ids) == 1) else "all"
+    scope_meta = {
+        "scope_slug": scope_slug or "cohort",
+        "scope_title": scope_title or ("scSpliceNet — Population co-splicing network" if is_single_cell else "SpliceNet — Whole-study co-splicing network"),
+        "comparison_ids": list(comparison_ids or []),
+    }
+
+    def _net_table(name: str, analysis_id: str, df_t: pd.DataFrame, rel_path: Path) -> dict[str, Any]:
+        rec: dict[str, Any] = {
+            "name": name,
+            "analysis_id": analysis_id,
+            "chapter": 6,
+            "contrast_id": scope_cid,
+            "rows": len(df_t),
+            "columns": list(df_t.columns),
+            "source": rel_path.relative_to(outdir).as_posix(),
+            "metadata": dict(scope_meta),
+        }
         if comparison_ids:
-            t_base_c["comparison_ids"] = comparison_ids
-        tables.append(t_base_c)
+            rec["comparison_ids"] = list(comparison_ids)
+        return rec
+
+    tables.append(_net_table(f"SpliceNet co-splicing module assignments (all events & kME){scope_lbl}", "programs.splicenet", df, tbl_dir / "module_assignments_complete.tsv"))
+    tables.append(_net_table(f"SpliceNet module omnibus & contrast associations (ΔME, P, BH FDR){scope_lbl}", "programs.splicenet_associations", assoc_df, tbl_dir / "module_associations_complete.tsv"))
+    tables.append(_net_table(f"SpliceNet sample/donor module eigengene scores{scope_lbl}", "programs.splicenet_scores", scores_out, tbl_dir / "module_eigengene_scores.tsv"))
+    if not ora_df.empty:
+        tables.append(_net_table(f"SpliceNet deduplicated host-gene GO & KEGG pathway enrichment{scope_lbl}", "programs.splicenet_pathways", ora_df, tbl_dir / "module_go_kegg_enrichment.tsv"))
+
+    wrote_edges = False
+    if edges_df is not None and not edges_df.empty:
+        ed_out = edges_df.copy()
+        if "source_event" in ed_out.columns and "event_a" not in ed_out.columns:
+            ed_out["event_a"] = ed_out["source_event"].astype(str)
+        if "target_event" in ed_out.columns and "event_b" not in ed_out.columns:
+            ed_out["event_b"] = ed_out["target_event"].astype(str)
+        w_src = next((c for c in ("weight", "tom", "shrunk_r", "raw_correlation", "shrunk_correlation") if c in ed_out.columns), None)
+        if w_src and "weight" not in ed_out.columns:
+            ed_out["weight"] = pd.to_numeric(ed_out[w_src], errors="coerce")
+        if "weight" in ed_out.columns:
+            ed_out = ed_out.assign(_aw=pd.to_numeric(ed_out["weight"], errors="coerce").abs().fillna(0.0)).sort_values("_aw", ascending=False).drop(columns=["_aw"])
+        ed_out = ed_out.head(15000).reset_index(drop=True)
+        ed_pq = tbl_dir / "splicenet_edges.parquet"
+        ed_out.to_parquet(ed_pq, index=False, compression="zstd")
+        tables.append(_net_table(f"SpliceNet topological co-splicing edges{scope_lbl}", "programs.splicenet_edges", ed_out, ed_pq))
+        wrote_edges = True
 
     # Build graphs (`ALL` + per-module) with unique-gene hub deduplication
     psi_lookup = psi_events_by_units[[u for u in valid_units if u in psi_events_by_units.columns]] if not psi_events_by_units.empty else pd.DataFrame()
@@ -549,6 +582,28 @@ def build_chapter6_splicenet_suite(
             "total_nodes": int(len(df)),
             "total_edges": len(w_edges),
         }
+
+    if not wrote_edges and graphs_json:
+        seen_epairs: set[tuple[str, str]] = set()
+        fb_edges: list[dict[str, Any]] = []
+        for mk, gs in graphs_json.items():
+            g_nds = gs.get("nodes", [])
+            for ed_item in gs.get("edges", []):
+                if len(ed_item) >= 3:
+                    ia, ib = int(ed_item[0]), int(ed_item[1])
+                    if 0 <= ia < len(g_nds) and 0 <= ib < len(g_nds) and ia != ib:
+                        ea, eb = str(g_nds[ia]), str(g_nds[ib])
+                        pk = (ea, eb) if ea < eb else (eb, ea)
+                        if pk not in seen_epairs:
+                            seen_epairs.add(pk)
+                            w_v = float(ed_item[2])
+                            r_v = float(ed_item[3]) if len(ed_item) > 3 else w_v
+                            fb_edges.append({"event_a": ea, "event_b": eb, "weight": round(w_v, 4), "correlation": round(r_v, 4)})
+        if fb_edges:
+            ed_fb = pd.DataFrame(fb_edges).sort_values("weight", ascending=False).head(15000).reset_index(drop=True)
+            ed_pq = tbl_dir / "splicenet_edges.parquet"
+            ed_fb.to_parquet(ed_pq, index=False, compression="zstd")
+            tables.append(_net_table(f"SpliceNet topological co-splicing edges{scope_lbl}", "programs.splicenet_edges", ed_fb, ed_pq))
 
     # Event PSI usage trajectories for all hub nodes across `ALL` and per-module graphs
     all_hub_eids = set()

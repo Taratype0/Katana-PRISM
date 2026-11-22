@@ -58,7 +58,8 @@ def import_report(report_path, output_root, projects=None):
     # Complete tables only; figure previews and Top 10 never define the universe.
     for entry in manifest.get('complete_results', []):
         relative = entry.get('source', '')
-        identity = (relative, entry.get('contrast_id'), entry.get('analysis_id'))
+        scope_slug = str(entry.get('metadata', {}).get('scope_slug') or '')
+        identity = (relative, entry.get('contrast_id'), entry.get('analysis_id'), scope_slug)
         if identity in seen:
             continue
         seen.add(identity)
@@ -110,24 +111,27 @@ def import_report(report_path, output_root, projects=None):
         if 'row_id' in frame:
             frame['source_row_id'] = frame['row_id']
         frame['row_id'] = [f'{digest[:16]}:{i}' for i in range(len(frame))]
-        # A deduplicated source may be registered in more than one comparison.
+        # A deduplicated source may be registered in more than one comparison or network scope.
         # Bind the imported copy to that scope, rather than overwriting a prior copy.
-        import_id = hashlib.sha256(f'{digest}|{cid}|{entry.get("analysis_id")}'.encode()).hexdigest()
+        scope_slug = str(entry.get('metadata', {}).get('scope_slug') or '')
+        import_id = hashlib.sha256(f'{digest}|{cid}|{entry.get("analysis_id")}|{scope_slug}'.encode()).hexdigest()
         target = destination / 'results' / 'imported' / f'{import_id}.parquet'
         context.results.write_dataframe(frame, target)
         source_metadata = entry.get('metadata', {})
         metadata = {'source_metadata': source_metadata,
-            **{k:v for k,v in source_metadata.items() if k in {'count_mode','rmats_mode','selected_rmats_mode','das_selection'}},
+            **{k:v for k,v in source_metadata.items() if k in {'count_mode','rmats_mode','selected_rmats_mode','das_selection','scope_slug','scope_title','comparison_ids'}},
             'project_snapshot_fingerprint': context.snapshot.manifest_fingerprint,
             'source_analysis_id': entry.get('analysis_id'), 'source_report_sha256': origin,
             'source_relative_path': path.relative_to(source).as_posix(), 'source_table_sha256': digest,
             'imported_table_sha256': sha(target), 'report_hash_verified': verified,
             'completion_verification': 'report_recorded_result', 'chapter': entry.get('chapter'),
             'statistical_scope': 'Original completed result; browsing never changes its test family'}
+        comp_ids = tuple(source_metadata.get('comparison_ids') or ())
+        contrast_tuple = (cid,) if cid and cid != 'all' else comp_ids
         artifact = AnalysisArtifact(project_id=project.project_id, analysis_id='imported.report',
             name=entry.get('name', path.name), kind='table', entity_type='report_result',
             fingerprint=digest, run_fingerprint=origin, path=target, row_count=len(frame),
-            contrast_ids=(cid,) if cid and cid != 'all' else (),
+            contrast_ids=contrast_tuple,
             parameters=entry.get('parameters', {}), metadata=metadata)
         context.catalog.register_artifact(artifact)
         audit.append({'artifact_id': artifact.artifact_id, 'rows': len(frame), **metadata})

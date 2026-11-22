@@ -26,12 +26,12 @@ const baseRoutes: ApplicationRoute[] = [
   {id: "sc-manifold", label: "02.2 Single-Cell Dual Manifold & Subtypes", workspace: "landscape", parent: "patterns", chapters: [2], match: "single_cell", figure: "manifold|embedding|UMAP", assayScope: "single-cell"},
 
   // 03 · Differential Suite (PS-DAS, DEG & Isoforms — strictly sequential 03 -> 03.1 -> 03.2)
-  {id: "das", label: "03 · Differential AS · PS-DAS Volcano", workspace: "differential", match: "^differential.as$", figure: "DAS|Differential AS volcano", assayScope: "all"},
+  {id: "das", label: "03 · Differential AS · PS-DAS Volcano", workspace: "differential", match: "^differential\\.(as|sc_as)$", figure: "DAS|Differential AS volcano", assayScope: "all"},
   ...["SE", "RI", "A3SS", "A5SS", "MXE"].map(eventType => ({
     id: `event-${eventType}`,
     label: `03.${eventType} · ${eventType} Subtype Analysis`,
     workspace: "differential",
-    match: "differential.as",
+    match: "differential\\.(as|sc_as)",
     parent: "das",
     eventType,
     assayScope: "all" as const,
@@ -50,7 +50,7 @@ const baseRoutes: ApplicationRoute[] = [
   {id: "network", label: "06 · Katana-SpliceNet · Gene Network", workspace: "programs", match: "programs|splicenet", chapters: [6], assayScope: "all"},
 
   // 07 · Katana-SpliceTrace · RBP, Motif & Proteome Lab
-  {id: "motif", label: "07 · Katana-SpliceTrace · RBP & Motif Lab", workspace: "prioritize", match: "motif|mapp|rbp|binding|splicetrace|proteome", chapters: [7], figure: "SpliceTrace|11-channel|logo|NMD|domain|MAPP|CLIP|RBP|bridge", assayScope: "all"},
+  {id: "motif", label: "07 · Katana-SpliceTrace · RBP & Motif Lab", workspace: "prioritize", match: "motif|mapp|rbp|binding|splicetrace|proteome", chapters: [7], figure: "SpliceTrace|13-channel|11-channel|logo|NMD|domain|MAPP|CLIP|RBP|bridge", assayScope: "all"},
 
   // 08 · Target Scorer & 4-Track GeneCard / Sashimi
   {id: "targets", label: "08 · Target Scorer & 4-Track GeneCard", workspace: "targets", assayScope: "all"},

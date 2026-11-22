@@ -1,4 +1,4 @@
-import contract from "../../../katana_next/science/rbp_evidence_layers.json";
+import contract from "../../../packages/katana_studio/katana_next/science/rbp_evidence_layers.json";
 
 export const RBP_EVIDENCE = contract;
 export type RbpLayer = typeof contract.layers[number];

@@ -12,6 +12,7 @@ work/
 .nextflow*
 results*
 dummy_inspection_reports/
+dummy_genecard_target_report/
 
 # Node / Web
 node_modules/

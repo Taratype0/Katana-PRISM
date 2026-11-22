@@ -181,9 +181,9 @@ def create_report_router(runtime):
         except (ValueError, OSError, KeyError) as exc: raise HTTPException(422,str(exc)) from exc
 
     @router.get('/api/projects/{project_id}/report-network')
-    def network(project_id: str):
+    def network(project_id: str, comparison: str = '', scope: str = ''):
         from katana_next.services.studio_interactive import unified_network
-        try: return unified_network(runtime.projects.get(project_id))
+        try: return unified_network(runtime.projects.get(project_id), comparison=comparison, scope=scope)
         except (ValueError, OSError, KeyError) as exc: raise HTTPException(422,str(exc)) from exc
 
     @router.get('/api/projects/{project_id}/splicetrace-workbench')

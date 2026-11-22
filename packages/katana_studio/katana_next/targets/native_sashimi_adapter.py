@@ -1416,8 +1416,14 @@ class NativeSashimiAdapter:
                 label_y = (apex - 0.11) if role == "alternative" else (apex + 0.03)
             else:
                 label_y = min(0.94, apex + 0.035)
-            while any(abs(label_x - old_x) < 9.0 and abs(label_y - old_y) < 0.11 for old_x, old_y in label_positions):
-                label_y = min(0.98, label_y + 0.12)
+            for _ in range(12):
+                if not any(abs(label_x - old_x) < 9.0 and abs(label_y - old_y) < 0.11 for old_x, old_y in label_positions):
+                    break
+                if label_y + 0.12 <= 1.04:
+                    label_y += 0.12
+                else:
+                    label_y = max(0.08, label_y - 0.14)
+                    label_x += 4.5
             label_positions.append((label_x, label_y))
             ax.text(
                 label_x,
@@ -1631,8 +1637,14 @@ class NativeSashimiAdapter:
                 label_y = max(0.18, apex - 0.10)
             else:
                 label_y = min(0.98, apex + 0.040)
-            while any(abs(label_x - old_x) < 9.0 and abs(label_y - old_y) < 0.10 for old_x, old_y in label_positions):
-                label_y = min(0.98, label_y + 0.11)
+            for _ in range(12):
+                if not any(abs(label_x - old_x) < 9.0 and abs(label_y - old_y) < 0.10 for old_x, old_y in label_positions):
+                    break
+                if label_y + 0.11 <= 1.04:
+                    label_y += 0.11
+                else:
+                    label_y = max(0.08, label_y - 0.13)
+                    label_x += 4.5
             label_positions.append((label_x, label_y))
             ax.text(
                 label_x,

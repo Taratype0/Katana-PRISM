@@ -3,6 +3,7 @@ import {useQuery} from "@tanstack/react-query";
 import {api, type LiveMotifScanResult} from "../api";
 
 const REGION_ORDER = [
+  ["upstream_intron_200_500", "Up Int [-500..-200]"],
   ["upstream_intron_85_200", "Up Int [-200..-85]"],
   ["upstream_intron_35_85", "Up Int [-85..-35]"],
   ["upstream_intron_0_35", "3′SS [-35..-3]"],
@@ -13,6 +14,7 @@ const REGION_ORDER = [
   ["downstream_intron_0_35", "5′SS [+3..+35]"],
   ["downstream_intron_35_85", "Dn Int [+35..+85]"],
   ["downstream_intron_85_200", "Dn Int [+85..+200]"],
+  ["downstream_intron_200_500", "Dn Int [+200..+500]"],
   ["mature_consequence_delta", "Mature Δ(I−E)"],
 ];
 
@@ -160,7 +162,7 @@ export function SpliceTraceExplorer({
         </div>
         {data?.available && (
           <span className="mck-stat-pill">
-            {data.rbps.filter(r => (r.fwer_p ?? 1) <= 0.05).length} FWER ≤ 0.05 RBPs · {data.targets.length} |ΔPSI| ≥ 0.10 target events
+            {data.rbps.filter(r => (r.fdr_bh ?? 1) <= 0.05).length} BH FDR ≤ 0.05 · {data.rbps.filter(r => (r.fwer_p ?? 1) <= 0.05).length} FWER ≤ 0.05 RBPs · {data.targets.length} |ΔPSI| ≥ 0.10 target events
           </span>
         )}
       </div>
@@ -293,8 +295,8 @@ export function SpliceTraceExplorer({
           <div className="mck-split-grid">
             {/* Left: RBP Leaderboard */}
             <div className="mck-subcard">
-              <h4>1. Gene-Block max-T FWER Leaderboard</h4>
-              <p className="mck-hint">Click any RBP to inspect its 11-window positional RNA map, curated PWM logo, and target splicing events.</p>
+              <h4>1. Gene-Block max-T FWER &amp; BH FDR Leaderboard</h4>
+              <p className="mck-hint">Click any RBP to inspect its 13-channel positional RNA map, curated PWM logo, and target splicing events.</p>
               <div className="report-table-wrap" style={{maxHeight: 330}}>
                 <table>
                   <thead>
@@ -302,12 +304,14 @@ export function SpliceTraceExplorer({
                       <th>RBP</th>
                       <th>Peak Window</th>
                       <th className="num">Z</th>
+                      <th className="num">BH FDR</th>
                       <th className="num">FWER P</th>
                       <th className="num">Host log2FC</th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.rbps.map(r => {
+                      const isFdr = (r.fdr_bh ?? 1) <= 0.05;
                       const isSig = (r.fwer_p ?? 1) <= 0.05;
                       const active = r.rbp === rbpName;
                       return (
@@ -319,10 +323,12 @@ export function SpliceTraceExplorer({
                         >
                           <td>
                             <strong>{r.rbp}</strong>{" "}
+                            {isFdr && <span className="mck-tag mck-tag-coral">FDR</span>}{" "}
                             {isSig && <span className="mck-tag mck-tag-blue">FWER</span>}
                           </td>
                           <td><small>{r.best_region}</small></td>
                           <td className="num">{r.stat_z != null ? r.stat_z.toFixed(2) : "NA"}</td>
+                          <td className="num">{r.fdr_bh != null ? r.fdr_bh.toExponential(2) : "NA"}</td>
                           <td className="num">{r.fwer_p != null ? r.fwer_p.toExponential(2) : r.nominal_p != null ? r.nominal_p.toExponential(2) : "NA"}</td>
                           <td className="num">{r.host_deg_log2fc != null ? `${r.host_deg_log2fc >= 0 ? "+" : ""}${r.host_deg_log2fc.toFixed(2)}` : "—"}</td>
                         </tr>
@@ -333,26 +339,26 @@ export function SpliceTraceExplorer({
               </div>
             </div>
 
-            {/* Right: 11-Channel Positional RNA Map + Live PWM Sequence Logo */}
+            {/* Right: 13-Channel Positional RNA Map + Live PWM Sequence Logo */}
             <div className="mck-subcard">
-              <h4>2. Positional Splicing Map &amp; Motif Logo · {rbpName}</h4>
+              <h4>2. 13-Channel Positional Splicing Map &amp; Motif Logo · {rbpName}</h4>
               {orderedBars.some(b => b.z !== 0) ? (
-                <svg viewBox="0 0 620 205" role="img" aria-label={`11-channel positional map for ${rbpName}`} style={{width: "100%", height: "auto"}}>
-                  <line x1={48} y1={95} x2={605} y2={95} stroke="#051C2C" strokeWidth={1.1} />
-                  <line x1={48} y1={95 - (1.96 / zExtent) * 72} x2={605} y2={95 - (1.96 / zExtent) * 72} stroke="#94A3B8" strokeDasharray="4,3" strokeWidth={0.9} />
-                  <line x1={48} y1={95 + (1.96 / zExtent) * 72} x2={605} y2={95 + (1.96 / zExtent) * 72} stroke="#94A3B8" strokeDasharray="4,3" strokeWidth={0.9} />
+                <svg viewBox="0 0 700 212" role="img" aria-label={`13-channel positional map for ${rbpName}`} style={{width: "100%", height: "auto"}}>
+                  <line x1={48} y1={95} x2={685} y2={95} stroke="#051C2C" strokeWidth={1.1} />
+                  <line x1={48} y1={95 - (1.96 / zExtent) * 72} x2={685} y2={95 - (1.96 / zExtent) * 72} stroke="#94A3B8" strokeDasharray="4,3" strokeWidth={0.9} />
+                  <line x1={48} y1={95 + (1.96 / zExtent) * 72} x2={685} y2={95 + (1.96 / zExtent) * 72} stroke="#94A3B8" strokeDasharray="4,3" strokeWidth={0.9} />
                   <text x={42} y={24} textAnchor="end" fontSize={9} fill="#2251FF">+{zExtent.toFixed(1)} Z</text>
                   <text x={42} y={98} textAnchor="end" fontSize={9} fill="#64748B">0</text>
                   <text x={42} y={168} textAnchor="end" fontSize={9} fill="#B83A4B">−{zExtent.toFixed(1)} Z</text>
                   {orderedBars.map((b, i) => {
-                    const x = 58 + i * 49;
+                    const x = 56 + i * 48;
                     const barH = (Math.abs(b.z) / zExtent) * 72;
                     const y = b.z >= 0 ? 95 - barH : 95;
                     const fill = b.z >= 0 ? (Math.abs(b.z) >= 1.96 ? "#2251FF" : "#93C5FD") : (Math.abs(b.z) >= 1.96 ? "#B83A4B" : "#FDA4AF");
                     return (
                       <g key={b.key}>
-                        <rect x={x} y={y} width={32} height={Math.max(1.5, barH)} fill={fill} rx={1.5} />
-                        <text x={x + 16} y={182} textAnchor="end" fontSize={8} fill="#1E293B" transform={`rotate(-28 ${x + 16} 182)`}>
+                        <rect x={x} y={y} width={30} height={Math.max(1.5, barH)} fill={fill} rx={1.5} />
+                        <text x={x + 15} y={182} textAnchor="end" fontSize={7.8} fill="#1E293B" transform={`rotate(-28 ${x + 15} 182)`}>
                           {b.label}
                         </text>
                       </g>

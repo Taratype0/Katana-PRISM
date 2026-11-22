@@ -12,7 +12,7 @@ export function ReportExplorer({projectId, artifacts, onAdd, imported=true, even
   const priority=(a:Artifact)=>{
     const type=String(a.metadata.source_analysis_id||a.analysis_id);
     const subset=/significant|top.?10|volcano|plot.data/i.test(a.name)?5:0;
-    return (type==='differential.deg'?0:type==='differential.as'?1:type==='single_cell.differential'?2:10)+subset;
+    return (type==='differential.deg'?0:(type==='differential.as'||type==='differential.sc_as')?1:type==='single_cell.differential'?2:10)+subset;
   };
   const tables=artifacts.filter(a=>a.analysis_id==='imported.report'||(a.kind==='table'&&a.path.endsWith('.parquet'))).sort((a,b)=>priority(a)-priority(b)||Number(b.row_count||0)-Number(a.row_count||0));
   const [id,setId]=useState('');const artifact=tables.find(a=>a.artifact_id===id)||tables[0];
@@ -25,7 +25,7 @@ function ResultExplorer({projectId,artifact,tables,onTable,onAdd,imported,eventT
   const [dasMode,setDasMode]=useState<"ps"|"ordinary"|"legacy10">("ps");
   const readSupport=dasMode!=="ordinary";
   const [fdr,setFdr]=useState<string|null>(null);const [effect,setEffect]=useState<string|null>(null);
-  const [fdrMax,setFdrMax]=useState('0.05');const [effectMin,setEffectMin]=useState(/differential.as|splicing/i.test(String(artifact.metadata.source_analysis_id))?'0.1':'1');const [direction,setDirection]=useState('both');
+  const [fdrMax,setFdrMax]=useState('0.05');const [effectMin,setEffectMin]=useState(/differential\.(as|sc_as)|splicing/i.test(String(artifact.metadata.source_analysis_id))?'0.1':'1');const [direction,setDirection]=useState('both');
   const [scopes,setScopes]=useState<Record<string,string>>(eventType?{event_type:eventType}:{});const [range,setRange]=useState<PlotRange>();
   const [offset,setOffset]=useState(0);const [sort,setSort]=useState('');const [descending,setDescending]=useState(false);
   const [selected,setSelected]=useState<Record<string,Record<string,unknown>>>({});const [error,setError]=useState('');const [busy,setBusy]=useState('');

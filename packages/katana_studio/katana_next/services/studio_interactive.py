@@ -72,30 +72,116 @@ def _find_contrast_artifact(grouped: dict[str, list[Any]], analysis_id: str, com
     if not cands:
         return None
     if comparison:
-        exact = [a for a in cands if comparison in (a.contrast_ids or ())]
+        exact = [a for a in cands if comparison in (a.contrast_ids or ()) or comparison in list(a.metadata.get("comparison_ids") or [])]
         if exact:
             return max(exact, key=lambda a: a.row_count or 0)
     return max(cands, key=lambda a: a.row_count or 0)
 
 
+def _find_das_artifact(grouped: dict[str, list[Any]], comparison: str = "") -> Any | None:
+    for aid in ("differential.as", "differential.sc_as"):
+        art = _find_contrast_artifact(grouped, aid, comparison)
+        if art is not None:
+            return art
+    return None
+
+
+def _bh_fdr_vec(p_arr: pd.Series | np.ndarray) -> np.ndarray:
+    p = pd.to_numeric(p_arr, errors="coerce").fillna(1.0).to_numpy(dtype=float)
+    n = len(p)
+    if n == 0:
+        return np.array([], dtype=float)
+    order = np.argsort(p, kind="mergesort")
+    q = p[order] * n / np.arange(1, n + 1, dtype=float)
+    q = np.minimum.accumulate(q[::-1])[::-1]
+    out = np.empty(n, dtype=float)
+    out[order] = np.clip(q, 0.0, 1.0)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 1. Unified SpliceNet v2.3.2 / SC-SpliceNet v2.2.2 + Legacy CoSplice Network
 # ---------------------------------------------------------------------------
-def unified_network(context) -> dict[str, Any]:
+def unified_network(context, comparison: str = "", scope: str = "") -> dict[str, Any]:
     from scipy import stats as _sp_stats
 
     grouped = _artifacts_by_source_id(context)
     if "programs.splicenet" in grouped:
-        assign_df = _load_artifact_df(grouped["programs.splicenet"][0])
-        scores_df = _load_artifact_df(grouped["programs.splicenet_scores"][0]) if "programs.splicenet_scores" in grouped else pd.DataFrame()
-        assoc_df = _load_artifact_df(grouped["programs.splicenet_associations"][0]) if "programs.splicenet_associations" in grouped else pd.DataFrame()
-        path_df = _load_artifact_df(grouped["programs.splicenet_pathways"][0]) if "programs.splicenet_pathways" in grouped else pd.DataFrame()
-        edges_df = _load_artifact_df(grouped["programs.splicenet_edges"][0]) if "programs.splicenet_edges" in grouped else pd.DataFrame()
-        bridge_df = _load_artifact_df(grouped["prioritize.module_rbp_bridge"][0]) if "prioritize.module_rbp_bridge" in grouped else pd.DataFrame()
+        net_cands = grouped["programs.splicenet"]
+        available_scopes: list[dict[str, Any]] = []
+        seen_scopes: set[str] = set()
+        for a in net_cands:
+            s_slug = str(a.metadata.get("scope_slug") or ("cohort" if not a.contrast_ids else str(a.contrast_ids[0])))
+            if s_slug in seen_scopes:
+                continue
+            seen_scopes.add(s_slug)
+            s_title = str(a.metadata.get("scope_title") or a.name or s_slug)
+            s_cids = list(a.metadata.get("comparison_ids") or a.contrast_ids or [])
+            available_scopes.append({
+                "scope_slug": s_slug,
+                "scope_title": s_title,
+                "comparison_ids": s_cids,
+                "artifact_id": a.artifact_id,
+            })
+
+        def _pick_scoped(aid: str, target_scope: str, target_cids: list[str]) -> Any | None:
+            cands = grouped.get(aid, [])
+            if not cands:
+                return None
+            if target_scope:
+                exact_s = [a for a in cands if str(a.metadata.get("scope_slug") or ("cohort" if not a.contrast_ids else str(a.contrast_ids[0]))) == target_scope]
+                if exact_s:
+                    return exact_s[0]
+            if target_cids:
+                tset = set(target_cids)
+                by_c = [a for a in cands if tset & (set(a.metadata.get("comparison_ids") or []) | set(a.contrast_ids or ()))]
+                if by_c:
+                    return by_c[0]
+            return cands[0]
+
+        net_art = net_cands[0]
+        if scope:
+            matched_scope = [a for a in net_cands if str(a.metadata.get("scope_slug") or ("cohort" if not a.contrast_ids else str(a.contrast_ids[0]))) == scope]
+            if matched_scope:
+                net_art = matched_scope[0]
+        elif comparison:
+            matched_cmp = [a for a in net_cands if comparison in (a.metadata.get("comparison_ids") or []) or comparison in (a.contrast_ids or ())]
+            if matched_cmp:
+                net_art = matched_cmp[0]
+
+        active_scope = str(net_art.metadata.get("scope_slug") or ("cohort" if not net_art.contrast_ids else str(net_art.contrast_ids[0])))
+        active_cids = list(net_art.metadata.get("comparison_ids") or net_art.contrast_ids or [])
+
+        assign_df = _load_artifact_df(net_art)
+        scores_art = _pick_scoped("programs.splicenet_scores", active_scope, active_cids)
+        assoc_art = _pick_scoped("programs.splicenet_associations", active_scope, active_cids)
+        path_art = _pick_scoped("programs.splicenet_pathways", active_scope, active_cids)
+        edges_art = _pick_scoped("programs.splicenet_edges", active_scope, active_cids)
+        bridge_art = _pick_scoped("prioritize.module_rbp_bridge", active_scope, active_cids or ([comparison] if comparison else []))
+
+        scores_df = _load_artifact_df(scores_art) if scores_art else pd.DataFrame()
+        assoc_df = _load_artifact_df(assoc_art) if assoc_art else pd.DataFrame()
+        path_df = _load_artifact_df(path_art) if path_art else pd.DataFrame()
+        edges_df = _load_artifact_df(edges_art) if edges_art else pd.DataFrame()
+        bridge_df = _load_artifact_df(bridge_art) if bridge_art else pd.DataFrame()
+
+        # Fall back to disk TSV if programs.splicenet_scores wasn't indexed in an older REPORT.zip
+        if scores_df.empty and context.manifest.metadata.get("report_workspace"):
+            rroot = report_root(context)
+            rel_src = str(net_art.metadata.get("source_relative_path", ""))
+            cand_dir = (rroot / rel_src).parent if rel_src else (rroot / "outputs/network")
+            sc_tsv = cand_dir / "module_eigengene_scores.tsv"
+            if sc_tsv.is_file():
+                try:
+                    scores_df = pd.read_csv(sc_tsv, sep="\t")
+                except Exception:
+                    scores_df = pd.DataFrame()
 
         # Load sample/cell PSI matrix so we can compute REAL pairwise sample-PSI correlations & sample trajectories!
         samples_meta = [{"sample_id": s.sample_id, "condition": s.condition} for s in context.manifest.samples]
         s_ids = [s["sample_id"] for s in samples_meta]
+        cond_by_sid = {s["sample_id"]: s["condition"] for s in samples_meta}
+        cond_by_bio = {str(s.biological_sample_id): s.condition for s in context.manifest.samples if s.biological_sample_id}
         psi_lookup_df = pd.DataFrame()
         if "single_cell.psi_matrix" in grouped:
             sc_p = _load_artifact_df(grouped["single_cell.psi_matrix"][0])
@@ -104,7 +190,6 @@ def unified_network(context) -> dict[str, Any]:
             if valid_sc:
                 psi_lookup_df = sc_p.set_index(ec_p)[valid_sc].apply(pd.to_numeric, errors="coerce")
         elif context.manifest.metadata.get("report_workspace"):
-            from .report_presentation import report_root
             rroot = report_root(context)
             slp_files = sorted((rroot / "outputs").rglob("*sample_level_psi*.parquet"))
             if slp_files:
@@ -210,41 +295,50 @@ def unified_network(context) -> dict[str, Any]:
                     if m_lbl not in mod_top_pathway:
                         mod_top_pathway[m_lbl] = (raw_term, qv)
 
-        # 3. Parse Upstream RBP Motif Bridge cleanly (compute exact Binomial P & BH FDR if table only has hits/fold_enrichment!)
+        # 3. Parse Upstream RBP Motif Bridge cleanly (supports Katana-PRISM stat_Z / nominal_P / FDR / FWER + legacy fold_enrichment)
         bridge_out = []
         if not bridge_df.empty:
             mc_b = next((c for c in ("module", "module_id") if c in bridge_df.columns), bridge_df.columns[0])
             rc_b = next((c for c in ("RBP", "rbp") if c in bridge_df.columns), None)
+            zc_b = next((c for c in ("stat_Z", "bridge_Z", "z_score") if c in bridge_df.columns), None)
             fc_b = next((c for c in ("fold_enrichment", "fe", "odds_ratio") if c in bridge_df.columns), None)
-            pc_b = next((c for c in ("bridge_P_FWER", "rbp_P_FWER", "fwer_p", "p_fwer", "p_value", "pvalue") if c in bridge_df.columns), None)
+            pc_b = next((c for c in ("nominal_P", "p_value", "pvalue", "bridge_P_FWER", "module_P_FWER", "rbp_P_FWER") if c in bridge_df.columns), None)
+            qc_b = next((c for c in ("module_FDR_BH", "fdr_bh", "FDR_BH", "q_BH") if c in bridge_df.columns), None)
+            fw_b = next((c for c in ("module_P_FWER", "study_P_FWER", "bridge_P_FWER", "rbp_P_FWER") if c in bridge_df.columns), None)
             if rc_b:
                 tmp_b = []
                 for _, br in bridge_df.iterrows():
                     m_raw = str(br[mc_b])
                     m_lbl = m_raw if m_raw.startswith("M") else f"M{m_raw}"
-                    fe_v = float(pd.to_numeric(br.get(fc_b, 1.5), errors="coerce") or 1.0) if fc_b else 1.5
-                    if fe_v < 1.15:
-                        continue
-                    if pc_b and pd.notna(br.get(pc_b)):
-                        pv_b = float(pd.to_numeric(br[pc_b], errors="coerce") or 1.0)
-                    elif {"hits", "module_evaluated"}.issubset(bridge_df.columns):
+                    z_v = _safe_float(br.get(zc_b)) if zc_b else None
+                    fe_v = _safe_float(br.get(fc_b)) if fc_b else (round(max(1.0, abs(z_v) * 0.5), 3) if z_v is not None else None)
+                    pv_b = _safe_float(br.get(pc_b)) if pc_b else None
+                    if pv_b is None and {"hits", "module_evaluated"}.issubset(bridge_df.columns) and fe_v is not None:
                         k_h = int(pd.to_numeric(br["hits"], errors="coerce") or 0)
                         n_ev = max(1, int(pd.to_numeric(br["module_evaluated"], errors="coerce") or 1))
                         p0 = min(0.95, max(1e-4, (k_h / n_ev) / max(1.01, fe_v)))
                         pv_b = float(_sp_stats.binomtest(k_h, n_ev, p0, alternative="greater").pvalue) if k_h >= 5 else 1.0
-                    else:
-                        pv_b = 1.0
-                    if pv_b <= 0.05:
-                        tmp_b.append({
-                            "module": m_lbl,
-                            "rbp": str(br[rc_b]),
-                            "core_motif": str(br.get("core_motif", "")),
-                            "hits": int(pd.to_numeric(br.get("hits", 0), errors="coerce") or 0),
-                            "fold_enrichment": round(fe_v, 3),
-                            "p_value": round(pv_b, 6),
-                        })
-                tmp_b.sort(key=lambda x: (x["p_value"], -x["fold_enrichment"]))
-                bridge_out = tmp_b
+                    pv_b = 1.0 if pv_b is None else pv_b
+                    qv_b = _safe_float(br.get(qc_b)) if qc_b else None
+                    fw_v = _safe_float(br.get(fw_b)) if fw_b else None
+                    hits_v = int(pd.to_numeric(br.get("hits", br.get("module_events", 0)), errors="coerce") or 0)
+                    tmp_b.append({
+                        "module": m_lbl,
+                        "rbp": str(br[rc_b]),
+                        "best_region": str(br.get("best_region", "") or ""),
+                        "kme_direction": str(br.get("kme_direction", "") or ""),
+                        "core_motif": str(br.get("core_motif", "") or ""),
+                        "hits": hits_v,
+                        "stat_z": round(z_v, 3) if z_v is not None else None,
+                        "fold_enrichment": round(fe_v, 3) if fe_v is not None else None,
+                        "p_value": round(pv_b, 6),
+                        "fdr_bh": round(qv_b, 6) if qv_b is not None else None,
+                        "fwer_p": round(fw_v, 6) if fw_v is not None else None,
+                    })
+                sig_b = [x for x in tmp_b if x["p_value"] <= 0.05]
+                chosen_b = sig_b if len(sig_b) >= 3 else tmp_b
+                chosen_b.sort(key=lambda x: (x["p_value"], -(abs(x["stat_z"] or 0.0)), -(x["fold_enrichment"] or 0.0)))
+                bridge_out = chosen_b[:40]
 
         def _compute_real_edges(node_eids: list[str], fallback_kmes: np.ndarray, min_abs_r: float = 0.62, max_edges: int = 110) -> list[list[float]]:
             """Compute REAL pairwise sample-PSI correlations r_ij across hub nodes (keeping sign in 4th slot!)."""
@@ -254,13 +348,16 @@ def unified_network(context) -> dict[str, Any]:
             node_idx = {nid: idx for idx, nid in enumerate(node_eids)}
             out_edges: list[list[float]] = []
 
-            # 1) Explicit saved topological edges if available (e.g. single-cell TOM edges)
-            if not edges_df.empty and {"event_a", "event_b"}.issubset(edges_df.columns):
-                w_c = next((c for c in ("weight", "tom", "shrunk_r") if c in edges_df.columns), None)
-                sub_e = edges_df[edges_df["event_a"].isin(node_idx) & edges_df["event_b"].isin(node_idx)].head(max_edges)
+            # 1) Explicit saved topological edges if available (supports both event_a/b and source_event/target_event)
+            ea_c = next((c for c in ("event_a", "source_event") if c in edges_df.columns), None)
+            eb_c = next((c for c in ("event_b", "target_event") if c in edges_df.columns), None)
+            if not edges_df.empty and ea_c and eb_c:
+                w_c = next((c for c in ("weight", "tom", "shrunk_r", "raw_correlation", "shrunk_correlation") if c in edges_df.columns), None)
+                sub_e = edges_df[edges_df[ea_c].astype(str).isin(node_idx) & edges_df[eb_c].astype(str).isin(node_idx)].head(max_edges)
                 for _, er in sub_e.iterrows():
-                    w_v = float(pd.to_numeric(er[w_c], errors="coerce") or 0.5) if w_c else 0.5
-                    out_edges.append([node_idx[str(er["event_a"])], node_idx[str(er["event_b"])], round(min(1.0, abs(w_v)), 4), round(w_v, 4)])
+                    w_v = _safe_float(er[w_c]) if w_c else 0.5
+                    w_v = 0.5 if w_v is None else w_v
+                    out_edges.append([node_idx[str(er[ea_c])], node_idx[str(er[eb_c])], round(min(1.0, abs(w_v)), 4), round(w_v, 4)])
                 if len(out_edges) >= max(4, n_nodes // 2):
                     return out_edges
 
@@ -433,6 +530,7 @@ def unified_network(context) -> dict[str, Any]:
             }
 
         scores_out = []
+        samples_for_scores = samples_meta
         if not scores_df.empty:
             sid_c = next((c for c in ("sample_id", "cell_id", "Unnamed: 0") if c in scores_df.columns), scores_df.columns[0])
             for _, sr in scores_df.iterrows():
@@ -443,23 +541,34 @@ def unified_network(context) -> dict[str, Any]:
                     key = c if str(c).startswith("M") else f"M{c}"
                     rec[key] = _safe_float(sr[c])
                 scores_out.append(rec)
+            score_sids = {r["sample_id"] for r in scores_out}
+            if score_sids and not (score_sids & set(s_ids)):
+                # Pseudobulk unit scores in single-cell SpliceNet: derive matching samples metadata
+                samples_for_scores = []
+                for sc_id in [r["sample_id"] for r in scores_out]:
+                    base_id = sc_id.split("__", 1)[0]
+                    cond_guess = cond_by_sid.get(sc_id) or cond_by_bio.get(sc_id) or cond_by_bio.get(base_id) or base_id
+                    samples_for_scores.append({"sample_id": sc_id, "condition": cond_guess})
 
         is_sc = context.manifest.metadata.get("assay_mode") == "single-cell"
         return {
             "available": True,
             "v2_mode": True,
             "engine": "Katana-SC-SpliceNet v2.2.2" if is_sc else "SpliceNet 1.0.0",
+            "active_scope": active_scope,
+            "available_scopes": available_scopes,
+            "comparison_id": comparison or (active_cids[0] if active_cids else ""),
             "manifest": {
                 "discovery_scope": (
                     "Single-cell Hybrid-Manifold ExcessBioVar + Kish effective-N Empirical-Bayes Fisher-z shrunk Signed TOM"
                     if is_sc else
                     "Whole-study unsupervised co-splicing module discovery (Adaptive Scale-Free Signed TOM across all biological samples)"
                 ),
-                "biological_units": len({s.biological_sample_id for s in context.manifest.samples}) if is_sc else len(samples_meta),
+                "biological_units": len(samples_for_scores) if is_sc else len(samples_meta),
                 "scope_warning": "Modules are discovered unsupervised across all samples once; statistical P-values and BH FDRs test each module's eigengene shift across experimental conditions.",
             },
             "modules": modules_list,
-            "samples": samples_meta,
+            "samples": samples_for_scores,
             "scores": scores_out,
             "members": _clean_records(df[["module_norm", "gene_symbol", "gene_id", "event_type", "event_key", "kME", "abs_kME", "within_module_weight"]].rename(columns={"module_norm": "module"})),
             "genes": genes_rows,
@@ -616,13 +725,32 @@ def splicetrace_workbench(context, comparison: str = "") -> dict[str, Any]:
     rk_df = _load_artifact_df(rk_art)
     reg_art = _find_contrast_artifact(grouped, "prioritize.splicetrace_regions", cid)
     reg_df = _load_artifact_df(reg_art) if reg_art else pd.DataFrame()
+    if reg_df.empty:
+        reg_map_art = _find_contrast_artifact(grouped, "prioritize.splicetrace_region_map", cid)
+        if reg_map_art is not None:
+            rmap = _load_artifact_df(reg_map_art)
+            if not rmap.empty:
+                rc_m = next((c for c in ("RBP", "rbp") if c in rmap.columns), rmap.columns[0])
+                ignore_c = {rc_m, "min_FWER", "min_FDR_BH", "min_nominal_P", "row_id", "comparison_id"}
+                melted_rows = []
+                for _, rr in rmap.iterrows():
+                    rname_m = str(rr[rc_m])
+                    for col_m in rmap.columns:
+                        if col_m in ignore_c:
+                            continue
+                        zv_m = _safe_float(rr[col_m])
+                        if zv_m is not None:
+                            melted_rows.append({"RBP": rname_m, "region": str(col_m), "stat_Z": zv_m, "nominal_P": 1.0})
+                if melted_rows:
+                    reg_df = pd.DataFrame(melted_rows)
     prot_art = _find_contrast_artifact(grouped, "prioritize.proteome_consequences", cid)
     prot_df = _load_artifact_df(prot_art) if prot_art else pd.DataFrame()
-    tgt_art = _find_contrast_artifact(grouped, "prioritize.splicetrace_targets", cid)
+    tgt_art = _find_contrast_artifact(grouped, "prioritize.splicetrace_targets", cid) or _find_contrast_artifact(grouped, "prioritize.motif_consequences", cid)
     tgt_df = _load_artifact_df(tgt_art) if tgt_art else pd.DataFrame()
     deg_art = _find_contrast_artifact(grouped, "differential.deg", cid)
     deg_df = _load_artifact_df(deg_art) if deg_art else pd.DataFrame()
-    bridge_df = _load_artifact_df(grouped["prioritize.module_rbp_bridge"][0]) if "prioritize.module_rbp_bridge" in grouped else pd.DataFrame()
+    bridge_art = _find_contrast_artifact(grouped, "prioritize.module_rbp_bridge", cid)
+    bridge_df = _load_artifact_df(bridge_art) if bridge_art else pd.DataFrame()
 
     # Host RBP DEG lookup (case-insensitive symbol)
     deg_sym_map: dict[str, tuple[float | None, float | None]] = {}
@@ -637,13 +765,20 @@ def splicetrace_workbench(context, comparison: str = "") -> dict[str, Any]:
                     deg_sym_map[sym_u] = (_safe_float(r[fc]), _safe_float(r[qc]) if qc else None)
 
     rbp_col = next((c for c in ("RBP", "rbp", "gene_symbol") if c in rk_df.columns), rk_df.columns[0])
-    fwer_col = next((c for c in ("rbp_P_FWER", "fwer_p", "P_FWER") if c in rk_df.columns), None)
-    nom_col = next((c for c in ("nominal_P", "p_value", "pvalue") if c in rk_df.columns), None)
+    fwer_col = next((c for c in ("rbp_P_FWER", "fwer_p", "P_FWER", "regional_fwer_p") if c in rk_df.columns), None)
+    fdr_col = next((c for c in ("rbp_FDR_BH", "FDR_BH", "fdr_bh", "q_BH", "fdr") if c in rk_df.columns), None)
+    nom_col = next((c for c in ("nominal_P", "raw_P", "p_value", "pvalue") if c in rk_df.columns), None)
     z_col = next((c for c in ("stat_Z", "gene_block_Z", "max_Z", "z_score") if c in rk_df.columns), None)
     breg_col = next((c for c in ("best_region", "top_region", "region") if c in rk_df.columns), None)
 
+    rk_work = rk_df.copy()
+    if fdr_col is None and nom_col:
+        rk_work["_computed_fdr_bh"] = _bh_fdr_vec(rk_work[nom_col])
+        fdr_col = "_computed_fdr_bh"
+
+    sort_rk = fdr_col or nom_col or fwer_col or rk_work.columns[0]
     rbps_out = []
-    for _, r in rk_df.sort_values(fwer_col or nom_col or rk_df.columns[0]).head(60).iterrows():
+    for _, r in rk_work.sort_values(sort_rk).head(60).iterrows():
         rname = str(r[rbp_col])
         r_up = rname.upper()
         h_fc, h_q = deg_sym_map.get(r_up, (_safe_float(r.get("rbp_log2fc", r.get("rbp_expr_z"))), None))
@@ -653,19 +788,22 @@ def splicetrace_workbench(context, comparison: str = "") -> dict[str, Any]:
             "best_region": str(r[breg_col]) if breg_col and pd.notna(r[breg_col]) else "positional_scan",
             "stat_z": _safe_float(r[z_col]) if z_col else None,
             "nominal_p": _safe_float(r[nom_col]) if nom_col else None,
+            "fdr_bh": _safe_float(r[fdr_col]) if fdr_col else None,
             "fwer_p": _safe_float(r[fwer_col]) if fwer_col else None,
             "host_deg_log2fc": h_fc,
             "host_deg_fdr": h_q,
             "pwm": pwm_info,
         })
 
-    # 11-channel profiles per RBP
+    # 13-channel profiles per RBP
     regions_map: dict[str, list[dict[str, Any]]] = {}
     if not reg_df.empty:
         rc = next((c for c in ("RBP", "rbp") if c in reg_df.columns), None)
         rgc = next((c for c in ("region", "window", "channel") if c in reg_df.columns), None)
         zc = next((c for c in ("stat_Z", "z_score", "enrichment_Z") if c in reg_df.columns), None)
         pc = next((c for c in ("nominal_P", "pvalue", "p_value") if c in reg_df.columns), None)
+        qbc = next((c for c in ("region_FDR_BH", "rbp_FDR_BH", "fdr_bh", "FDR_BH") if c in reg_df.columns), None)
+        fwc = next((c for c in ("region_P_FWER", "regional_P_FWER", "fwer_p", "P_FWER") if c in reg_df.columns), None)
         if rc and rgc:
             for rname, grp in reg_df.groupby(rc):
                 regions_map[str(rname)] = [
@@ -673,6 +811,8 @@ def splicetrace_workbench(context, comparison: str = "") -> dict[str, Any]:
                         "region": str(gr[rgc]),
                         "stat_z": _safe_float(gr[zc]) if zc else 0.0,
                         "nominal_p": _safe_float(gr[pc]) if pc else 1.0,
+                        "fdr_bh": _safe_float(gr[qbc]) if qbc else None,
+                        "fwer_p": _safe_float(gr[fwc]) if fwc else None,
                     }
                     for _, gr in grp.iterrows()
                 ]
@@ -723,7 +863,7 @@ def quadrant_data(context, comparison: str = "") -> dict[str, Any]:
     grouped = _artifacts_by_source_id(context)
     cid = comparison or (context.manifest.contrasts[0].contrast_id if context.manifest.contrasts else "")
     deg_art = _find_contrast_artifact(grouped, "differential.deg", cid)
-    das_art = _find_contrast_artifact(grouped, "differential.as", cid)
+    das_art = _find_das_artifact(grouped, cid)
     if deg_art is None or das_art is None:
         return {"comparison_id": cid, "rows": []}
 
@@ -745,8 +885,8 @@ def quadrant_data(context, comparison: str = "") -> dict[str, Any]:
     g_das = next((c for c in ("gene_id", "GeneID") if c in das_df.columns), das_df.columns[0])
     s_das = next((c for c in ("gene_symbol", "gene_name", "geneSymbol") if c in das_df.columns), g_das)
     e_das = next((c for c in ("event_id", "ID") if c in das_df.columns), g_das)
-    dpsi_c = next((c for c in ("dpsi", "IncLevelDifference", "delta_psi") if c in das_df.columns), None)
-    q_das = next((c for c in ("FDR", "fdr", "padj") if c in das_df.columns), None)
+    dpsi_c = next((c for c in ("dpsi", "IncLevelDifference", "delta_psi", "raw_dpsi") if c in das_df.columns), None)
+    q_das = next((c for c in ("FDR", "fdr", "padj", "pvalue", "p_value") if c in das_df.columns), None)
     if not fc_col or not dpsi_c:
         return {"comparison_id": cid, "rows": []}
 
@@ -809,8 +949,8 @@ def contrast_rescue_filter(
     rs_only: bool = True,
 ) -> dict[str, Any]:
     grouped = _artifacts_by_source_id(context)
-    art_a = _find_contrast_artifact(grouped, "differential.as", contrast_a)
-    art_b = _find_contrast_artifact(grouped, "differential.as", contrast_b)
+    art_a = _find_das_artifact(grouped, contrast_a)
+    art_b = _find_das_artifact(grouped, contrast_b)
     if art_a is None or art_b is None:
         return {"rows": [], "total": 0}
 
@@ -822,8 +962,8 @@ def contrast_rescue_filter(
         df_b = df_b[df_b["comparison_id"].astype(str) == contrast_b]
 
     ec = next((c for c in ("event_id", "ID") if c in df_a.columns and c in df_b.columns), None)
-    dc = next((c for c in ("dpsi", "IncLevelDifference") if c in df_a.columns and c in df_b.columns), None)
-    qc = next((c for c in ("FDR", "fdr", "padj") if c in df_a.columns and c in df_b.columns), None)
+    dc = next((c for c in ("dpsi", "IncLevelDifference", "delta_psi", "raw_dpsi") if c in df_a.columns and c in df_b.columns), None)
+    qc = next((c for c in ("FDR", "fdr", "padj", "pvalue", "p_value") if c in df_a.columns and c in df_b.columns), None)
     gc = next((c for c in ("gene_id", "GeneID") if c in df_a.columns), None)
     sc = next((c for c in ("gene_symbol", "gene_name", "geneSymbol") if c in df_a.columns), gc)
     etc = "event_type" if "event_type" in df_a.columns else None
@@ -897,6 +1037,24 @@ def single_cell_manifold(context, feature: str = "") -> dict[str, Any]:
     if emb_art is None:
         return {"available": False, "cells": []}
     emb = _load_artifact_df(emb_art).copy()
+    if "cell_id" not in emb.columns and "sample_id" in emb.columns:
+        emb["cell_id"] = emb["sample_id"].astype(str)
+    if "activation_arm" not in emb.columns and "condition" in emb.columns:
+        emb["activation_arm"] = emb["condition"].astype(str)
+    if "expr_PC1" not in emb.columns and "expr_UMAP1" in emb.columns:
+        emb["expr_PC1"] = emb["expr_UMAP1"]
+    if "expr_PC2" not in emb.columns and "expr_UMAP2" in emb.columns:
+        emb["expr_PC2"] = emb["expr_UMAP2"]
+    if "psi_PC1" not in emb.columns:
+        px_c = next((c for c in ("psi_UMAP1", "PC1", "umap_1") if c in emb.columns), None)
+        emb["psi_PC1"] = emb[px_c] if px_c else 0.0
+    if "psi_PC2" not in emb.columns:
+        py_c = next((c for c in ("psi_UMAP2", "PC2", "umap_2") if c in emb.columns), None)
+        emb["psi_PC2"] = emb[py_c] if py_c else 0.0
+    if "expr_PC1" not in emb.columns:
+        emb["expr_PC1"] = emb["psi_PC1"]
+    if "expr_PC2" not in emb.columns:
+        emb["expr_PC2"] = emb["psi_PC2"]
     feature_values: dict[str, float | None] = {}
     feature_label = ""
 
@@ -959,11 +1117,11 @@ def genecard_preview(
 ) -> dict[str, Any]:
     grouped = _artifacts_by_source_id(context)
     cid = comparison or (context.manifest.contrasts[0].contrast_id if context.manifest.contrasts else "")
-    das_art = _find_contrast_artifact(grouped, "differential.as", cid)
+    das_art = _find_das_artifact(grouped, cid)
     deg_art = _find_contrast_artifact(grouped, "differential.deg", cid)
     dtu_art = _find_contrast_artifact(grouped, "differential.dtu", cid)
     prot_art = _find_contrast_artifact(grouped, "prioritize.proteome_consequences", cid)
-    tgt_art = _find_contrast_artifact(grouped, "prioritize.splicetrace_targets", cid)
+    tgt_art = _find_contrast_artifact(grouped, "prioritize.splicetrace_targets", cid) or _find_contrast_artifact(grouped, "prioritize.motif_consequences", cid)
 
     das_df = _load_artifact_df(das_art) if das_art else pd.DataFrame()
     deg_df = _load_artifact_df(deg_art) if deg_art else pd.DataFrame()
@@ -1082,9 +1240,30 @@ def genecard_preview(
                 "baseMean": _safe_float(dr.get("baseMean")),
             }
 
-    # Per-sample RNA expression from report's normalised_counts.tsv or single_cell.expression_matrix
+    # Per-sample RNA expression from catalog expression.normalised_counts, normalised_counts.tsv, or single_cell.expression_matrix
     expr_samples: list[dict[str, Any]] = []
-    if context.manifest.metadata.get("report_workspace"):
+    if "expression.normalised_counts" in grouped:
+        nc_df = _load_artifact_df(grouped["expression.normalised_counts"][0])
+        if not nc_df.empty:
+            gid_c_n = next((c for c in ("gene_id", "GeneID", "id") if c in nc_df.columns), nc_df.columns[0])
+            sym_c_n = next((c for c in ("gene_symbol", "gene_name") if c in nc_df.columns), None)
+            hit_n = nc_df[nc_df[gid_c_n].map(_norm_gene) == target_gid]
+            if hit_n.empty and sym_c_n:
+                hit_n = nc_df[nc_df[sym_c_n].astype(str).str.upper() == target_sym.upper()]
+            if not hit_n.empty:
+                r_n = hit_n.iloc[0]
+                for col_name in nc_df.columns:
+                    if col_name in samples_by_id:
+                        val = _safe_float(r_n[col_name])
+                        if val is not None:
+                            expr_samples.append({
+                                "sample_id": col_name,
+                                "condition": samples_by_id[col_name].condition,
+                                "arm": num_label if col_name in num_ids else (den_label if col_name in den_ids else samples_by_id[col_name].condition),
+                                "value": round(val, 2),
+                                "unit": "Normalized counts",
+                            })
+    if not expr_samples and context.manifest.metadata.get("report_workspace"):
         rroot = report_root(context)
         norm_files = list((rroot / "outputs").rglob("*normalised_counts*.tsv"))
         if norm_files:
@@ -1113,6 +1292,8 @@ def genecard_preview(
     if not expr_samples and "single_cell.expression_matrix" in grouped:
         exp_df = _load_artifact_df(grouped["single_cell.expression_matrix"][0])
         mcol = next((c for c in exp_df.columns if str(c).upper() == target_sym.upper()), None)
+        if mcol is None and target_gid:
+            mcol = next((c for c in exp_df.columns if _norm_gene(c).upper() == target_gid.upper()), None)
         if mcol:
             for _, er in exp_df.iterrows():
                 sid = str(er["cell_id"])
@@ -1295,8 +1476,8 @@ def genecard_preview(
             for _, mr in hit_t.iterrows():
                 rc_m = next((c for c in ("rbp_list", "rbps", "RBP", "top_rbps") if c in tgt_df.columns), None)
                 raw_rbps = re.sub(r"[\[\]'\"]", "", str(mr[rc_m] or "")).strip() if rc_m else ""
-                delta_s = _safe_float(mr.get("delta_motif_score", mr.get("mature_delta_score", mr.get("score_diff"))))
-                reg_lbl = str(mr.get("region", mr.get("motif_location", "Alternative exon / ±200 nt flank")))
+                delta_s = _safe_float(mr.get("delta_motif_score", mr.get("mature_delta_score", mr.get("delta_sequence_opportunity", mr.get("score_diff")))))
+                reg_lbl = str(mr.get("region", mr.get("motif_location", mr.get("instance_state", "Alternative exon / ±200 nt flank"))))
                 if raw_rbps and raw_rbps.lower() not in ("none", "nan"):
                     for rbp_name in [x.strip() for x in re.split(r"[,;|]", raw_rbps) if x.strip()]:
                         key = (rbp_name.upper(), reg_lbl)

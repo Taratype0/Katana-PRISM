@@ -776,27 +776,52 @@ def run_bulk(
     render_biological_design_panel(samples_list, out, panels, is_single_cell=False)
     render_bulk_sequencing_qc_panel(bundle_path, samples_list, out, panels, tables)
 
+    cov_candidates = []
+    if multiqc is not None and Path(multiqc).exists():
+        cov_candidates.append(Path(multiqc))
+    if bundle_path is not None:
+        for sub_q in ("rnaseq/multiqc", "rnaseq/auxiliary/qualimap_genebody", "qc/qualimap_genebody", "qc"):
+            cand_q = bundle_path / sub_q
+            if cand_q.exists() and cand_q not in cov_candidates:
+                cov_candidates.append(cand_q)
+
+    from katana_next.reports.multiqc_coverage import parse_multiqc_5to3_coverage, render_editorial_5to3_figure
+    cov = None
+    cov_src_dir = None
+    for cand_q in cov_candidates:
+        cov = parse_multiqc_5to3_coverage(cand_q, {s["sample_id"]: s["condition"] for s in samples_list})
+        if cov is not None and "curves" in cov:
+            cov_src_dir = cand_q
+            break
+    if cov is not None and "curves" in cov:
+        cov_png = out / "figures/qc/multiqc-5to3-coverage.png"
+        cov_tsv = out / "outputs/qc/multiqc-5to3-coverage-plot-data.tsv"
+        cov_png.parent.mkdir(parents=True, exist_ok=True)
+        cov_tsv.parent.mkdir(parents=True, exist_ok=True)
+        cov["curves"].to_csv(cov_tsv, sep="\t", index=False)
+        render_editorial_5to3_figure(cov, cov_png, cov_png.with_suffix(".svg"), title=f"Transcript 5′ → 3′ Gene-Body Coverage — {study_name}")
+        panels.append({
+            "id": "qc-multiqc-5to3",
+            "chapter": 1,
+            "contrast_id": "all",
+            "title": f"5′ → 3′ transcript coverage uniformity ({cov.get('provenance_source', 'MultiQC')})",
+            "caption": "Directly reused from MultiQC / Qualimap saved raw curves without slow BAM re-scanning.",
+            "image": cov_png.relative_to(out).as_posix(),
+            "svg": cov_png.with_suffix(".svg").relative_to(out).as_posix(),
+            "data_links": [{"role": "plot_data", "label": "Coverage curves (TSV)", "path": cov_tsv.relative_to(out).as_posix(), "unit": "percentile_bin", "contrast_id": "all", "policy": None}],
+        })
+        tables.append({
+            "name": "Transcript 5′ → 3′ gene-body coverage curves",
+            "analysis_id": "quality.read_coverage_bias",
+            "chapter": 1,
+            "contrast_id": "all",
+            "rows": len(cov["curves"]),
+            "columns": list(cov["curves"].columns),
+            "source": cov_tsv.relative_to(out).as_posix(),
+        })
+
     if multiqc is not None and Path(multiqc).exists():
         mqc_path = Path(multiqc)
-        from katana_next.reports.multiqc_coverage import parse_multiqc_5to3_coverage, render_editorial_5to3_figure
-        cov = parse_multiqc_5to3_coverage(mqc_path, {s["sample_id"]: s["condition"] for s in samples_list})
-        if cov is not None and "curves" in cov:
-            cov_png = out / "figures/qc/multiqc-5to3-coverage.png"
-            cov_tsv = out / "outputs/qc/multiqc-5to3-coverage-plot-data.tsv"
-            cov_png.parent.mkdir(parents=True, exist_ok=True)
-            cov_tsv.parent.mkdir(parents=True, exist_ok=True)
-            cov["curves"].to_csv(cov_tsv, sep="\t", index=False)
-            render_editorial_5to3_figure(cov, cov_png, cov_png.with_suffix(".svg"), title=f"Transcript 5′ → 3′ Gene-Body Coverage — {study_name}")
-            panels.append({
-                "id": "qc-multiqc-5to3",
-                "chapter": 1,
-                "contrast_id": "all",
-                "title": f"5′ → 3′ transcript coverage uniformity ({cov.get('provenance_source', 'MultiQC')})",
-                "caption": "Directly reused from MultiQC / Qualimap saved raw curves without slow BAM re-scanning.",
-                "image": cov_png.relative_to(out).as_posix(),
-                "svg": cov_png.with_suffix(".svg").relative_to(out).as_posix(),
-                "data_links": [{"role": "plot_data", "label": "Coverage curves (TSV)", "path": cov_tsv.relative_to(out).as_posix(), "unit": "percentile_bin", "contrast_id": "all", "policy": None}],
-            })
         mqc_html = next((p for p in (mqc_path / "multiqc_report.html", *sorted(mqc_path.rglob("multiqc_report.html"))) if p.is_file()), None) if mqc_path.is_dir() else None
         if mqc_html is not None:
             dst_mqc = out / "outputs/qc/multiqc_report.html"
@@ -806,6 +831,7 @@ def run_bulk(
                 "name": "Native MultiQC sequencing & alignment report",
                 "analysis_id": "quality.multiqc_html",
                 "chapter": 1,
+                "contrast_id": "all",
                 "rows": len(samples_list),
                 "source": dst_mqc.relative_to(out).as_posix(),
                 "view": dst_mqc.relative_to(out).as_posix(),
@@ -902,6 +928,7 @@ def run_bulk(
             "name": f"DAS complete table ({cid})",
             "analysis_id": "differential.as",
             "chapter": 3,
+            "contrast_id": cid,
             "rows": len(qc_df),
             "columns": list(qc_df.columns),
             "source": das_pq.relative_to(out).as_posix(),
@@ -981,6 +1008,7 @@ def run_bulk(
                         "name": f"GO & KEGG ORA complete table ({cid})",
                         "analysis_id": "prioritize.enrichment",
                         "chapter": 5,
+                        "contrast_id": cid,
                         "rows": len(ora_df),
                         "columns": list(ora_df.columns),
                         "source": ora_tsv.relative_to(out).as_posix(),
@@ -1009,8 +1037,67 @@ def run_bulk(
         if gid_k and gs_k and not gs_k.startswith("ENS"):
             gene_sym_map.setdefault(gid_k, gs_k)
 
+    # Export portable Bulk normalized expression counts for Studio Track 1 GeneCard & Target requests
+    norm_counts_f = next((p for p in (
+        (bundle_path / "DEG/all.normalised_counts.tsv") if bundle_path else None,
+        (bundle_path / "differential/deg/all.normalised_counts.tsv") if bundle_path else None,
+        (Path(deseq2) / "all.normalised_counts.tsv") if isinstance(deseq2, (str, Path)) and Path(deseq2).is_dir() else None,
+    ) if p is not None and p.is_file()), None)
+    if norm_counts_f is not None:
+        try:
+            ndf_raw = _safe_read_csv(norm_counts_f, sep="\t")
+            if not ndf_raw.empty:
+                gid_nc = next((c for c in ("gene_id", "GeneID", "id") if c in ndf_raw.columns), ndf_raw.columns[0])
+                sym_nc = next((c for c in ("gene_symbol", "gene_name") if c in ndf_raw.columns), None)
+                sample_cols_n = [c for c in ndf_raw.columns if c not in {gid_nc, sym_nc, "gene_id", "gene_symbol", "gene_name", "id"}]
+                if sample_cols_n:
+                    exp_out_df = pd.DataFrame({
+                        "gene_id": ndf_raw[gid_nc].astype(str).map(lambda g: g.split(".")[0]),
+                        "gene_symbol": (
+                            ndf_raw[sym_nc].astype(str)
+                            if sym_nc else ndf_raw[gid_nc].astype(str).map(lambda g: gene_sym_map.get(g.split(".")[0], g))
+                        ),
+                    })
+                    for sc_n in sample_cols_n:
+                        exp_out_df[sc_n] = pd.to_numeric(ndf_raw[sc_n], errors="coerce").astype("float32")
+                    exp_dir = out / "outputs/expression"
+                    exp_dir.mkdir(parents=True, exist_ok=True)
+                    exp_pq = exp_dir / "all.normalised_counts.parquet"
+                    exp_out_df.to_parquet(exp_pq, index=False, compression="zstd")
+                    tables.append({
+                        "name": "DESeq2 normalized host-gene expression matrix",
+                        "analysis_id": "expression.normalised_counts",
+                        "chapter": 3,
+                        "contrast_id": "all",
+                        "rows": len(exp_out_df),
+                        "columns": list(exp_out_df.columns),
+                        "source": exp_pq.relative_to(out).as_posix(),
+                    })
+        except Exception:
+            pass
+    elif expr_mat is not None and not expr_mat.empty:
+        exp_dir = out / "outputs/expression"
+        exp_dir.mkdir(parents=True, exist_ok=True)
+        rev_sym = {v.upper(): k for k, v in gene_sym_map.items()}
+        exp_out_df = expr_mat.copy()
+        for sc_n in exp_out_df.columns:
+            exp_out_df[sc_n] = pd.to_numeric(exp_out_df[sc_n], errors="coerce").astype("float32")
+        exp_out_df.insert(0, "gene_symbol", exp_out_df.index.astype(str))
+        exp_out_df.insert(0, "gene_id", [rev_sym.get(str(s).upper(), str(s)) for s in exp_out_df.index])
+        exp_pq = exp_dir / "all.normalised_counts.parquet"
+        exp_out_df.reset_index(drop=True).to_parquet(exp_pq, index=False, compression="zstd")
+        tables.append({
+            "name": "Normalized host-gene expression matrix",
+            "analysis_id": "expression.normalised_counts",
+            "chapter": 3,
+            "contrast_id": "all",
+            "rows": len(exp_out_df),
+            "columns": list(exp_out_df.columns),
+            "source": exp_pq.relative_to(out).as_posix(),
+        })
+
     # Chapter 04 Cross-Comparison Overlaps, Exact Multi-Comparison Intersections & Direction Concordance
-    render_ch4_cross_comparison_suite(das_by_contrast, contrasts_list, out, panels)
+    render_ch4_cross_comparison_suite(das_by_contrast, contrasts_list, out, panels, tables=tables)
 
     # Chapter 02: Sample-level PSI matrix + Interactive `PSI_MATRIX.html` + Replicate Consistency + Clustermap/PCA
     all_sids = [s["sample_id"] for s in samples_list]
@@ -1110,7 +1197,7 @@ def run_bulk(
         if (sn_in_dir / "module_scores.tsv").is_file():
             _sn_s = _safe_read_csv(sn_in_dir / "module_scores.tsv", sep="\t", index_col=0)
             sn_scores_df = _sn_s if not _sn_s.empty else None
-        sn_edges_path = next((p for p in (sn_in_dir / "wgcna_fit/network_edges.tsv", sn_in_dir / "network_edges.tsv") if p.is_file()), None)
+        sn_edges_path = next((p for p in (sn_in_dir / "wgcna_fit/network_edges.tsv", sn_in_dir / "network_edges.tsv", sn_in_dir / "splicenet_edges.tsv") if p.is_file()), None)
         if sn_edges_path is not None:
             _sn_e = _safe_read_csv(sn_edges_path, sep="\t")
             sn_edges_df = _sn_e if not _sn_e.empty else None
@@ -1135,7 +1222,7 @@ def run_bulk(
                 sn_scores_df, _, _, _ = score_modules(selected_sn, sn_members_df)
                 sn_mod_tsv_for_bridge = sn_fit_dir / "module_assignments.tsv"
                 sn_members_df.to_csv(sn_mod_tsv_for_bridge, sep="\t", index=False)
-                sn_edges_path = next((p for p in ((sn_fit_dir / "wgcna_fit/network_edges.tsv"),) if p.is_file()), None)
+                sn_edges_path = next((p for p in (sn_fit_dir / "wgcna_fit/network_edges.tsv", sn_fit_dir / "network_edges.tsv", sn_fit_dir / "splicenet_edges.tsv") if p.is_file()), None)
                 if sn_edges_path is not None:
                     _sn_ef = _safe_read_csv(sn_edges_path, sep="\t")
                     sn_edges_df = _sn_ef if not _sn_ef.empty else None
@@ -1144,7 +1231,11 @@ def run_bulk(
 
     # Chapter 07: Ingest precomputed Nextflow `SpliceTrace` dirs OR run standalone `SpliceTrace`
     st_map = _resolve_splicetrace_dirs(splicetrace_dirs, contrasts_list)
-    norm_counts_f = bundle_path / "DEG/all.normalised_counts.tsv" if (bundle_path and (bundle_path / "DEG/all.normalised_counts.tsv").is_file()) else None
+    norm_counts_f = next((p for p in (
+        (bundle_path / "DEG/all.normalised_counts.tsv") if bundle_path else None,
+        (bundle_path / "differential/deg/all.normalised_counts.tsv") if bundle_path else None,
+        (Path(deseq2) / "all.normalised_counts.tsv") if isinstance(deseq2, (str, Path)) and Path(deseq2).is_dir() else None,
+    ) if p is not None and p.is_file()), None)
     prot_by_contrast: dict[str, pd.DataFrame] = {}
     conseq_by_contrast: dict[str, pd.DataFrame] = {}
     bridge_frames: list[pd.DataFrame] = []
@@ -1384,6 +1475,10 @@ def run_single_cell(
             "donor_id": str(r[donor_c]).strip() if donor_c and pd.notna(r[donor_c]) and str(r[donor_c]).strip() else "D1",
             "cell_type": str(r[ct_c]).strip(),
             "activation_state": str(r[cond_c]).strip(),
+            "attributes": {
+                "cell_type": str(r[ct_c]).strip(),
+                "donor_id": str(r[donor_c]).strip() if donor_c and pd.notna(r[donor_c]) and str(r[donor_c]).strip() else "D1",
+            },
         }
         for _, r in cell_df.iterrows()
     ]
@@ -1488,6 +1583,7 @@ def run_single_cell(
         if sub_frames:
             ev_df = pd.concat(sub_frames, ignore_index=True)
 
+    all_sc_sids = [s["sample_id"] for s in samples_list]
     contrasts_list = []
     for cid_v in list(dict.fromkeys(ev_df[cmp_col].astype(str))):
         if cid_v in subtype_cell_sets:
@@ -1497,13 +1593,19 @@ def run_single_cell(
             parts = tail.split("_vs_", 1) if "_vs_" in tail else [tail, "Baseline"]
             n_lbl, d_lbl = parts[0], parts[1]
             pop_prefix = cid_v.split("__")[0] if "__" in cid_v else None
-            n_ids = [s["sample_id"] for s in samples_list if s["condition"] == n_lbl and (pop_prefix is None or s["cell_type"] == pop_prefix)] or [s["sample_id"] for s in samples_list if s["condition"] == n_lbl] or [samples_list[0]["sample_id"]]
-            d_ids = [s["sample_id"] for s in samples_list if s["condition"] == d_lbl and (pop_prefix is None or s["cell_type"] == pop_prefix)] or [s["sample_id"] for s in samples_list if s["condition"] == d_lbl] or [samples_list[-1]["sample_id"]]
+            n_ids = [s["sample_id"] for s in samples_list if s["condition"] == n_lbl and (pop_prefix is None or s["cell_type"] == pop_prefix)] or [s["sample_id"] for s in samples_list if s["condition"] == n_lbl]
+            d_ids = [s["sample_id"] for s in samples_list if s["condition"] == d_lbl and (pop_prefix is None or s["cell_type"] == pop_prefix)] or [s["sample_id"] for s in samples_list if s["condition"] == d_lbl]
+        n_set = set(n_ids)
+        d_ids = [x for x in d_ids if x not in n_set]
+        if (not n_ids or not d_ids) and len(all_sc_sids) >= 2:
+            mid_sc = max(1, len(all_sc_sids) // 2)
+            n_ids = n_ids or [x for x in all_sc_sids[:mid_sc] if x not in set(d_ids)] or [all_sc_sids[0]]
+            d_ids = [x for x in (d_ids or all_sc_sids[mid_sc:]) if x not in set(n_ids)] or [x for x in all_sc_sids if x not in set(n_ids)][:1]
         contrasts_list.append({
             "contrast_id": cid_v,
             "label": cid_v.replace("__", " · ").replace("_vs_", " vs "),
-            "numerator": {"label": n_lbl, "sample_ids": n_ids},
-            "denominator": {"label": d_lbl, "sample_ids": d_ids},
+            "numerator": {"label": n_lbl, "sample_ids": list(dict.fromkeys(n_ids))},
+            "denominator": {"label": d_lbl, "sample_ids": list(dict.fromkeys(d_ids))},
         })
 
     # Orient optional single-cell matrices to `(features × cells)`
@@ -1567,10 +1669,12 @@ def run_single_cell(
     # Chapter 02: SpliceManifold Precomputed OR On-the-Fly Landscape (Dual UMAP Δ_kNN, PERMANOVA PCA, Clustermap)
     sm_dir = Path(splicemanifold_dir) if (splicemanifold_dir and str(splicemanifold_dir) != "NO_SPLICEMANIFOLD" and Path(splicemanifold_dir).is_dir()) else None
     ingested_sm = False
+    sc_emb_raw_df: pd.DataFrame | None = None
     if sm_dir is not None and (sm_dir / "sc_cell_manifold_coordinates.tsv").is_file():
         sm_coord_dst = out / "outputs/landscape/sc_cell_manifold_coordinates.tsv"
         sm_coord_dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(sm_dir / "sc_cell_manifold_coordinates.tsv", sm_coord_dst)
+        sc_emb_raw_df = _safe_read_csv(sm_coord_dst, sep="\t")
         sm_rec = json.loads((sm_dir / "run_receipt.json").read_text(encoding="utf-8")) if (sm_dir / "run_receipt.json").is_file() else {}
         for stem, pid, ptitle, pcap in [
             ("sc_dual_psi_umap", "sc-dual-psi-umap", f"Procrustes Precision-Kernel Event-PSI UMAP vs Expression UMAP (Donor LISI = {sm_rec.get('median_donor_lisi', 0.0):.2f})", "Three-panel single-cell manifold comparing gene expression UMAP, Binomial Fisher-precision weighted Event-PSI UMAP, and per-cell modality divergence Δ_kNN."),
@@ -1638,6 +1742,7 @@ def run_single_cell(
             expr_cells_rows = expr_df.T if (expr_df is not None and not expr_df.empty) else p_df.T.fillna(0.5)
             dual = compute_dual_expression_vs_psi_umap(expr_cells_rows, psi_land, k_neighbors=min(10, max(3, len(s_ids_sc) // 3)))
             if dual.get("cells"):
+                sc_emb_raw_df = pd.DataFrame(dual["cells"])
                 umap_png = out / "figures/landscape/sc-dual-psi-umap.png"
                 umap_png.parent.mkdir(parents=True, exist_ok=True)
                 render_editorial_dual_psi_umap(dual, umap_png, umap_png.with_suffix(".svg"))
@@ -1654,12 +1759,20 @@ def run_single_cell(
     # Chapter 03: Single-Cell Differential Splicing (`DAS`) + Donor-Pseudobulk `DEG` + Chapter 04 Overlap + Chapter 05 ORA
     res_dir = out / "outputs/results"
     res_dir.mkdir(parents=True, exist_ok=True)
+    if cmp_col != "comparison_id" and "comparison_id" not in ev_df.columns:
+        ev_df["comparison_id"] = ev_df[cmp_col].astype(str)
+    if "passes_read_support" not in ev_df.columns:
+        dpsi_tmp_c = next((c for c in ("dpsi", "delta_psi", "raw_dpsi", "effect") if c in ev_df.columns), None)
+        elig_ok = ev_df["eligible"].astype(str).str.lower().isin({"true", "1"}) if "eligible" in ev_df.columns else pd.Series(True, index=ev_df.index)
+        dpsi_ok = pd.to_numeric(ev_df[dpsi_tmp_c], errors="coerce").notna() if dpsi_tmp_c else pd.Series(True, index=ev_df.index)
+        ev_df["passes_read_support"] = (elig_ok & dpsi_ok).astype(bool)
     ev_pq = res_dir / "sc_differential_splicing.parquet"
-    ev_df.to_parquet(ev_pq, index=False)
+    ev_df.to_parquet(ev_pq, index=False, compression="zstd")
     tables.append({
         "name": "Single-cell donor-aware differential splicing events",
         "analysis_id": "differential.sc_as",
         "chapter": 3,
+        "contrast_id": "all",
         "rows": len(ev_df),
         "columns": list(ev_df.columns),
         "source": ev_pq.relative_to(out).as_posix(),
@@ -1766,6 +1879,7 @@ def run_single_cell(
                         "name": f"Single-cell GO & KEGG ORA complete table ({cid})",
                         "analysis_id": "prioritize.enrichment",
                         "chapter": 5,
+                        "contrast_id": cid,
                         "rows": len(ora_sc),
                         "columns": list(ora_sc.columns),
                         "source": ora_tsv.relative_to(out).as_posix(),
@@ -1797,6 +1911,7 @@ def run_single_cell(
             out,
             panels,
             policies=(("common", "report_rs_das", "Single-Cell DAS"),),
+            tables=tables,
         )
 
     # Chapter 07: scSpliceTrace Positional Splicing Map + PWM Logos + Module-RBP Bridge + 5 NMD/UniProt Plots!
@@ -2026,6 +2141,164 @@ def run_single_cell(
                         gs_v = str(getattr(r_g, "gene_symbol", ek_v))
                         sc_splicenet_meta["event_to_module"].setdefault(ek_v, m_g)
                         sc_splicenet_meta["gene_to_module"].setdefault(gs_v, m_g)
+
+    # Export compact single-cell manifold embedding & compact PSI / expression matrices for Studio interactive explorers
+    if sc_emb_raw_df is not None and not sc_emb_raw_df.empty:
+        emb_out = sc_emb_raw_df.copy()
+        id_src_c = next((c for c in ("cell_id", "sample_id") if c in emb_out.columns), emb_out.columns[0])
+        emb_out["cell_id"] = emb_out[id_src_c].astype(str)
+        emb_out["sample_id"] = emb_out["cell_id"]
+        if "condition" not in emb_out.columns:
+            cond_by_cell = {s["sample_id"]: s["condition"] for s in samples_list}
+            emb_out["condition"] = emb_out["cell_id"].map(lambda x: cond_by_cell.get(x, ""))
+        if "activation_arm" not in emb_out.columns:
+            emb_out["activation_arm"] = emb_out["condition"].astype(str)
+        if "donor_id" not in emb_out.columns:
+            donor_by_cell = {s["sample_id"]: s.get("donor_id", s["biological_sample_id"]) for s in samples_list}
+            emb_out["donor_id"] = emb_out["cell_id"].map(lambda x: donor_by_cell.get(x, "D1"))
+        if "cell_type" not in emb_out.columns:
+            ct_by_cell = {s["sample_id"]: s.get("cell_type", s["condition"]) for s in samples_list}
+            emb_out["cell_type"] = emb_out["cell_id"].map(lambda x: ct_by_cell.get(x, ""))
+        if "expr_UMAP1" in emb_out.columns and "expr_PC1" not in emb_out.columns:
+            emb_out["expr_PC1"] = pd.to_numeric(emb_out["expr_UMAP1"], errors="coerce")
+        if "expr_UMAP2" in emb_out.columns and "expr_PC2" not in emb_out.columns:
+            emb_out["expr_PC2"] = pd.to_numeric(emb_out["expr_UMAP2"], errors="coerce")
+        if "psi_PC1" not in emb_out.columns:
+            src_px = next((c for c in ("psi_UMAP1", "PC1", "umap_1") if c in emb_out.columns), None)
+            emb_out["psi_PC1"] = pd.to_numeric(emb_out[src_px], errors="coerce") if src_px else 0.0
+        if "psi_PC2" not in emb_out.columns:
+            src_py = next((c for c in ("psi_UMAP2", "PC2", "umap_2") if c in emb_out.columns), None)
+            emb_out["psi_PC2"] = pd.to_numeric(emb_out[src_py], errors="coerce") if src_py else 0.0
+        if "expr_PC1" not in emb_out.columns:
+            emb_out["expr_PC1"] = emb_out["psi_PC1"]
+        if "expr_PC2" not in emb_out.columns:
+            emb_out["expr_PC2"] = emb_out["psi_PC2"]
+        # Attach module eigengene score columns if root/population scores exist on disk
+        scores_tsv_cand = next(iter(sorted((out / "outputs/network").rglob("module_eigengene_scores.tsv"))), None)
+        if scores_tsv_cand is not None and scores_tsv_cand.is_file():
+            try:
+                ms_df = _safe_read_csv(scores_tsv_cand, sep="\t")
+                if not ms_df.empty and "sample_id" in ms_df.columns:
+                    mod_cols = [c for c in ms_df.columns if str(c).startswith("M") and str(c) != "module"]
+                    if mod_cols:
+                        ms_map = ms_df.set_index(ms_df["sample_id"].astype(str))
+                        # Direct cell_id match OR donor_id match
+                        for mc_n in mod_cols:
+                            cell_vals = emb_out["cell_id"].map(ms_map[mc_n])
+                            if cell_vals.isna().all():
+                                cell_vals = emb_out["donor_id"].map(ms_map[mc_n])
+                            if not cell_vals.isna().all():
+                                emb_out[f"module_{mc_n}"] = pd.to_numeric(cell_vals, errors="coerce").astype("float32")
+            except Exception:
+                pass
+        emb_pq = out / "outputs/landscape/sc_cell_embedding.parquet"
+        emb_pq.parent.mkdir(parents=True, exist_ok=True)
+        emb_out.to_parquet(emb_pq, index=False, compression="zstd")
+        tables.append({
+            "name": f"Single-cell manifold embedding & metadata ({len(emb_out):,} cells)",
+            "analysis_id": "single_cell.cell_embedding",
+            "chapter": 2,
+            "contrast_id": "all",
+            "rows": len(emb_out),
+            "columns": list(emb_out.columns),
+            "source": emb_pq.relative_to(out).as_posix(),
+        })
+
+    if p_df is not None and not p_df.empty:
+        valid_cell_cols = [s["sample_id"] for s in samples_list if s["sample_id"] in p_df.columns]
+        if valid_cell_cols:
+            priority_eids: list[str] = []
+            seen_pe: set[str] = set()
+            for df_sub in sc_das_by_contrast.values():
+                if "event_id" in df_sub.columns:
+                    sub_sig_ids = df_sub.loc[df_sub["_sig"].astype(bool), "event_id"].astype(str).tolist() if "_sig" in df_sub.columns else []
+                    for eid_x in sub_sig_ids:
+                        if eid_x in p_df.index and eid_x not in seen_pe:
+                            seen_pe.add(eid_x); priority_eids.append(eid_x)
+            for eid_x in sc_splicenet_meta.get("event_to_module", {}):
+                if eid_x in p_df.index and eid_x not in seen_pe:
+                    seen_pe.add(eid_x); priority_eids.append(eid_x)
+            if len(priority_eids) < 2500:
+                p_num = p_df[valid_cell_cols].apply(pd.to_numeric, errors="coerce")
+                ev_var = p_num.var(axis=1, skipna=True).fillna(-1.0).sort_values(ascending=False)
+                for eid_x in ev_var.index.astype(str):
+                    if eid_x not in seen_pe:
+                        seen_pe.add(eid_x); priority_eids.append(eid_x)
+                        if len(priority_eids) >= 2500:
+                            break
+            else:
+                p_num = p_df[valid_cell_cols].apply(pd.to_numeric, errors="coerce")
+            priority_eids = priority_eids[:2500]
+            if priority_eids:
+                psi_compact = p_num.reindex(priority_eids).astype("float32")
+                psi_compact.insert(0, "event_id", psi_compact.index.astype(str))
+                psi_sc_pq = out / "outputs/matrices/sc_psi_matrix.parquet"
+                psi_sc_pq.parent.mkdir(parents=True, exist_ok=True)
+                psi_compact.reset_index(drop=True).to_parquet(psi_sc_pq, index=False, compression="zstd")
+                tables.append({
+                    "name": f"Single-cell event PSI matrix (top {len(psi_compact):,} events × {len(valid_cell_cols):,} cells)",
+                    "analysis_id": "single_cell.psi_matrix",
+                    "chapter": 2,
+                    "contrast_id": "all",
+                    "rows": len(psi_compact),
+                    "columns": list(psi_compact.columns),
+                    "source": psi_sc_pq.relative_to(out).as_posix(),
+                })
+
+    if expr_df is not None and not expr_df.empty:
+        valid_cell_cols_e = [s["sample_id"] for s in samples_list if s["sample_id"] in expr_df.columns]
+        if valid_cell_cols_e:
+            raw_idx_to_sym: dict[str, str] = {}
+            used_syms: set[str] = set()
+            for raw_g in expr_df.index.astype(str):
+                sym_g = gene_sym_map_sc.get(raw_g, gene_sym_map_sc.get(raw_g.split(".")[0], raw_g))
+                if sym_g in used_syms:
+                    sym_g = f"{sym_g}__{raw_g}"
+                used_syms.add(sym_g)
+                raw_idx_to_sym[raw_g] = sym_g
+            priority_raw_g: list[str] = []
+            seen_pg: set[str] = set()
+            sym_to_raw = {v.upper(): k for k, v in raw_idx_to_sym.items()}
+            wanted_syms: list[str] = []
+            for d_sub in sc_deg_by_contrast.values():
+                if "_sig" in d_sub.columns and "gene_symbol" in d_sub.columns:
+                    wanted_syms.extend(d_sub.loc[d_sub["_sig"].astype(bool), "gene_symbol"].astype(str).tolist())
+            for das_sub in sc_das_by_contrast.values():
+                if "gene_symbol" in das_sub.columns:
+                    sub_g = das_sub.loc[das_sub["_sig"].astype(bool), "gene_symbol"].astype(str).tolist() if "_sig" in das_sub.columns else das_sub["gene_symbol"].astype(str).head(150).tolist()
+                    wanted_syms.extend(sub_g)
+            wanted_syms.extend(sc_splicenet_meta.get("gene_to_module", {}).keys())
+            for gs_w in wanted_syms:
+                raw_hit = sym_to_raw.get(str(gs_w).upper()) or (str(gs_w) if str(gs_w) in expr_df.index else None)
+                if raw_hit and raw_hit not in seen_pg:
+                    seen_pg.add(raw_hit); priority_raw_g.append(raw_hit)
+                    if len(priority_raw_g) >= 500:
+                        break
+            e_num = expr_df[valid_cell_cols_e].apply(pd.to_numeric, errors="coerce")
+            if len(priority_raw_g) < 700:
+                g_var = e_num.var(axis=1, skipna=True).fillna(-1.0).sort_values(ascending=False)
+                for rg_x in g_var.index.astype(str):
+                    if rg_x not in seen_pg:
+                        seen_pg.add(rg_x); priority_raw_g.append(rg_x)
+                        if len(priority_raw_g) >= 700:
+                            break
+            priority_raw_g = priority_raw_g[:700]
+            if priority_raw_g:
+                exp_t = e_num.reindex(priority_raw_g).T.astype("float32")
+                exp_t.columns = [raw_idx_to_sym.get(str(c), str(c)) for c in exp_t.columns]
+                exp_t.insert(0, "cell_id", exp_t.index.astype(str))
+                exp_sc_pq = out / "outputs/matrices/sc_expression_matrix.parquet"
+                exp_sc_pq.parent.mkdir(parents=True, exist_ok=True)
+                exp_t.reset_index(drop=True).to_parquet(exp_sc_pq, index=False, compression="zstd")
+                tables.append({
+                    "name": f"Single-cell host & RBP expression matrix ({len(exp_t):,} cells × {len(priority_raw_g):,} genes)",
+                    "analysis_id": "single_cell.expression_matrix",
+                    "chapter": 2,
+                    "contrast_id": "all",
+                    "rows": len(exp_t),
+                    "columns": list(exp_t.columns),
+                    "source": exp_sc_pq.relative_to(out).as_posix(),
+                })
 
     # Chapter 08: Convergent Target Scorecard + Self-Contained Interactive Candidate Gene Finder & Katana Native Sashimi 4-Track Workbench!
     interactive_blocks_sc: list[dict[str, Any]] = []
