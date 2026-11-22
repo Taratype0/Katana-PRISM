@@ -59,6 +59,18 @@ def _safe_slug(val: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", str(val)).strip("-")[:120] or "item"
 
 
+def _safe_read_csv(path: Path | None, *, sep: str = "\t", **kwargs: Any) -> pd.DataFrame:
+    """Read a TSV/CSV defensively, returning an empty DataFrame for missing, 0-byte, or headerless files."""
+    if path is None or not Path(path).is_file():
+        return pd.DataFrame()
+    try:
+        if Path(path).stat().st_size == 0:
+            return pd.DataFrame()
+        return pd.read_csv(path, sep=sep, **kwargs)
+    except (pd.errors.EmptyDataError, FileNotFoundError, OSError):
+        return pd.DataFrame()
+
+
 def compute_2d_embedding(X: np.ndarray, n_neighbors: int = 15, seed: int = 17) -> np.ndarray:
     n = X.shape[0]
     if n < 5:
@@ -391,8 +403,8 @@ def render_deg_das_decoupling_quadrant(
     merged = g_work.merge(d_gene, on="gene_symbol", how="outer")
     merged["log2fc"] = pd.to_numeric(merged["log2fc"], errors="coerce").fillna(0.0).clip(-8.0, 8.0)
     merged["max_dpsi"] = pd.to_numeric(merged["max_dpsi"], errors="coerce").fillna(0.0).clip(-1.0, 1.0)
-    merged["sig_deg"] = merged["sig_deg"].fillna(False).astype(bool)
-    merged["sig_das"] = merged["sig_das"].fillna(False).astype(bool)
+    merged["sig_deg"] = merged["sig_deg"].astype("boolean").fillna(False).astype(bool)
+    merged["sig_das"] = merged["sig_das"].astype("boolean").fillna(False).astype(bool)
 
     dual_m = merged["sig_deg"] & merged["sig_das"]
     das_only_m = (~merged["sig_deg"]) & merged["sig_das"]
@@ -830,8 +842,8 @@ def ingest_bulk_multilayer_deg_dtu_dexseq(
                 gene_sym_map.setdefault(gid.split(".")[0], gsym)
                 gene_sym_map.setdefault(gid, gsym)
     if bundle_dir and (bundle_dir / "refs/annotation.tsv").is_file():
-        try:
-            ann = pd.read_csv(bundle_dir / "refs/annotation.tsv", sep="\t")
+        ann = _safe_read_csv(bundle_dir / "refs/annotation.tsv", sep="\t")
+        if not ann.empty:
             gc = next((c for c in ("gene_id", "ensembl_gene_id") if c in ann.columns), None)
             sc = next((c for c in ("gene_name", "gene_symbol", "symbol") if c in ann.columns), None)
             if gc and sc:
@@ -839,8 +851,6 @@ def ingest_bulk_multilayer_deg_dtu_dexseq(
                     if gsym and gsym != "nan":
                         gene_sym_map.setdefault(gid.split(".")[0], gsym)
                         gene_sym_map.setdefault(gid, gsym)
-        except Exception:
-            pass
 
     def _map_sym(gid_raw: str) -> str:
         g_clean = str(gid_raw or "").strip().strip('"')
@@ -853,12 +863,13 @@ def ingest_bulk_multilayer_deg_dtu_dexseq(
     ) if p is not None and p.is_file()), None)
     if norm_f is not None:
         try:
-            ndf = pd.read_csv(norm_f, sep="\t")
-            gc_n = next((c for c in ("gene_symbol", "gene_name", "gene_id", "id") if c in ndf.columns), ndf.columns[0])
-            num_cols = [c for c in ndf.columns if c not in ("gene_id", "gene_symbol", "gene_name", "id")]
-            if num_cols:
-                expr_mat = ndf.set_index(ndf[gc_n].astype(str).map(lambda g: gene_sym_map.get(g.split(".")[0], g)))[num_cols].apply(pd.to_numeric, errors="coerce")
-                expr_mat = expr_mat[~expr_mat.index.duplicated(keep="first")]
+            ndf = _safe_read_csv(norm_f, sep="\t")
+            if not ndf.empty:
+                gc_n = next((c for c in ("gene_symbol", "gene_name", "gene_id", "id") if c in ndf.columns), ndf.columns[0])
+                num_cols = [c for c in ndf.columns if c not in ("gene_id", "gene_symbol", "gene_name", "id")]
+                if num_cols:
+                    expr_mat = ndf.set_index(ndf[gc_n].astype(str).map(lambda g: gene_sym_map.get(g.split(".")[0], g)))[num_cols].apply(pd.to_numeric, errors="coerce")
+                    expr_mat = expr_mat[~expr_mat.index.duplicated(keep="first")]
         except Exception:
             expr_mat = None
 
@@ -884,7 +895,7 @@ def ingest_bulk_multilayer_deg_dtu_dexseq(
                         break
         if deg_f is not None:
             sep = "," if deg_f.suffix.lower() == ".csv" else "\t"
-            raw_g = pd.read_csv(deg_f, sep=sep)
+            raw_g = _safe_read_csv(deg_f, sep=sep)
             if not raw_g.empty:
                 gid_c = next((c for c in ("gene_id", "GeneID", "id", "row") if c in raw_g.columns), raw_g.columns[0])
                 sym_c = next((c for c in ("gene_symbol", "gene_name", "symbol") if c in raw_g.columns), None)
@@ -934,7 +945,7 @@ def ingest_bulk_multilayer_deg_dtu_dexseq(
             sup_f = next((p for p in sup_candidates if p.is_file()), None)
             if sup_f is not None:
                 try:
-                    raw_s = pd.read_csv(sup_f, sep="\t")
+                    raw_s = _safe_read_csv(sup_f, sep="\t")
                     if not raw_s.empty:
                         # Handle native SUPPA2 implicit-index `.dpsi` (2 header columns, 3 tab fields per row -> event ID lands in index!)
                         if (not isinstance(raw_s.index, pd.RangeIndex)) or (
@@ -981,7 +992,7 @@ def ingest_bulk_multilayer_deg_dtu_dexseq(
             dex_f = next((p for p in dex_candidates if p.is_file()), None)
             if dex_f is not None:
                 try:
-                    raw_x = pd.read_csv(dex_f, sep="," if dex_f.suffix.lower() == ".csv" else "\t")
+                    raw_x = _safe_read_csv(dex_f, sep="," if dex_f.suffix.lower() == ".csv" else "\t")
                     if not raw_x.empty:
                         grp_c = next((c for c in ("groupID", "gene_id", "geneID") if c in raw_x.columns), raw_x.columns[0])
                         feat_c = next((c for c in ("featureID", "exon_id", "exon") if c in raw_x.columns), None)
@@ -1031,7 +1042,7 @@ def ingest_bulk_multilayer_deg_dtu_dexseq(
             dtu_f = next((p for p in dtu_candidates if p.is_file()), None)
             if dtu_f is not None:
                 try:
-                    raw_t = pd.read_csv(dtu_f, sep="," if dtu_f.suffix.lower() == ".csv" else "\t")
+                    raw_t = _safe_read_csv(dtu_f, sep="," if dtu_f.suffix.lower() == ".csv" else "\t")
                     if not raw_t.empty:
                         gid_c = next((c for c in ("geneID", "groupID", "gene_id", "GeneID") if c in raw_t.columns), raw_t.columns[0])
                         tx_c = next((c for c in ("txID", "transcript_id", "featureID", "feature_id") if c in raw_t.columns), None)
@@ -1309,7 +1320,7 @@ def render_ch6_complete_network_suite(
 
     norm_edges_p = None
     if edges_path is not None and Path(edges_path).is_file():
-        ed = pd.read_csv(edges_path, sep="\t")
+        ed = _safe_read_csv(edges_path, sep="\t")
         if not ed.empty:
             ca = next((c for c in ("event_a", "source", "from", "event_1") if c in ed.columns), ed.columns[0])
             cb = next((c for c in ("event_b", "target", "to", "event_2") if c in ed.columns), ed.columns[1])
@@ -1619,7 +1630,7 @@ def render_ch7_splicetrace_suite(
     reg_f = next((p for p in (st_dir / "region_tests.tsv", st_dir / "scsplicetrace_region_tests.tsv", *sorted(st_dir.glob("*region_tests*.tsv"))) if p.is_file()), None)
     if reg_f is not None:
         try:
-            reg_df = pd.read_csv(reg_f, sep="\t")
+            reg_df = _safe_read_csv(reg_f, sep="\t")
             rbp_rc = next((c for c in ("RBP", "mouse_symbol", "symbol", "rbp") if c in reg_df.columns), None)
             ch_rc = next((c for c in ("region", "channel", "window") if c in reg_df.columns), None)
             z_rc = next((c for c in ("stat_Z", "paired_rank_Z", "z_score", "Z") if c in reg_df.columns), None)
@@ -1707,7 +1718,7 @@ def render_ch7_splicetrace_suite(
 
     rk_f = next((p for p in (st_dir / "rbp_ranking.tsv", st_dir / "scsplicetrace_rbp_ranking.tsv", *sorted(st_dir.glob("*ranking*.tsv"))) if p.is_file()), None)
     if rk_f is not None:
-        rk_df = pd.read_csv(rk_f, sep="\t")
+        rk_df = _safe_read_csv(rk_f, sep="\t")
         if not rk_df.empty:
             rk_pq = st_out / "splicetrace_rbp_ranking.parquet"
             rk_df.to_parquet(rk_pq, index=False)
@@ -1782,7 +1793,7 @@ def render_ch7_splicetrace_suite(
     conseq_f = next((p for p in (st_dir / "motif_consequence_changes.tsv", st_dir / "scsplicetrace_mature_consequences.tsv", *sorted(st_dir.glob("*motif_consequence*.tsv")), *sorted(st_dir.glob("*mature_consequences*.tsv"))) if p.is_file()), None)
     if conseq_f is not None:
         try:
-            cdf = pd.read_csv(conseq_f, sep="\t")
+            cdf = _safe_read_csv(conseq_f, sep="\t")
             if not cdf.empty:
                 conseq_df_out = cdf
                 c_pq = st_out / "motif_consequence_changes.parquet"
@@ -1801,7 +1812,7 @@ def render_ch7_splicetrace_suite(
     # 3. Module-to-RBP Regulatory Bridge
     br_f = next((p for p in (st_dir / "module_rbp_bridge.tsv", st_dir / "sc_module_rbp_bridge.tsv") if p.is_file()), None)
     if br_f is not None:
-        br_df = pd.read_csv(br_f, sep="\t")
+        br_df = _safe_read_csv(br_f, sep="\t")
         if not br_df.empty:
             br_df_out = br_df
             br_pq = st_out / "module_rbp_bridge.parquet"
@@ -1835,7 +1846,7 @@ def render_ch7_splicetrace_suite(
     # 4. 5-Style Mature-mRNA 50-nt EJC NMD & UniProt Proteome Figures (supports both Bulk `style1..5` & SC `sc_style1..5`)
     prot_f = next((p for p in (st_dir / "protein_and_nmd_consequences.tsv", st_dir / "sc_protein_and_nmd_consequences.tsv", *sorted(st_dir.glob("*consequences*.tsv"))) if p.is_file() and "motif" not in p.name and "mature" not in p.name), None)
     if prot_f is not None:
-        prot_df = pd.read_csv(prot_f, sep="\t")
+        prot_df = _safe_read_csv(prot_f, sep="\t")
         if not prot_df.empty:
             prot_df_out = prot_df
             prot_pq = st_out / "protein_and_nmd_consequences.parquet"
@@ -1887,20 +1898,21 @@ def render_bulk_sequencing_qc_panel(
 
     if strand_f.is_file():
         try:
-            sdf = pd.read_csv(strand_f, sep="\t")
-            sc = next((c for c in ("sample", "sample_id", "id") if c in sdf.columns), sdf.columns[0])
-            fc = next((c for c in ("forward_fraction", "sense_fraction", "frac_1++,1--,2+-,2-+") if c in sdf.columns), None)
-            rc = next((c for c in ("reverse_fraction", "antisense_fraction", "frac_1+-,1-+,2++,2--") if c in sdf.columns), None)
-            dc = next((c for c in ("resolved_strandedness", "strandedness") if c in sdf.columns), None)
-            for _, r in sdf.iterrows():
-                sid = str(r[sc])
-                rows.append({
-                    "sample_id": sid,
-                    "condition": cond_map.get(sid, "Cohort"),
-                    "sense_fraction": float(pd.to_numeric(r.get(fc), errors="coerce") or 0.5) if fc else 0.5,
-                    "antisense_fraction": float(pd.to_numeric(r.get(rc), errors="coerce") or 0.5) if rc else 0.5,
-                    "resolved_strandedness": str(r[dc]) if dc and pd.notna(r.get(dc)) else "recorded",
-                })
+            sdf = _safe_read_csv(strand_f, sep="\t")
+            if not sdf.empty:
+                sc = next((c for c in ("sample", "sample_id", "id") if c in sdf.columns), sdf.columns[0])
+                fc = next((c for c in ("forward_fraction", "sense_fraction", "frac_1++,1--,2+-,2-+") if c in sdf.columns), None)
+                rc = next((c for c in ("reverse_fraction", "antisense_fraction", "frac_1+-,1-+,2++,2--") if c in sdf.columns), None)
+                dc = next((c for c in ("resolved_strandedness", "strandedness") if c in sdf.columns), None)
+                for _, r in sdf.iterrows():
+                    sid = str(r[sc])
+                    rows.append({
+                        "sample_id": sid,
+                        "condition": cond_map.get(sid, "Cohort"),
+                        "sense_fraction": float(pd.to_numeric(r.get(fc), errors="coerce") or 0.5) if fc else 0.5,
+                        "antisense_fraction": float(pd.to_numeric(r.get(rc), errors="coerce") or 0.5) if rc else 0.5,
+                        "resolved_strandedness": str(r[dc]) if dc and pd.notna(r.get(dc)) else "recorded",
+                    })
         except Exception:
             pass
 
@@ -1911,7 +1923,7 @@ def render_bulk_sequencing_qc_panel(
             mf = bam_audit_dir / f"{sid}.primary_metrics.tsv"
             if mf.is_file():
                 try:
-                    mdf = pd.read_csv(mf, sep="\t")
+                    mdf = _safe_read_csv(mf, sep="\t")
                     if not mdf.empty:
                         rec = by_sid.setdefault(sid, {"sample_id": sid, "condition": s["condition"], "sense_fraction": 0.02, "antisense_fraction": 0.96, "resolved_strandedness": "reverse"})
                         pc = next((c for c in ("primary_mapped_reads", "primary_alignments", "mapped_reads", "records") if c in mdf.columns), mdf.columns[0])
@@ -2292,7 +2304,8 @@ def render_sc_umap_and_qc_suite(
         valid_u = np.isfinite(p_u)
         num_u = np.where(valid_u, p_u * w_u, 0.0).sum(axis=1)
         den_u = np.where(valid_u, w_u, 0.0).sum(axis=1)
-        pb_cols[str(pb_id)] = pd.Series(np.where(den_u > 0, num_u / den_u, np.nan), index=psi_c.index)
+        pb_ratio = np.divide(num_u, den_u, out=np.full_like(num_u, np.nan, dtype=float), where=(den_u > 0))
+        pb_cols[str(pb_id)] = pd.Series(pb_ratio, index=psi_c.index)
         pb_units.append({
             "sample_id": str(pb_id),
             "condition": str(grp_u["condition"].iloc[0]),

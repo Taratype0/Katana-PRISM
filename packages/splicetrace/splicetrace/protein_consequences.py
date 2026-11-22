@@ -51,6 +51,26 @@ _ATTR_INCOMPLETE = re.compile(r'tag\s+"?(cds_start_NF|cds_end_NF|mRNA_start_NF|m
 
 _DOMAIN_CACHE: dict[str, dict[str, dict]] = {}
 
+_PROTEIN_CONSEQUENCE_COLUMNS = [
+    "event_id",
+    "gene_id",
+    "gene_symbol",
+    "event_type",
+    "dpsi",
+    "host_transcript_id",
+    "uniprot_acc",
+    "coding_region_location",
+    "frame_status",
+    "nmd_switch_class",
+    "aa_len_inclusion",
+    "aa_len_exclusion",
+    "delta_aa",
+    "ptc_to_last_ejc_nt",
+    "disrupted_protein_features",
+    "functional_consequence_summary",
+    "architecture_json",
+]
+
 
 def load_bundled_uniprot_domains(species: str = "auto") -> dict[str, dict]:
     """Load bundled 194,738-interval UniProt/Pfam catalog indexed by lowercase gene_symbol."""
@@ -610,7 +630,7 @@ def trace_protein_and_nmd_consequences(
 ) -> pd.DataFrame:
     """Deterministic GTF + FASTA + Curated UniProt/Pfam ORF, reading-frame, NMD, and protein-domain consequence engine."""
     if events_df.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=_PROTEIN_CONSEQUENCE_COLUMNS)
 
     target_genes = (
         set(events_df["gene_id"].dropna().astype(str))
@@ -856,4 +876,4 @@ def trace_protein_and_nmd_consequences(
                 "functional_consequence_summary": summary,
                 "architecture_json": json.dumps(arch_payload),
             })
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=_PROTEIN_CONSEQUENCE_COLUMNS)

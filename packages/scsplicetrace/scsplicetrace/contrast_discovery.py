@@ -341,11 +341,13 @@ def discover_sc_rbp_programs(
     n_elig = int(elig.sum())
     if n_elig < 25:
         empty_rank = pd.DataFrame(columns=["RBP", "best_region", "direction", "stat_Z", "rbp_P_FWER", "nominal_P"])
+        empty_reg = pd.DataFrame(columns=["RBP", "region", "stat_Z", "p_value", "regional_P_FWER"])
+        empty_conseq = pd.DataFrame(columns=["event_id", "gene_symbol", "RBP", "hit_RNA", "consequence_direction"])
         return SCSpliceTraceContrastResult(
             rbp_ranking=empty_rank,
-            region_tests=pd.DataFrame(),
+            region_tests=empty_reg,
             event_contrasts=contrast_df,
-            mature_consequences=mature_consequences_df if mature_consequences_df is not None else pd.DataFrame(),
+            mature_consequences=mature_consequences_df if (mature_consequences_df is not None and len(mature_consequences_df.columns) > 0) else empty_conseq,
             diagnostics={"status": "insufficient_eligible_events", "eligible_events": n_elig},
         )
 
@@ -522,11 +524,12 @@ def discover_sc_rbp_programs(
     ).reset_index(drop=True)
     rbp_df["sequence_rank"] = np.arange(1, len(rbp_df) + 1, dtype=int)
 
+    empty_conseq = pd.DataFrame(columns=["event_id", "gene_symbol", "RBP", "hit_RNA", "consequence_direction"])
     return SCSpliceTraceContrastResult(
         rbp_ranking=rbp_df,
         region_tests=reg_df,
         event_contrasts=contrast_df,
-        mature_consequences=mature_consequences_df if mature_consequences_df is not None else pd.DataFrame(),
+        mature_consequences=mature_consequences_df if (mature_consequences_df is not None and len(mature_consequences_df.columns) > 0) else empty_conseq,
         diagnostics={
             "status": "complete",
             "inference_mode": inference_mode,

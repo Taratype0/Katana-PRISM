@@ -759,6 +759,67 @@ def test_sc_multiplexed_bam_sashimi_and_dardel_wiring(tmp_path: Path) -> None:
     assert "16.GB * task.attempt" in res_txt and "KATANA_REPORT_SC" in res_txt
 
 
+def test_sparse_subtype_empty_and_headerless_splicetrace_files(tmp_path: Path) -> None:
+    import pandas as pd
+    from katana_studio.full_suite_views import render_ch7_splicetrace_suite
+    from scsplicetrace.protein_consequences import trace_protein_and_nmd_consequences as sc_trace_prot
+    from scsplicetrace.rna_forms import IndexedFasta
+    from scsplicetrace.sequence_and_consequence import trace_sc_mature_motif_consequences
+    from splicetrace.protein_consequences import trace_protein_and_nmd_consequences as bulk_trace_prot
+
+    # Simulate exact 1-byte newline-only & header-only scsplicetrace outputs from a sparse subtype (0 eligible events)
+    st_dir = tmp_path / "scsplicetrace"
+    st_dir.mkdir(parents=True)
+    for fname in (
+        "sc_protein_and_nmd_consequences.tsv",
+        "scsplicetrace_mature_consequences.tsv",
+        "scsplicetrace_region_tests.tsv",
+        "sc_module_rbp_bridge.tsv",
+    ):
+        (st_dir / fname).write_text("\n", encoding="utf-8")
+    (st_dir / "scsplicetrace_rbp_ranking.tsv").write_text(
+        "RBP\tbest_region\tdirection\tstat_Z\trbp_P_FWER\tnominal_P\n", encoding="utf-8"
+    )
+
+    out_dir = tmp_path / "report"
+    out_dir.mkdir(parents=True)
+    panels: list[dict] = []
+    tables: list[dict] = []
+    motif_summaries: list[dict] = []
+    prot_df, conseq_df, br_df = render_ch7_splicetrace_suite(
+        st_dir=st_dir,
+        cid="Rare_Subtype__Stim_vs_Ctrl",
+        species="mouse",
+        outdir=out_dir,
+        panels=panels,
+        tables=tables,
+        motif_summaries=motif_summaries,
+    )
+    assert prot_df.empty and conseq_df.empty and br_df.empty
+
+    # Verify producers emit explicit TSV headers when given empty event tables
+    empty_ev = pd.DataFrame(columns=["event_id", "gene_id", "gene_symbol", "event_type", "strand", "dpsi"])
+    gtf_p = tmp_path / "dummy.gtf"
+    gtf_p.write_text("", encoding="utf-8")
+    fa_p = tmp_path / "dummy.fa"
+    fa_p.write_text(">chr1\nACGTACGT\n", encoding="utf-8")
+
+    for trace_fn, tag in ((sc_trace_prot, "sc"), (bulk_trace_prot, "bulk")):
+        res_p = trace_fn(empty_ev, gtf_p, fa_p, indexed_fasta_cls=IndexedFasta, species="mouse")
+        assert len(res_p.columns) >= 15
+        out_tsv = tmp_path / f"{tag}_prot.tsv"
+        res_p.to_csv(out_tsv, sep="\t", index=False)
+        assert pd.read_csv(out_tsv, sep="\t").empty
+
+    empty_rna = pd.DataFrame(columns=["event_id", "layer", "sequence"])
+    empty_ce = pd.DataFrame(columns=["event_id", "z_shift", "dpsi"])
+    mc_df = trace_sc_mature_motif_consequences(empty_rna, empty_ce)
+    assert len(mc_df.columns) >= 4
+    mc_tsv = tmp_path / "mc.tsv"
+    mc_df.to_csv(mc_tsv, sep="\t", index=False)
+    assert pd.read_csv(mc_tsv, sep="\t").empty
+
+
 # ---------------------------------------------------------------------------
 # 4. Repository-Wide Confidentiality, Brand & Naming Hygiene Audit
 # ---------------------------------------------------------------------------

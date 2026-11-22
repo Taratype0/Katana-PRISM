@@ -350,7 +350,7 @@ def trace_sc_mature_motif_consequences(
     elif "dpsi" in ev.columns:
         ev = ev.reindex(ev["dpsi"].abs().sort_values(ascending=False).index).head(int(top_n_events))
     if ev.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=["event_id", "gene_symbol", "RBP", "hit_RNA", "consequence_direction"])
 
     sub_rna = rna_df[rna_df["event_id"].isin(set(ev["event_id"].astype(str)))].copy()
     _, changes_df = trace_motif_instances(

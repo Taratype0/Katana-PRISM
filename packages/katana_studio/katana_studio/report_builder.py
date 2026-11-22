@@ -30,6 +30,7 @@ from scipy import stats as sp_stats
 
 from katana_studio.candidate_workbench import build_chapter8_synthesis_and_workbench
 from katana_studio.full_suite_views import (
+    _safe_read_csv,
     build_interactive_psi_matrix_browser,
     ingest_bulk_multilayer_deg_dtu_dexseq,
     render_biological_design_panel,
@@ -1101,25 +1102,21 @@ def run_bulk(
     sn_mod_tsv_for_bridge: Path | None = None
 
     if sn_in_dir is not None and (sn_in_dir / "module_assignments.tsv").is_file():
-        sn_members_df = pd.read_csv(sn_in_dir / "module_assignments.tsv", sep="\t")
-        sn_mod_tsv_for_bridge = sn_in_dir / "module_assignments.tsv"
+        _sn_m = _safe_read_csv(sn_in_dir / "module_assignments.tsv", sep="\t")
+        if not _sn_m.empty:
+            sn_members_df = _sn_m
+            sn_mod_tsv_for_bridge = sn_in_dir / "module_assignments.tsv"
         if (sn_in_dir / "module_scores.tsv").is_file():
-            try:
-                sn_scores_df = pd.read_csv(sn_in_dir / "module_scores.tsv", sep="\t", index_col=0)
-            except Exception:
-                sn_scores_df = None
+            _sn_s = _safe_read_csv(sn_in_dir / "module_scores.tsv", sep="\t", index_col=0)
+            sn_scores_df = _sn_s if not _sn_s.empty else None
         sn_edges_path = next((p for p in (sn_in_dir / "wgcna_fit/network_edges.tsv", sn_in_dir / "network_edges.tsv") if p.is_file()), None)
         if sn_edges_path is not None:
-            try:
-                sn_edges_df = pd.read_csv(sn_edges_path, sep="\t")
-            except Exception:
-                sn_edges_df = None
+            _sn_e = _safe_read_csv(sn_edges_path, sep="\t")
+            sn_edges_df = _sn_e if not _sn_e.empty else None
         sn_ora_path = next((p for p in (sn_in_dir / "module_ora.tsv", sn_in_dir / "module_pathway_enrichment.tsv") if p.is_file()), None)
         if sn_ora_path is not None:
-            try:
-                sn_ora_existing = pd.read_csv(sn_ora_path, sep="\t")
-            except Exception:
-                sn_ora_existing = None
+            _sn_o = _safe_read_csv(sn_ora_path, sep="\t")
+            sn_ora_existing = _sn_o if not _sn_o.empty else None
     elif len(psi_mat) >= 24 and len(all_sids) >= 4:
         try:
             from splicenet.evaluation import score_modules
@@ -1139,7 +1136,8 @@ def run_bulk(
                 sn_members_df.to_csv(sn_mod_tsv_for_bridge, sep="\t", index=False)
                 sn_edges_path = next((p for p in ((sn_fit_dir / "wgcna_fit/network_edges.tsv"),) if p.is_file()), None)
                 if sn_edges_path is not None:
-                    sn_edges_df = pd.read_csv(sn_edges_path, sep="\t")
+                    _sn_ef = _safe_read_csv(sn_edges_path, sep="\t")
+                    sn_edges_df = _sn_ef if not _sn_ef.empty else None
         except Exception:
             pass
 
@@ -1407,8 +1405,8 @@ def run_single_cell(
             except Exception:
                 pass
         if (trace_dir / "scsplicetrace_event_contrasts.tsv").is_file() and "event_id" in base_ev.columns:
-            st_ev = pd.read_csv(trace_dir / "scsplicetrace_event_contrasts.tsv", sep="\t")
-            if "event_id" in st_ev.columns:
+            st_ev = _safe_read_csv(trace_dir / "scsplicetrace_event_contrasts.tsv", sep="\t")
+            if not st_ev.empty and "event_id" in st_ev.columns:
                 m_cols = [c for c in ("event_id", "raw_dpsi", "z_shift", "p_value", "fdr", "eligible") if c in st_ev.columns]
                 ev_m = base_ev.merge(st_ev[m_cols], on="event_id", how="left", suffixes=("_prelim", ""))
                 if "raw_dpsi" in ev_m.columns:
@@ -1462,25 +1460,24 @@ def run_single_cell(
             sub_cells_f = sd / "sc_matrices/sc_cells.tsv"
             sub_st_d = sd / "scsplicetrace"
             if sub_ev_f.is_file():
-                s_ev = pd.read_csv(sub_ev_f, sep="\t")
-                if sub_st_d.is_dir():
-                    s_ev, _ = _merge_st_events(s_ev, sub_st_d, forced_cid=sub_cid)
-                    st_dirs_by_contrast[sub_cid] = sub_st_d
-                else:
-                    s_ev["comparison_id"] = sub_cid
-                s_ev[cmp_col] = sub_cid
-                sub_frames.append(s_ev)
+                s_ev = _safe_read_csv(sub_ev_f, sep="\t")
+                if not s_ev.empty:
+                    if sub_st_d.is_dir():
+                        s_ev, _ = _merge_st_events(s_ev, sub_st_d, forced_cid=sub_cid)
+                        st_dirs_by_contrast[sub_cid] = sub_st_d
+                    else:
+                        s_ev["comparison_id"] = sub_cid
+                    s_ev[cmp_col] = sub_cid
+                    sub_frames.append(s_ev)
             if sub_cells_f.is_file():
-                try:
-                    sc_sub = pd.read_csv(sub_cells_f, sep="\t")
+                sc_sub = _safe_read_csv(sub_cells_f, sep="\t")
+                if not sc_sub.empty:
                     sc_id_c = next((c for c in ("cell_id", "sample_id") if c in sc_sub.columns), sc_sub.columns[0])
                     sc_g_c = next((c for c in ("condition", "group") if c in sc_sub.columns), sc_sub.columns[1])
                     parts_s = sub_cid.split("__")[-1].split("_vs_", 1) if "_vs_" in sub_cid else ["Group1", "Group2"]
                     n_ids = sc_sub.loc[sc_sub[sc_g_c].astype(str).eq(parts_s[0]), sc_id_c].astype(str).tolist()
                     d_ids = sc_sub.loc[sc_sub[sc_g_c].astype(str).eq(parts_s[1]), sc_id_c].astype(str).tolist()
                     subtype_cell_sets[sub_cid] = (n_ids, d_ids, parts_s[0], parts_s[1])
-                except Exception:
-                    pass
         if sub_frames:
             ev_df = pd.concat(sub_frames, ignore_index=True)
 
@@ -1846,7 +1843,7 @@ def run_single_cell(
 
     sn_dir = Path(scsplicenet_dir) if (scsplicenet_dir and str(scsplicenet_dir) != "NO_SCSPLICENET" and Path(scsplicenet_dir).is_dir()) else None
     if sn_dir is not None and (sn_dir / "scsplicenet_modules.tsv").is_file():
-        mod_df = pd.read_csv(sn_dir / "scsplicenet_modules.tsv", sep="\t")
+        mod_df = _safe_read_csv(sn_dir / "scsplicenet_modules.tsv", sep="\t")
         if not mod_df.empty and "module" in mod_df.columns:
             ev_meta_sc = {}
             if "event_id" in ev_df.columns:
@@ -1865,9 +1862,11 @@ def run_single_cell(
                 mod_df["event_type"] = mod_df[ek_sc].map(lambda k: ev_meta_sc.get(str(k), {}).get("event_type", "SE"))
 
             edges_sc_p = next((p for p in (sn_dir / "scsplicenet_edges.tsv", sn_dir / "network_edges.tsv") if p.is_file()), None)
-            edges_sc_df = pd.read_csv(edges_sc_p, sep="\t") if edges_sc_p is not None else None
+            _edges_sc = _safe_read_csv(edges_sc_p, sep="\t") if edges_sc_p is not None else pd.DataFrame()
+            edges_sc_df = _edges_sc if not _edges_sc.empty else None
             scores_sc_p = next((p for p in (sn_dir / "scsplicenet_donor_scores.tsv", sn_dir / "module_scores.tsv") if p.is_file()), None)
-            scores_sc_df = pd.read_csv(scores_sc_p, sep="\t", index_col=0) if scores_sc_p is not None else None
+            _scores_sc = _safe_read_csv(scores_sc_p, sep="\t", index_col=0) if scores_sc_p is not None else pd.DataFrame()
+            scores_sc_df = _scores_sc if not _scores_sc.empty else None
             if not net_units_psi.empty:
                 sc_splicenet_meta = build_chapter6_splicenet_suite(
                     mod_df_raw=mod_df,
