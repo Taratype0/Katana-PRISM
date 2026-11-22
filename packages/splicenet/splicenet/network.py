@@ -92,6 +92,31 @@ def compute_signed_tom_from_bicor(bc: np.ndarray, power: int = 6) -> np.ndarray:
     return tom
 
 
+def _modularity_score_sn(W: np.ndarray, labels: np.ndarray) -> float:
+    tot = float(W.sum())
+    if tot <= 1e-12:
+        return 0.0
+    k = W.sum(axis=1)
+    q_val = 0.0
+    for c in set(int(x) for x in labels if int(x) > 0):
+        idx = labels == c
+        e_in = float(W[np.ix_(idx, idx)].sum())
+        k_c = float(k[idx].sum())
+        q_val += (e_in / tot) - (k_c / tot) ** 2
+    return q_val
+
+
+def _is_balanced_multimod_sn(labels: np.ndarray, n: int, min_module_size: int) -> bool:
+    pos = labels[labels > 0]
+    if len(pos) == 0:
+        return False
+    vc = pd.Series(pos).value_counts()
+    valid = vc[vc >= int(min_module_size)]
+    if len(valid) >= 2 and int(valid.max()) <= max(2 * int(min_module_size), int(0.75 * n)):
+        return True
+    return len(valid) >= 1 and n < 3 * int(min_module_size)
+
+
 def _cut_dendrogram_into_modules(dissim: np.ndarray, min_module_size: int = 20, deep_split: int = 2) -> np.ndarray:
     n = dissim.shape[0]
     if n < min_module_size:
@@ -99,32 +124,67 @@ def _cut_dendrogram_into_modules(dissim: np.ndarray, min_module_size: int = 20, 
     d_clean = np.clip(0.5 * (dissim + dissim.T), 0.0, 1.0)
     np.fill_diagonal(d_clean, 0.0)
     Z = average(squareform(d_clean, checks=False))
+    cand_lbl: np.ndarray | None = None
     try:
         from dynamicTreeCut import cutreeHybrid
         res = cutreeHybrid(Z, d_clean, minClusterSize=int(min_module_size), deepSplit=int(deep_split), pamRespectsDendro=False, verbose=0)
         labels = np.asarray(res["labels"] if isinstance(res, dict) else res, dtype=int)
         if len(labels) == n:
-            return labels
+            cand_lbl = labels
+    except Exception:
+        cand_lbl = None
+
+    if cand_lbl is not None and _is_balanced_multimod_sn(cand_lbl, n, min_module_size):
+        return cand_lbl
+
+    W = np.clip(1.0 - d_clean, 0.0, 1.0)
+    np.fill_diagonal(W, 0.0)
+    try:
+        import networkx as nx
+
+        triu_i, triu_j = np.triu_indices(n, k=1)
+        weights = W[triu_i, triu_j]
+        pos_w = weights[weights > 1e-9]
+        if len(pos_w) >= max(4, n):
+            thr = float(np.quantile(pos_w, 0.70))
+            keep_mask = weights > thr
+            if int(keep_mask.sum()) < 2 * n:
+                keep_mask = weights > 1e-9
+            G = nx.Graph()
+            G.add_nodes_from(range(n))
+            for a, b_i, w_v in zip(triu_i[keep_mask], triu_j[keep_mask], weights[keep_mask]):
+                G.add_edge(int(a), int(b_i), weight=float(w_v))
+            comms = nx.community.louvain_communities(G, weight="weight", resolution=1.0, seed=20261117)
+            big_comms = sorted([c for c in comms if len(c) >= int(min_module_size)], key=len, reverse=True)
+            if len(big_comms) >= 2 and len(big_comms[0]) <= max(2 * int(min_module_size), int(0.75 * n)):
+                mapped = np.zeros(n, dtype=int)
+                for new_id, comm in enumerate(big_comms, start=1):
+                    mapped[list(comm)] = new_id
+                return mapped
     except Exception:
         pass
 
     best_labels = np.zeros(n, dtype=int)
     best_score = -1.0
-    for q in (0.65, 0.75, 0.82, 0.88, 0.93, 0.97):
+    for q in np.linspace(0.15, 0.96, 28):
         h = float(np.quantile(Z[:, 2], q))
         raw = fcluster(Z, t=h, criterion="distance")
         vc = pd.Series(raw).value_counts()
-        valid = vc[(vc >= min_module_size) & (vc <= max(min_module_size, int(0.85 * n)))].index.tolist()
+        valid = vc[(vc >= int(min_module_size)) & (vc <= max(int(min_module_size), int(0.75 * n)))].index.tolist()
         if not valid:
             continue
         mapped = np.zeros(n, dtype=int)
         for new_id, cid in enumerate(valid, start=1):
             mapped[raw == cid] = new_id
-        sc = float(np.mean(mapped > 0)) * np.log1p(len(valid))
+        q_mod = max(_modularity_score_sn(W, mapped), 0.01)
+        cov = float(np.mean(mapped > 0))
+        sc = q_mod * float(np.sqrt(max(cov, 0.05))) * float(np.log1p(min(len(valid), 12)))
         if sc > best_score:
             best_score = sc
             best_labels = mapped
-    return best_labels
+    if int(best_labels.max()) >= 2 or cand_lbl is None:
+        return best_labels
+    return cand_lbl
 
 
 def _merge_close_modules_and_kme(

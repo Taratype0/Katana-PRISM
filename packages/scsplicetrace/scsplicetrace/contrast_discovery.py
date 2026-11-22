@@ -324,7 +324,7 @@ def discover_sc_rbp_programs(
     donor_delta_df: pd.DataFrame | None = None,
     mature_consequences_df: pd.DataFrame | None = None,
     rbp_expr_z: pd.Series | None = None,
-    n_permutations: int = 1999,
+    n_permutations: int = 4999,
     seed: int = 20261117,
     deconfound_correlated_motifs: bool = True,
 ) -> SCSpliceTraceContrastResult:
@@ -332,16 +332,16 @@ def discover_sc_rbp_programs(
 
     - Dual statistical calibration:
       1. When `donor_delta_df` has >= 5 paired donors (`paired_donor_population`), computes exact/randomization
-         variance-moderated donor sign-flip max-T FWER (strictly valid under `heterogeneous_population_null`!)
+         variance-moderated donor sign-flip max-T FWER + BH-FDR (strictly valid under `heterogeneous_population_null`!)
          with gene-block cross-event Z tie-breaking and optional ridge de-spillover of correlated bystander motifs.
       2. When < 5 donors exist (`gene_block_contrast`), runs 5-covariate Freedman-Lane orthogonalized
-         Self-Normalized Rademacher Gene-Block Westfall-Young Max-T FWER across `{0..B}` draws!
+         Self-Normalized Rademacher Gene-Block Westfall-Young Max-T FWER + BH-FDR across `{0..B}` draws!
     """
     elig = contrast_df["eligible"].to_numpy(dtype=bool) & np.isfinite(contrast_df["z_shift"].to_numpy(dtype=float))
     n_elig = int(elig.sum())
     if n_elig < 25:
-        empty_rank = pd.DataFrame(columns=["RBP", "best_region", "direction", "stat_Z", "rbp_P_FWER", "nominal_P"])
-        empty_reg = pd.DataFrame(columns=["RBP", "region", "stat_Z", "p_value", "regional_P_FWER"])
+        empty_rank = pd.DataFrame(columns=["RBP", "best_region", "direction", "stat_Z", "nominal_P", "rbp_FDR_BH", "rbp_P_FWER"])
+        empty_reg = pd.DataFrame(columns=["RBP", "region", "stat_Z", "nominal_P", "region_FDR_BH", "region_P_FWER"])
         empty_conseq = pd.DataFrame(columns=["event_id", "gene_symbol", "RBP", "hit_RNA", "consequence_direction"])
         return SCSpliceTraceContrastResult(
             rbp_ranking=empty_rank,
@@ -467,11 +467,15 @@ def discover_sc_rbp_programs(
         rbp_nom_p = (1.0 + np.sum(rbp_null_max >= rbp_obs_max[None, :] - 1e-12, axis=0)) / (B + 1.0)
         rbp_fwer_p = (1.0 + np.sum(global_null_max[:, None] >= rbp_obs_max[None, :] - 1e-12, axis=0)) / (B + 1.0)
 
-    # Assemble region-level and RBP-level tables
+    # Assemble region-level and RBP-level tables (with BH-FDR alongside strict Max-T FWER)
     Z_gene_2d = Z_gene_obs.reshape(n_reg, n_rbp)
     Z_obs_2d = Z_obs.reshape(n_reg, n_rbp)
     nom_2d = nom_p.reshape(n_reg, n_rbp)
     fwer_2d = reg_fwer.reshape(n_reg, n_rbp)
+    reg_fdr_bh = np.where(valid_col, _bh_fdr_mask(nom_p, valid_col), 1.0)
+    reg_fdr_2d = reg_fdr_bh.reshape(n_reg, n_rbp)
+    rbp_fdr_bh = _bh_fdr_mask(rbp_nom_p, np.ones(n_rbp, dtype=bool))
+    rbp_fdr_bh = np.where(np.isfinite(rbp_fdr_bh), rbp_fdr_bh, 1.0)
 
     reg_rows: list[dict] = []
     for r_idx, reg_name in enumerate(region_names):
@@ -485,6 +489,7 @@ def discover_sc_rbp_programs(
                 "stat_Z": zv,
                 "gene_block_Z": float(Z_gene_2d[r_idx, m_idx]),
                 "nominal_P": float(nom_2d[r_idx, m_idx]),
+                "region_FDR_BH": float(reg_fdr_2d[r_idx, m_idx]),
                 "region_P_FWER": float(fwer_2d[r_idx, m_idx]),
             })
     reg_df = pd.DataFrame(reg_rows)
@@ -511,6 +516,7 @@ def discover_sc_rbp_programs(
             "mature_consequence_Z": mature_z,
             "mature_consequence_P_FWER": mature_p,
             "nominal_P": float(rbp_nom_p[m_idx]),
+            "rbp_FDR_BH": float(rbp_fdr_bh[m_idx]),
             "rbp_P_FWER": float(rbp_fwer_p[m_idx]),
             "sequence_evidence_score": seq_score,
             "rbp_expr_z": expr_z,
@@ -518,8 +524,8 @@ def discover_sc_rbp_programs(
         })
 
     rbp_df = pd.DataFrame(rbp_rows).sort_values(
-        by=["rbp_P_FWER", "sequence_evidence_score", "RBP"],
-        ascending=[True, False, True],
+        by=["rbp_P_FWER", "rbp_FDR_BH", "sequence_evidence_score", "RBP"],
+        ascending=[True, True, False, True],
         kind="mergesort",
     ).reset_index(drop=True)
     rbp_df["sequence_rank"] = np.arange(1, len(rbp_df) + 1, dtype=int)
@@ -537,6 +543,8 @@ def discover_sc_rbp_programs(
             "eligible_genes": n_genes,
             "evaluated_rbps": int(n_rbp),
             "significant_rbps_fwer05": int((rbp_df["rbp_P_FWER"] <= 0.05).sum()),
+            "significant_rbps_fdr05": int((rbp_df["rbp_FDR_BH"] <= 0.05).sum()),
+            "significant_rbps_nom05": int((rbp_df["nominal_P"] <= 0.05).sum()),
         },
     )
 

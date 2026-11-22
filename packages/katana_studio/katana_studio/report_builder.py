@@ -31,6 +31,7 @@ from scipy import stats as sp_stats
 from katana_studio.candidate_workbench import build_chapter8_synthesis_and_workbench
 from katana_studio.full_suite_views import (
     _safe_read_csv,
+    _safe_slug,
     build_interactive_psi_matrix_browser,
     ingest_bulk_multilayer_deg_dtu_dexseq,
     render_biological_design_panel,
@@ -1440,6 +1441,8 @@ def run_single_cell(
 
     # Optional multi-subtype / multi-contrast ingestion (`--subtypes-dirs` from SC_SUBTYPE_DOWNSTREAM)
     subtype_cell_sets: dict[str, tuple[list[str], list[str], str, str]] = {}
+    sn_dirs_by_contrast: dict[str, Path] = {}
+    sub_pop_cells: dict[str, set[str]] = {}
     if subtypes_dirs:
         base_has_stats = (
             st_dir is not None
@@ -1459,6 +1462,9 @@ def run_single_cell(
             sub_ev_f = sd / "sc_matrices/sc_events.tsv"
             sub_cells_f = sd / "sc_matrices/sc_cells.tsv"
             sub_st_d = sd / "scsplicetrace"
+            sub_sn_d = sd / "scsplicenet"
+            if (sub_sn_d / "scsplicenet_modules.tsv").is_file():
+                sn_dirs_by_contrast[sub_cid] = sub_sn_d
             if sub_ev_f.is_file():
                 s_ev = _safe_read_csv(sub_ev_f, sep="\t")
                 if not s_ev.empty:
@@ -1474,6 +1480,7 @@ def run_single_cell(
                 if not sc_sub.empty:
                     sc_id_c = next((c for c in ("cell_id", "sample_id") if c in sc_sub.columns), sc_sub.columns[0])
                     sc_g_c = next((c for c in ("condition", "group") if c in sc_sub.columns), sc_sub.columns[1])
+                    sub_pop_cells[sub_cid] = set(sc_sub[sc_id_c].astype(str).str.strip())
                     parts_s = sub_cid.split("__")[-1].split("_vs_", 1) if "_vs_" in sub_cid else ["Group1", "Group2"]
                     n_ids = sc_sub.loc[sc_sub[sc_g_c].astype(str).eq(parts_s[0]), sc_id_c].astype(str).tolist()
                     d_ids = sc_sub.loc[sc_sub[sc_g_c].astype(str).eq(parts_s[1]), sc_id_c].astype(str).tolist()
@@ -1795,6 +1802,7 @@ def run_single_cell(
     # Chapter 07: scSpliceTrace Positional Splicing Map + PWM Logos + Module-RBP Bridge + 5 NMD/UniProt Plots!
     sc_prot_by_contrast: dict[str, pd.DataFrame] = {}
     sc_conseq_by_contrast: dict[str, pd.DataFrame] = {}
+    sc_bridge_by_contrast: dict[str, pd.DataFrame] = {}
     sc_bridge_frames: list[pd.DataFrame] = []
     for c_spec in contrasts_list:
         cid_t = c_spec["contrast_id"]
@@ -1814,14 +1822,24 @@ def run_single_cell(
             if not csq_df_sc.empty:
                 sc_conseq_by_contrast[cid_t] = csq_df_sc
             if not br_df_sc.empty:
+                sc_bridge_by_contrast[cid_t] = br_df_sc
                 sc_bridge_frames.append(br_df_sc)
 
     sc_bridge_df = pd.concat(sc_bridge_frames, ignore_index=True).drop_duplicates() if sc_bridge_frames else None
 
     # Chapter 06: scSpliceNet Non-Circular Multi-Community Spatial Halo `SPLICE_NETWORK_EXPLORER.html` + Static Exhibits!
-    sc_splicenet_meta: dict[str, Any] = {}
+    sc_splicenet_meta: dict[str, Any] = {"event_to_module": {}, "event_to_kme": {}, "gene_to_module": {}, "gene_to_kme": {}}
     net_units_psi = pb_psi if not pb_psi.empty else (p_df if p_df is not None else pd.DataFrame())
     net_units_list = pb_samples.to_dict("records") if not pb_samples.empty else samples_list
+
+    # Map each biological_sample_id / pseudobulk ID back to its constituent raw cell IDs
+    pb_unit_cells: dict[str, set[str]] = {}
+    for _s in samples_list:
+        _bio = str(_s["biological_sample_id"])
+        _cts = _safe_slug(str(_s["cell_type"]))
+        pb_unit_cells.setdefault(f"{_bio}__{_cts}", set()).add(str(_s["sample_id"]))
+        pb_unit_cells.setdefault(_bio, set()).add(str(_s["sample_id"]))
+        pb_unit_cells.setdefault(str(_s["sample_id"]), set()).add(str(_s["sample_id"]))
 
     # Map contrast sample_ids onto pseudobulk units when pseudobulk units are active
     net_contrasts_spec = []
@@ -1829,11 +1847,19 @@ def run_single_cell(
         for c_sp in contrasts_list:
             n_lbl = c_sp["numerator"]["label"]
             d_lbl = c_sp["denominator"]["label"]
-            pop_p = c_sp["contrast_id"].split("__")[0] if "__" in c_sp["contrast_id"] else None
-            nu_ids = [u["sample_id"] for u in net_units_list if u["condition"] == n_lbl and (pop_p is None or u.get("cell_type") == pop_p)] or [u["sample_id"] for u in net_units_list if u["condition"] == n_lbl]
-            du_ids = [u["sample_id"] for u in net_units_list if u["condition"] == d_lbl and (pop_p is None or u.get("cell_type") == pop_p)] or [u["sample_id"] for u in net_units_list if u["condition"] == d_lbl]
+            cid_cur = c_sp["contrast_id"]
+            pop_cells = sub_pop_cells.get(cid_cur)
+            if pop_cells:
+                nu_ids = [u["sample_id"] for u in net_units_list if u["condition"] == n_lbl and (pb_unit_cells.get(str(u["sample_id"]), set()) & pop_cells)]
+                du_ids = [u["sample_id"] for u in net_units_list if u["condition"] == d_lbl and (pb_unit_cells.get(str(u["sample_id"]), set()) & pop_cells)]
+            else:
+                pop_p = cid_cur.split("__")[0] if "__" in cid_cur else None
+                nu_ids = [u["sample_id"] for u in net_units_list if u["condition"] == n_lbl and (pop_p is None or u.get("cell_type") == pop_p)]
+                du_ids = [u["sample_id"] for u in net_units_list if u["condition"] == d_lbl and (pop_p is None or u.get("cell_type") == pop_p)]
+            nu_ids = nu_ids or [u["sample_id"] for u in net_units_list if u["condition"] == n_lbl]
+            du_ids = du_ids or [u["sample_id"] for u in net_units_list if u["condition"] == d_lbl]
             net_contrasts_spec.append({
-                "contrast_id": c_sp["contrast_id"],
+                "contrast_id": cid_cur,
                 "label": c_sp["label"],
                 "numerator": {"label": n_lbl, "sample_ids": nu_ids},
                 "denominator": {"label": d_lbl, "sample_ids": du_ids},
@@ -1841,34 +1867,116 @@ def run_single_cell(
     else:
         net_contrasts_spec = contrasts_list
 
-    sn_dir = Path(scsplicenet_dir) if (scsplicenet_dir and str(scsplicenet_dir) != "NO_SCSPLICENET" and Path(scsplicenet_dir).is_dir()) else None
-    if sn_dir is not None and (sn_dir / "scsplicenet_modules.tsv").is_file():
-        mod_df = _safe_read_csv(sn_dir / "scsplicenet_modules.tsv", sep="\t")
-        if not mod_df.empty and "module" in mod_df.columns:
-            ev_meta_sc = {}
-            if "event_id" in ev_df.columns:
-                for _, r_e in ev_df.drop_duplicates("event_id").iterrows():
-                    ev_meta_sc[str(r_e["event_id"])] = {
-                        "gene_symbol": str(r_e.get(g_c, "")),
-                        "gene_id": str(r_e.get("gene_id", r_e.get(g_c, ""))),
-                        "event_type": str(r_e.get("event_type", "SE")),
-                    }
-            ek_sc = next((c for c in ("event_key", "event_id") if c in mod_df.columns), mod_df.columns[0])
-            if "gene_symbol" not in mod_df.columns or mod_df["gene_symbol"].isna().all():
-                mod_df["gene_symbol"] = mod_df[ek_sc].map(lambda k: ev_meta_sc.get(str(k), {}).get("gene_symbol", str(k).split("|")[0]))
-            if "gene_id" not in mod_df.columns:
-                mod_df["gene_id"] = mod_df[ek_sc].map(lambda k: ev_meta_sc.get(str(k), {}).get("gene_id", str(k).split("|")[0]))
-            if "event_type" not in mod_df.columns:
-                mod_df["event_type"] = mod_df[ek_sc].map(lambda k: ev_meta_sc.get(str(k), {}).get("event_type", "SE"))
+    ev_meta_sc: dict[str, dict[str, str]] = {}
+    if "event_id" in ev_df.columns:
+        for _, r_e in ev_df.drop_duplicates("event_id").iterrows():
+            ev_meta_sc[str(r_e["event_id"])] = {
+                "gene_symbol": str(r_e.get(g_c, "")),
+                "gene_id": str(r_e.get("gene_id", r_e.get(g_c, ""))),
+                "event_type": str(r_e.get("event_type", "SE")),
+            }
 
-            edges_sc_p = next((p for p in (sn_dir / "scsplicenet_edges.tsv", sn_dir / "network_edges.tsv") if p.is_file()), None)
-            _edges_sc = _safe_read_csv(edges_sc_p, sep="\t") if edges_sc_p is not None else pd.DataFrame()
-            edges_sc_df = _edges_sc if not _edges_sc.empty else None
-            scores_sc_p = next((p for p in (sn_dir / "scsplicenet_donor_scores.tsv", sn_dir / "module_scores.tsv") if p.is_file()), None)
-            _scores_sc = _safe_read_csv(scores_sc_p, sep="\t", index_col=0) if scores_sc_p is not None else pd.DataFrame()
-            scores_sc_df = _scores_sc if not _scores_sc.empty else None
-            if not net_units_psi.empty:
-                sc_splicenet_meta = build_chapter6_splicenet_suite(
+    def _load_sc_net_dir(sn_path: Path) -> tuple[pd.DataFrame, pd.DataFrame | None, pd.DataFrame | None]:
+        m_df = _safe_read_csv(sn_path / "scsplicenet_modules.tsv", sep="\t")
+        if m_df.empty or "module" not in m_df.columns:
+            return pd.DataFrame(), None, None
+        has_assigned = m_df["module"].astype(str).map(lambda m: m not in ("", "0", "M0", "M00", "grey", "unassigned", "Unassigned", "nan", "None")).any()
+        if not has_assigned:
+            return pd.DataFrame(), None, None
+        ek_sc = next((c for c in ("event_key", "event_id") if c in m_df.columns), m_df.columns[0])
+        if "gene_symbol" not in m_df.columns or m_df["gene_symbol"].isna().all():
+            m_df["gene_symbol"] = m_df[ek_sc].map(lambda k: ev_meta_sc.get(str(k), {}).get("gene_symbol", str(k).split("|")[0]))
+        if "gene_id" not in m_df.columns:
+            m_df["gene_id"] = m_df[ek_sc].map(lambda k: ev_meta_sc.get(str(k), {}).get("gene_id", str(k).split("|")[0]))
+        if "event_type" not in m_df.columns:
+            m_df["event_type"] = m_df[ek_sc].map(lambda k: ev_meta_sc.get(str(k), {}).get("event_type", "SE"))
+        ep = next((p for p in (sn_path / "scsplicenet_edges.tsv", sn_path / "network_edges.tsv") if p.is_file()), None)
+        ed = _safe_read_csv(ep, sep="\t") if ep is not None else pd.DataFrame()
+        sp = next((p for p in (sn_path / "scsplicenet_donor_scores.tsv", sn_path / "module_scores.tsv") if p.is_file()), None)
+        sc = _safe_read_csv(sp, sep="\t", index_col=0) if sp is not None else pd.DataFrame()
+        return m_df, (ed if not ed.empty else None), (sc if not sc.empty else None)
+
+    def _merge_sn_meta(dst: dict[str, Any], src_meta: dict[str, Any]) -> None:
+        for k in ("event_to_module", "event_to_kme", "gene_to_module", "gene_to_kme"):
+            for mk, mv in (src_meta.get(k) or {}).items():
+                dst[k].setdefault(mk, mv)
+
+    covered_cids: set[str] = set()
+    root_network_taken = False
+    if sn_dirs_by_contrast and not net_units_psi.empty:
+        pop_groups: dict[str, list[dict[str, Any]]] = {}
+        for c_sp in net_contrasts_spec:
+            cid_cur = str(c_sp["contrast_id"])
+            pkey = cid_cur.split("__", 1)[0] if "__" in cid_cur else "__GLOBAL__"
+            pop_groups.setdefault(pkey, []).append(c_sp)
+
+        for pop_key, pop_c_specs in pop_groups.items():
+            pop_cids = [str(c["contrast_id"]) for c in pop_c_specs]
+            sn_pick = next((sn_dirs_by_contrast[c] for c in pop_cids if c in sn_dirs_by_contrast), None)
+            if sn_pick is None:
+                continue
+            p_mod_df, p_edges_df, p_scores_df = _load_sc_net_dir(sn_pick)
+            if p_mod_df.empty:
+                continue
+
+            # Slice units strictly to this population's biological units (falling back to cell-level slice when <4 pseudobulk units exist)
+            pop_cells = set().union(*(sub_pop_cells.get(c, set()) for c in pop_cids))
+            if pop_cells and not pb_samples.empty:
+                matched_pb = [u for u in net_units_list if len(pb_unit_cells.get(str(u["sample_id"]), set()) & pop_cells) > 0]
+            else:
+                matched_pb = [u for u in net_units_list if u.get("cell_type") == pop_key] if pop_key != "__GLOBAL__" else []
+
+            if len(matched_pb) >= 4:
+                pop_units_list = matched_pb
+                pop_cols = [u["sample_id"] for u in matched_pb if u["sample_id"] in net_units_psi.columns]
+                pop_units_psi = net_units_psi[pop_cols]
+                pop_contrasts_use = pop_c_specs
+            elif p_df is not None and len(pop_cells & set(p_df.columns)) >= 4:
+                pop_units_list = [s for s in samples_list if s["sample_id"] in pop_cells and s["sample_id"] in p_df.columns]
+                pop_units_psi = p_df[[s["sample_id"] for s in pop_units_list]]
+                pop_cid_set = set(pop_cids)
+                pop_contrasts_use = [c for c in contrasts_list if c["contrast_id"] in pop_cid_set]
+            else:
+                pop_units_list = net_units_list
+                pop_units_psi = net_units_psi
+                pop_contrasts_use = pop_c_specs
+
+            use_root_dir = (not root_network_taken) and (pop_key.lower().startswith("all") or pop_key == "__GLOBAL__")
+            if use_root_dir:
+                root_network_taken = True
+            pop_br_list = [sc_bridge_by_contrast[c] for c in pop_cids if c in sc_bridge_by_contrast]
+            pop_bridge_df = pd.concat(pop_br_list, ignore_index=True).drop_duplicates() if pop_br_list else sc_bridge_df
+            pop_meta = build_chapter6_splicenet_suite(
+                mod_df_raw=p_mod_df,
+                scores_df_raw=p_scores_df,
+                samples_list=pop_units_list,
+                contrasts_spec=pop_contrasts_use,
+                psi_events_by_units=pop_units_psi,
+                gene_sym_map=gene_sym_map_sc,
+                outdir=out,
+                panels=panels,
+                tables=tables,
+                network_browsers=network_browsers,
+                species=species,
+                is_single_cell=True,
+                bridge_df=pop_bridge_df,
+                edges_df=p_edges_df,
+                scope_slug=None if use_root_dir else _safe_slug(pop_key),
+                scope_title=f"scSpliceNet — Population co-splicing network | {pop_key}",
+                scope_note=f"Population-specific scSpliceNet co-splicing network fitted on {pop_key} cells. Switching Cell Type in the Scope Bar displays this population's modules, hub genes, and contrast ΔME.",
+                comparison_ids=pop_cids,
+                whole_study=bool(use_root_dir),
+            )
+            _merge_sn_meta(sc_splicenet_meta, pop_meta)
+            covered_cids.update(pop_cids)
+
+    sn_dir = Path(scsplicenet_dir) if (scsplicenet_dir and str(scsplicenet_dir) != "NO_SCSPLICENET" and Path(scsplicenet_dir).is_dir()) else None
+    if sn_dir is not None and (sn_dir / "scsplicenet_modules.tsv").is_file() and not net_units_psi.empty:
+        mod_df, edges_sc_df, scores_sc_df = _load_sc_net_dir(sn_dir)
+        if not mod_df.empty:
+            fallback_cids = [str(c["contrast_id"]) for c in net_contrasts_spec if str(c["contrast_id"]) not in covered_cids]
+            if not covered_cids:
+                glob_meta = build_chapter6_splicenet_suite(
                     mod_df_raw=mod_df,
                     scores_df_raw=scores_sc_df,
                     samples_list=net_units_list,
@@ -1884,6 +1992,40 @@ def run_single_cell(
                     bridge_df=sc_bridge_df,
                     edges_df=edges_sc_df,
                 )
+                _merge_sn_meta(sc_splicenet_meta, glob_meta)
+            elif fallback_cids:
+                fb_specs = [c for c in net_contrasts_spec if str(c["contrast_id"]) in set(fallback_cids)]
+                glob_meta = build_chapter6_splicenet_suite(
+                    mod_df_raw=mod_df,
+                    scores_df_raw=scores_sc_df,
+                    samples_list=net_units_list,
+                    contrasts_spec=fb_specs,
+                    psi_events_by_units=net_units_psi,
+                    gene_sym_map=gene_sym_map_sc,
+                    outdir=out,
+                    panels=panels,
+                    tables=tables,
+                    network_browsers=network_browsers,
+                    species=species,
+                    is_single_cell=True,
+                    bridge_df=sc_bridge_df,
+                    edges_df=edges_sc_df,
+                    scope_slug="cohort-fallback" if root_network_taken else None,
+                    scope_title="scSpliceNet — Cohort-wide co-splicing network (shared fallback)",
+                    scope_note="Shared cohort-wide scSpliceNet co-splicing network shown for sparse subpopulations that fell below the minimum cell/event threshold for population-specific network fitting.",
+                    comparison_ids=fallback_cids,
+                    whole_study=True,
+                )
+                _merge_sn_meta(sc_splicenet_meta, glob_meta)
+            else:
+                ek_col_g = next((c for c in ("event_id", "event_key", "ID") if c in mod_df.columns), mod_df.columns[0])
+                for r_g in mod_df.itertuples(index=False):
+                    m_g = str(getattr(r_g, "module", ""))
+                    if m_g not in ("", "0", "M0", "M00", "grey", "unassigned", "Unassigned", "nan", "None"):
+                        ek_v = str(getattr(r_g, ek_col_g))
+                        gs_v = str(getattr(r_g, "gene_symbol", ek_v))
+                        sc_splicenet_meta["event_to_module"].setdefault(ek_v, m_g)
+                        sc_splicenet_meta["gene_to_module"].setdefault(gs_v, m_g)
 
     # Chapter 08: Convergent Target Scorecard + Self-Contained Interactive Candidate Gene Finder & Katana Native Sashimi 4-Track Workbench!
     interactive_blocks_sc: list[dict[str, Any]] = []
@@ -1950,11 +2092,17 @@ def open_workspace(
     runtime = PlatformRuntime(application_root=app_root)
     if report_path is not None:
         rp = Path(report_path).expanduser().resolve()
-        ws_home = Path.home() / ".katana" / "workspaces" / rp.stem
         try:
-            from katana_next.services.report_import import import_portable_report
-            manifest_p = import_portable_report(rp, ws_home)
-            runtime.projects.open_project(manifest_p)
+            from uuid import uuid4
+            from katana_next.api.local_files import workspace_home
+            from katana_next.services.report_archive import report_source
+            from katana_next.services.report_import import import_report
+
+            ws_home = workspace_home()
+            src_dir = report_source(rp, ws_home)
+            ws_dest = ws_home / f"report-{rp.stem}-{uuid4().hex[:8]}"
+            ctx = import_report(src_dir, ws_dest, runtime.projects)
+            runtime.jobs.bind_project(ctx.manifest.project_id, ctx.manifest.output_root)
         except Exception as exc:
             print(f"[katana view] Note: could not pre-import {rp}: {exc}")
 

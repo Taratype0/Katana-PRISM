@@ -181,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--flank-gc-caliper", type=float, default=0.08)
     parser.add_argument("--acceptor-core-nt", type=int, default=3)
     parser.add_argument("--distal-intron-nt", type=int, default=500, help="Distal intronic cis-regulatory window outer bound in nt (default: 500; 0 for proximal 200-nt only)")
-    parser.add_argument("--permutations", type=int, default=999)
+    parser.add_argument("--permutations", type=int, default=4999)
     parser.add_argument("--seed", type=int, default=20261117)
     parser.add_argument("--emit-versions-yml", type=Path, default=None)
     parser.add_argument("--process-name", default="KATANA_SPLICETRACE")

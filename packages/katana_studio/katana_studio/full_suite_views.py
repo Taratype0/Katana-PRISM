@@ -1583,6 +1583,24 @@ def _short_rbp_name(raw_rbp: object, max_chars: int = 20) -> str:
     return f"{parts[0]} (+{len(parts) - 1})"
 
 
+def _bh_fdr_vec(p_arr: np.ndarray | pd.Series) -> np.ndarray:
+    """Compute Benjamini-Hochberg adjusted q-values preserving NaNs."""
+    p = pd.to_numeric(p_arr, errors="coerce").to_numpy(dtype=float) if not isinstance(p_arr, np.ndarray) else np.asarray(p_arr, dtype=float)
+    out = np.full(len(p), 1.0, dtype=float)
+    fin = np.isfinite(p)
+    if not np.any(fin):
+        return out
+    pv = np.clip(p[fin], 0.0, 1.0)
+    n = len(pv)
+    order = np.argsort(pv, kind="mergesort")
+    q = pv[order] * n / np.arange(1, n + 1, dtype=float)
+    q = np.minimum.accumulate(q[::-1])[::-1]
+    res = np.empty(n, dtype=float)
+    res[order] = np.clip(q, 0.0, 1.0)
+    out[fin] = res
+    return out
+
+
 def render_ch7_splicetrace_suite(
     st_dir: Path,
     cid: str,
@@ -1593,7 +1611,7 @@ def render_ch7_splicetrace_suite(
     motif_summaries: list[dict[str, Any]],
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Ingest a `SpliceTrace` (bulk) or `scSpliceTrace` (single-cell) directory into Chapter 07:
-    11-Channel Positional Splicing Map + Sequence-first PWM Logos + Module-RBP Bridge + all 5 NMD/UniProt Proteome plots.
+    11/13-Channel Positional Splicing Map + Sequence-first PWM Logos + Module-RBP Bridge + all 5 NMD/UniProt Proteome plots.
     Returns `(prot_df, conseq_df, br_df)` for downstream Chapter 06 / Chapter 08 synthesis."""
     prot_df_out = pd.DataFrame()
     conseq_df_out = pd.DataFrame()
@@ -1626,6 +1644,30 @@ def render_ch7_splicetrace_suite(
     except Exception:
         pass
 
+    # Pre-load RBP ranking table so both positional map and logo figures carry exact FWER, BH-FDR, and nominal P
+    rk_f = next((p for p in (st_dir / "rbp_ranking.tsv", st_dir / "scsplicetrace_rbp_ranking.tsv", *sorted(st_dir.glob("*ranking*.tsv"))) if p.is_file()), None)
+    rk_df = _safe_read_csv(rk_f, sep="\t") if rk_f is not None else pd.DataFrame()
+    fwer_by_rbp: dict[str, float] = {}
+    fdr_by_rbp: dict[str, float] = {}
+    nom_by_rbp: dict[str, float] = {}
+    if not rk_df.empty:
+        _rbp_c = next((c for c in ("RBP", "mouse_symbol", "symbol") if c in rk_df.columns), rk_df.columns[0])
+        _fwer_c = next((c for c in ("rbp_P_FWER", "P_FWER", "regional_fwer_p", "fwer_p") if c in rk_df.columns), None)
+        _nom_c = next((c for c in ("nominal_P", "raw_P", "p_value") if c in rk_df.columns), None)
+        _fdr_c = next((c for c in ("rbp_FDR_BH", "FDR_BH", "fdr_bh", "q_BH") if c in rk_df.columns), None)
+        _fwer_arr = np.clip(pd.to_numeric(rk_df[_fwer_c], errors="coerce").fillna(1.0).to_numpy(dtype=float), 0.0, 1.0) if _fwer_c else np.ones(len(rk_df))
+        _nom_arr = np.clip(pd.to_numeric(rk_df[_nom_c], errors="coerce").fillna(1.0).to_numpy(dtype=float), 0.0, 1.0) if _nom_c else _fwer_arr.copy()
+        _fdr_arr = np.clip(pd.to_numeric(rk_df[_fdr_c], errors="coerce").fillna(1.0).to_numpy(dtype=float), 0.0, 1.0) if _fdr_c else _bh_fdr_vec(_nom_arr)
+        if _fdr_c is None:
+            rk_df = rk_df.copy()
+            rk_df["rbp_FDR_BH"] = _fdr_arr
+        for r_raw_k, fw_v, fd_v, nm_v in zip(rk_df[_rbp_c], _fwer_arr, _fdr_arr, _nom_arr):
+            short_k = _short_rbp_name(r_raw_k, 18)
+            for k_alias in (short_k, str(r_raw_k)):
+                fwer_by_rbp[k_alias] = min(fwer_by_rbp.get(k_alias, 1.0), float(fw_v))
+                fdr_by_rbp[k_alias] = min(fdr_by_rbp.get(k_alias, 1.0), float(fd_v))
+                nom_by_rbp[k_alias] = min(nom_by_rbp.get(k_alias, 1.0), float(nm_v))
+
     # 1. Positional Splicing-Map Activity Heatmap across Flanking Intronic/Exonic Channels
     reg_f = next((p for p in (st_dir / "region_tests.tsv", st_dir / "scsplicetrace_region_tests.tsv", *sorted(st_dir.glob("*region_tests*.tsv"))) if p.is_file()), None)
     if reg_f is not None:
@@ -1635,11 +1677,15 @@ def render_ch7_splicetrace_suite(
             ch_rc = next((c for c in ("region", "channel", "window") if c in reg_df.columns), None)
             z_rc = next((c for c in ("stat_Z", "paired_rank_Z", "z_score", "Z") if c in reg_df.columns), None)
             q_rc = next((c for c in ("regional_P_FWER", "region_P_FWER", "rbp_P_FWER", "P_FWER", "fdr", "p_value") if c in reg_df.columns), None)
+            nom_rc = next((c for c in ("nominal_P", "raw_P", "p_value") if c in reg_df.columns), None)
+            fdr_rc = next((c for c in ("region_FDR_BH", "rbp_FDR_BH", "whole_q_BH", "FDR_BH", "q_BH") if c in reg_df.columns), None)
             if rbp_rc and ch_rc and z_rc and not reg_df.empty:
                 rw = reg_df.copy()
                 rw["_rbp"] = rw[rbp_rc].map(lambda x: _short_rbp_name(x, 18))
                 rw["_z"] = pd.to_numeric(rw[z_rc], errors="coerce").fillna(0.0)
                 rw["_q"] = pd.to_numeric(rw[q_rc], errors="coerce").fillna(1.0) if q_rc else 1.0
+                rw["_nom"] = pd.to_numeric(rw[nom_rc], errors="coerce").fillna(1.0) if nom_rc else rw["_q"]
+                rw["_fdr"] = pd.to_numeric(rw[fdr_rc], errors="coerce").fillna(1.0) if fdr_rc else _bh_fdr_vec(rw["_nom"])
                 piv_z = rw.pivot_table(index="_rbp", columns=ch_rc, values="_z", aggfunc=lambda s: s.iloc[int(np.argmax(np.abs(s.to_numpy())))] if len(s) else 0.0).fillna(0.0)
                 if not piv_z.empty and piv_z.shape[1] >= 2:
                     pref_order = list(_REGION_DISPLAY_MAP.keys())
@@ -1648,11 +1694,19 @@ def render_ch7_splicetrace_suite(
                     peak_abs = piv_z.abs().max(axis=1).sort_values(ascending=False)
                     top_rbps = peak_abs.head(14).index.tolist()
                     piv_top = piv_z.loc[top_rbps]
-                    best_q = rw.groupby("_rbp")["_q"].min().reindex(top_rbps).fillna(1.0)
+
+                    reg_min_fwer = rw.groupby("_rbp")["_q"].min().reindex(top_rbps).fillna(1.0)
+                    reg_min_fdr = rw.groupby("_rbp")["_fdr"].min().reindex(top_rbps).fillna(1.0)
+                    reg_min_nom = rw.groupby("_rbp")["_nom"].min().reindex(top_rbps).fillna(1.0)
+                    best_fwer = pd.Series([fwer_by_rbp.get(r, float(reg_min_fwer.loc[r])) for r in top_rbps], index=top_rbps)
+                    best_fdr = pd.Series([fdr_by_rbp.get(r, float(reg_min_fdr.loc[r])) for r in top_rbps], index=top_rbps)
+                    best_nom = pd.Series([nom_by_rbp.get(r, float(reg_min_nom.loc[r])) for r in top_rbps], index=top_rbps)
 
                     map_tsv = st_out / "positional_splicing_map_plot_data.tsv"
                     piv_out = piv_top.copy()
-                    piv_out.insert(0, "min_FWER_or_P", best_q.round(5))
+                    piv_out.insert(0, "min_nominal_P", best_nom.round(5))
+                    piv_out.insert(0, "min_FDR_BH", best_fdr.round(5))
+                    piv_out.insert(0, "min_FWER", best_fwer.round(5))
                     piv_out.reset_index().rename(columns={"_rbp": "RBP"}).to_csv(map_tsv, sep="\t", index=False)
                     tables.append({
                         "name": f"SpliceTrace positional splicing-map channel Z-scores ({cid})",
@@ -1665,7 +1719,7 @@ def render_ch7_splicetrace_suite(
 
                     fig_m = plt.figure(figsize=(14.4, max(4.8, 0.36 * len(top_rbps) + 1.8)), dpi=210)
                     fig_m.patch.set_facecolor("white")
-                    gs_m = fig_m.add_gridspec(1, 2, width_ratios=[3.2, 1.15], wspace=0.18)
+                    gs_m = fig_m.add_gridspec(1, 2, width_ratios=[3.2, 1.22], wspace=0.18)
                     ax_hm = fig_m.add_subplot(gs_m[0, 0])
                     ax_pk = fig_m.add_subplot(gs_m[0, 1])
 
@@ -1686,19 +1740,24 @@ def render_ch7_splicetrace_suite(
 
                     y_pk = np.arange(len(top_rbps))
                     pk_vals = peak_abs.loc[top_rbps].to_numpy(dtype=float)
-                    qv_vals = best_q.to_numpy(dtype=float)
-                    pk_cols = [K_RED if qv <= 0.05 else ("#3B82F6" if pv >= 1.96 else K_SLATE) for pv, qv in zip(pk_vals, qv_vals)]
-                    ax_pk.barh(y_pk, pk_vals, height=0.62, color=pk_cols, alpha=0.9)
+                    fw_vals = best_fwer.to_numpy(dtype=float)
+                    fd_vals = best_fdr.to_numpy(dtype=float)
+                    nm_vals = best_nom.to_numpy(dtype=float)
+                    pk_cols = [
+                        K_RED if fw <= 0.05 else (K_BLUE if fd <= 0.05 else (K_TEAL if (nm <= 0.05 or pv >= 1.96) else K_SLATE))
+                        for pv, fw, fd, nm in zip(pk_vals, fw_vals, fd_vals, nm_vals)
+                    ]
+                    ax_pk.barh(y_pk, pk_vals, height=0.62, color=pk_cols, alpha=0.92)
                     ax_pk.invert_yaxis()
                     ax_pk.axvline(1.96, color=K_GRAY, linestyle="--", linewidth=0.9)
                     max_pk = max(3.0, float(pk_vals.max()))
-                    for yi, pv, qv in zip(y_pk, pk_vals, qv_vals):
-                        star = " ★" if qv <= 0.05 else ""
-                        ax_pk.text(pv + max_pk * 0.03, yi, f"{pv:.2f}{star}", va="center", fontsize=7.8, fontweight="bold", color=K_NAVY)
+                    for yi, pv, fw, fd, nm in zip(y_pk, pk_vals, fw_vals, fd_vals, nm_vals):
+                        tier = " ★★" if fw <= 0.05 else (" ★" if fd <= 0.05 else (" †" if nm <= 0.05 else ""))
+                        ax_pk.text(pv + max_pk * 0.03, yi, f"{pv:.2f}{tier}", va="center", fontsize=7.8, fontweight="bold", color=K_NAVY)
                     ax_pk.set_yticks([])
-                    ax_pk.set_xlim(0, max_pk * 1.28)
-                    ax_pk.set_xlabel("Peak |Z| (★ FWER ≤ 0.05)", fontsize=8.2, fontweight="bold", color=K_NAVY)
-                    ax_pk.set_title("B. Peak Activity", loc="left", fontsize=9.8, fontweight="bold", color=K_NAVY, pad=8)
+                    ax_pk.set_xlim(0, max_pk * 1.32)
+                    ax_pk.set_xlabel("Peak |Z| (★★ FWER≤0.05 · ★ FDR≤0.05 · † nom.P≤0.05)", fontsize=7.6, fontweight="bold", color=K_NAVY)
+                    ax_pk.set_title("B. Peak Activity & FDR/FWER Tier", loc="left", fontsize=9.8, fontweight="bold", color=K_NAVY, pad=8)
 
                     fig_m.suptitle(f"Positional Splicing-Map Cis-Regulatory Architecture ({len(ordered_cols)} Channels) — {cid}", x=0.01, ha="left", y=1.02, fontsize=11.2, fontweight="bold", color=K_NAVY)
                     map_png = fig_out / f"{_safe_slug(cid)}-11channel-splicing-map.png"
@@ -1708,7 +1767,7 @@ def render_ch7_splicetrace_suite(
                         "chapter": 7,
                         "contrast_id": cid,
                         "title": f"Positional RBP splicing-map activity across {len(ordered_cols)} RNA channels | {cid}",
-                        "caption": "GC/CpG/length-residualized Frisch-Waugh-Lovell Z-scores across flanking exonic/intronic splice-site windows and mature Δ(I−E) isoform sequences.",
+                        "caption": "GC/CpG/length-residualized Frisch-Waugh-Lovell Z-scores across flanking exonic/intronic splice-site windows and mature Δ(I−E) isoform sequences; tiers show maxT FWER ≤ 0.05 (★★), BH-FDR ≤ 0.05 (★), and nominal P ≤ 0.05 (†).",
                         "image": map_png.relative_to(outdir).as_posix(),
                         "svg": map_png.with_suffix(".svg").relative_to(outdir).as_posix(),
                         "data_links": [{"role": "plot_data", "label": "Positional channel Z matrix (TSV)", "path": map_tsv.relative_to(outdir).as_posix(), "unit": "rbp_channel_matrix", "contrast_id": cid, "policy": None}],
@@ -1716,78 +1775,129 @@ def render_ch7_splicetrace_suite(
         except Exception:
             pass
 
-    rk_f = next((p for p in (st_dir / "rbp_ranking.tsv", st_dir / "scsplicetrace_rbp_ranking.tsv", *sorted(st_dir.glob("*ranking*.tsv"))) if p.is_file()), None)
-    if rk_f is not None:
-        rk_df = _safe_read_csv(rk_f, sep="\t")
-        if not rk_df.empty:
-            rk_pq = st_out / "splicetrace_rbp_ranking.parquet"
-            rk_df.to_parquet(rk_pq, index=False)
-            tables.append({"name": f"SpliceTrace {species} RBP ranking ({cid})", "analysis_id": "prioritize.splicetrace_ranking", "chapter": 7, "rows": len(rk_df), "columns": list(rk_df.columns), "source": rk_pq.relative_to(outdir).as_posix()})
+    if rk_f is not None and not rk_df.empty:
+        rk_pq = st_out / "splicetrace_rbp_ranking.parquet"
+        rk_df.to_parquet(rk_pq, index=False)
+        tables.append({"name": f"SpliceTrace {species} RBP ranking ({cid})", "analysis_id": "prioritize.splicetrace_ranking", "chapter": 7, "rows": len(rk_df), "columns": list(rk_df.columns), "source": rk_pq.relative_to(outdir).as_posix()})
 
-            rbp_c = next((c for c in ("RBP", "mouse_symbol", "symbol") if c in rk_df.columns), rk_df.columns[0])
-            z_c = next((c for c in ("stat_Z", "rbp_pivotal_Z", "best_z", "Z") if c in rk_df.columns), None)
-            fwer_c = next((c for c in ("rbp_P_FWER", "P_FWER", "regional_fwer_p", "fwer_p") if c in rk_df.columns), rk_df.columns[-1])
-            reg_c = next((c for c in ("best_region", "best_channel", "region") if c in rk_df.columns), None)
-            min_fwer = float(pd.to_numeric(rk_df[fwer_c], errors="coerce").min())
-            motif_summaries.append({
-                "contrast_id": cid,
-                "status": "significant" if min_fwer <= 0.05 else "no_significant_motif",
-                "min_native_fdr": min_fwer,
-                "notice": f"SpliceTrace evaluated {len(rk_df)} curated {species} RBP PWMs across flanking intronic/exonic splicing-map channels + mature Δ(I-E) RNA.",
-                "native_test_family": "Host-gene-block maxT FWER across positional splicing-map channels",
-                "ranking_path": rk_pq.relative_to(outdir).as_posix(),
+        rbp_c = next((c for c in ("RBP", "mouse_symbol", "symbol") if c in rk_df.columns), rk_df.columns[0])
+        z_c = next((c for c in ("stat_Z", "rbp_pivotal_Z", "best_z", "Z") if c in rk_df.columns), None)
+        fwer_c = next((c for c in ("rbp_P_FWER", "P_FWER", "regional_fwer_p", "fwer_p") if c in rk_df.columns), rk_df.columns[-1])
+        nom_c = next((c for c in ("nominal_P", "raw_P", "p_value") if c in rk_df.columns), None)
+        fdr_c = next((c for c in ("rbp_FDR_BH", "FDR_BH", "fdr_bh", "q_BH") if c in rk_df.columns), None)
+        reg_c = next((c for c in ("best_region", "best_channel", "region") if c in rk_df.columns), None)
+
+        fwer_s = np.clip(pd.to_numeric(rk_df[fwer_c], errors="coerce").fillna(1.0), 0.0, 1.0)
+        nom_s = np.clip(pd.to_numeric(rk_df[nom_c], errors="coerce").fillna(1.0), 0.0, 1.0) if nom_c else fwer_s.copy()
+        fdr_s = np.clip(pd.to_numeric(rk_df[fdr_c], errors="coerce").fillna(1.0), 0.0, 1.0) if fdr_c else pd.Series(_bh_fdr_vec(nom_s), index=rk_df.index)
+        n_fwer05 = int((fwer_s <= 0.05).sum())
+        n_fdr05 = int((fdr_s <= 0.05).sum())
+        n_nom05 = int((nom_s <= 0.05).sum())
+        min_fwer = float(fwer_s.min())
+        min_fdr = float(fdr_s.min())
+        min_nom_p = float(nom_s.min())
+        motif_summaries.append({
+            "contrast_id": cid,
+            "status": "significant" if (min_fwer <= 0.05 or min_fdr <= 0.05) else "no_significant_motif",
+            "min_native_fdr": min_fdr,
+            "min_fwer": min_fwer,
+            "min_nominal_p": min_nom_p,
+            "n_fwer05": n_fwer05,
+            "n_fdr05": n_fdr05,
+            "n_nom05": n_nom05,
+            "notice": (
+                f"SpliceTrace evaluated {len(rk_df)} curated {species} RBP PWMs across flanking intronic/exonic splicing-map channels + mature Δ(I-E) RNA: "
+                f"{n_fwer05} pass maxT FWER ≤ 0.05, {n_fdr05} pass BH-FDR ≤ 0.05, and {n_nom05} pass multi-channel nominal P ≤ 0.05."
+            ),
+            "native_test_family": "Host-gene-block maxT FWER & Benjamini-Hochberg FDR across positional splicing-map channels",
+            "ranking_path": rk_pq.relative_to(outdir).as_posix(),
+        })
+
+        if z_c:
+            from matplotlib.patches import Patch
+            sub = rk_df.copy()
+            sub["_abs_z"] = pd.to_numeric(sub[z_c], errors="coerce").abs().fillna(0.0)
+            sub["_fwer"] = fwer_s
+            sub["_fdr"] = fdr_s
+            sub["_nom"] = nom_s
+            top8 = sub.sort_values(["_abs_z", "_fdr"], ascending=[False, True]).head(8)
+            fig = plt.figure(figsize=(18.8, 9.8), dpi=200)
+            fig.patch.set_facecolor("white")
+            gs = fig.add_gridspec(4, 4, width_ratios=[1.0, 1.0, 0.56, 1.52], wspace=0.46, hspace=0.78)
+            logo_rows = []
+            for idx_r, (_, row) in enumerate(top8.iterrows()):
+                ax_l = fig.add_subplot(gs[idx_r % 4, idx_r // 4])
+                r_raw = str(row[rbp_c])
+                r_lead = re.split(r"[;,|]", r_raw.strip("[]"))[0].strip(" '\"")
+                r_disp = _short_rbp_name(r_raw, 18)
+                _z_num = pd.to_numeric(row[z_c], errors="coerce")
+                zv = float(_z_num) if (pd.notna(_z_num) and math.isfinite(float(_z_num))) else 0.0
+                qv = float(row["_fwer"])
+                fd_v = float(row["_fdr"])
+                nm_v = float(row["_nom"])
+                rv_raw = str(row[reg_c]) if reg_c and pd.notna(row.get(reg_c)) else "flank"
+                rv_short = _short_region_label(rv_raw)
+                seq_l, mat_l = pwm_map.get(r_lead.upper(), pwm_map.get(r_raw.upper(), ("5'-UGCAUG-3'", [[0.05, 0.05, 0.05, 0.85], [0.05, 0.05, 0.85, 0.05], [0.05, 0.85, 0.05, 0.05], [0.85, 0.05, 0.05, 0.05], [0.05, 0.05, 0.05, 0.85], [0.05, 0.05, 0.85, 0.05]])))
+                seq_disp = seq_l if len(seq_l) <= 15 else seq_l[:14] + "…"
+                _draw_pwm_logo_ax(ax_l, mat_l, f"{r_disp} · {seq_disp}\n{rv_short} · Z={zv:+.2f} (FDR={fd_v:.2g}, FWER={qv:.2g})")
+                logo_rows.append({"rank": idx_r + 1, "RBP": r_raw, "consensus_RNA": seq_l, "best_region": rv_raw, "stat_Z": round(zv, 4), "nominal_P": round(nm_v, 5), "FDR_BH": round(fd_v, 5), "P_FWER": round(qv, 5)})
+
+            logo_tsv = st_out / "top_motif_logos_plot_data.tsv"
+            pd.DataFrame(logo_rows).to_csv(logo_tsv, sep="\t", index=False)
+            ax_r = fig.add_subplot(gs[:, 3])
+            top15 = sub.sort_values(["_abs_z", "_fdr"], ascending=[False, True]).head(15).iloc[::-1]
+            zv15 = pd.to_numeric(top15[z_c], errors="coerce").fillna(0.0).to_numpy()
+            qv15 = top15["_fwer"].to_numpy(dtype=float)
+            fd15 = top15["_fdr"].to_numpy(dtype=float)
+            nm15 = top15["_nom"].to_numpy(dtype=float)
+            lbls15 = [
+                f"{_short_rbp_name(r[rbp_c], 15)} ({_short_region_label(r[reg_c])})"
+                if reg_c and pd.notna(r.get(reg_c)) else _short_rbp_name(r[rbp_c], 20)
+                for _, r in top15.iterrows()
+            ]
+            bar_cols15 = []
+            for z, q, fd, nm in zip(zv15, qv15, fd15, nm15):
+                if q <= 0.05:
+                    bar_cols15.append(K_RED if z >= 0 else K_BLUE)
+                elif fd <= 0.05:
+                    bar_cols15.append("#E05A47" if z >= 0 else "#0077C8")
+                elif nm <= 0.05 or abs(z) >= 1.96:
+                    bar_cols15.append("#E69F9B" if z >= 0 else "#5B84B1")
+                else:
+                    bar_cols15.append(K_SLATE)
+            ax_r.barh(range(len(top15)), zv15, color=bar_cols15, height=0.62)
+            ax_r.axvline(0, color=K_NAVY, linewidth=0.9)
+            ax_r.axvline(1.96, color=K_GRAY, linestyle="--", linewidth=0.9)
+            ax_r.axvline(-1.96, color=K_GRAY, linestyle="--", linewidth=0.9)
+            z_span = max(3.2, float(np.max(np.abs(zv15))) * 1.22)
+            for yi_b, (z, q, fd, nm) in enumerate(zip(zv15, qv15, fd15, nm15)):
+                tier = "★★" if q <= 0.05 else ("★" if fd <= 0.05 else ("†" if nm <= 0.05 else ""))
+                if tier:
+                    off = z_span * 0.02 * (1.0 if z >= 0 else -1.0)
+                    ax_r.text(z + off, yi_b, tier, va="center", ha="left" if z >= 0 else "right", fontsize=8.0, fontweight="bold", color=K_NAVY)
+            ax_r.set_xlim(-z_span, z_span)
+            ax_r.set_yticks(range(len(top15)), lbls15, fontsize=8.2)
+            ax_r.set_xlabel("FWL Cis-Motif Enrichment Z (+ incl / - skip)", fontweight="bold", color=K_NAVY)
+            ax_r.set_title("Top 15 RBP Models (★★ FWER≤0.05 · ★ FDR≤0.05 · † nom.P≤0.05)", loc="left", fontsize=9.2, fontweight="bold", color=K_NAVY)
+            ax_r.legend(
+                handles=[
+                    Patch(facecolor=K_RED, label="+Z (★★ FWER≤0.05)"),
+                    Patch(facecolor=K_BLUE, label="-Z (★★ FWER≤0.05)"),
+                    Patch(facecolor="#0077C8", label="★ BH-FDR ≤ 0.05"),
+                    Patch(facecolor="#5B84B1", label="† nom. P ≤ 0.05"),
+                ],
+                frameon=True, facecolor="white", edgecolor="#E2E8F0", fontsize=7.2, loc="lower right", ncol=2,
+            )
+            fig.suptitle(f"Sequence-First PWM Motif Logos & Positional Splicing-Map Statistics — {cid}", x=0.01, ha="left", fontsize=11.4, fontweight="bold", color=K_NAVY, y=1.01)
+            logo_png = fig_out / f"{_safe_slug(cid)}-sequence-logos-and-ranking.png"
+            _save_fig(fig, logo_png)
+            panels.append({
+                "id": f"{_safe_slug(cid)}-motif-logos", "chapter": 7, "contrast_id": cid,
+                "title": f"Sequence-first RBP PWM logos, BH-FDR & regional FWER | {cid}",
+                "caption": "Information-content PWM consensus logos (5'-to-3'), best positional splicing-map region, FWL Z-score, cross-RBP Benjamini-Hochberg FDR, and regional maxT FWER.",
+                "image": logo_png.relative_to(outdir).as_posix(), "svg": logo_png.with_suffix(".svg").relative_to(outdir).as_posix(),
+                "data_links": [{"role": "plot_data", "label": "Top motif logos & stats (TSV)", "path": logo_tsv.relative_to(outdir).as_posix(), "unit": "motif_model", "contrast_id": cid, "policy": None}],
             })
-
-            if z_c:
-                sub = rk_df.copy()
-                sub["_abs_z"] = pd.to_numeric(sub[z_c], errors="coerce").abs().fillna(0.0)
-                top8 = sub.sort_values("_abs_z", ascending=False).head(8)
-                fig = plt.figure(figsize=(18.8, 9.8), dpi=200)
-                fig.patch.set_facecolor("white")
-                gs = fig.add_gridspec(4, 4, width_ratios=[1.0, 1.0, 0.56, 1.48], wspace=0.46, hspace=0.78)
-                logo_rows = []
-                for idx_r, (_, row) in enumerate(top8.iterrows()):
-                    ax_l = fig.add_subplot(gs[idx_r % 4, idx_r // 4])
-                    r_raw = str(row[rbp_c])
-                    r_lead = re.split(r"[;,|]", r_raw.strip("[]"))[0].strip(" '\"")
-                    r_disp = _short_rbp_name(r_raw, 18)
-                    zv = float(pd.to_numeric(row[z_c], errors="coerce") or 0.0)
-                    qv = float(pd.to_numeric(row[fwer_c], errors="coerce") or 1.0)
-                    rv_raw = str(row[reg_c]) if reg_c and pd.notna(row.get(reg_c)) else "flank"
-                    rv_short = _short_region_label(rv_raw)
-                    seq_l, mat_l = pwm_map.get(r_lead.upper(), pwm_map.get(r_raw.upper(), ("5'-UGCAUG-3'", [[0.05, 0.05, 0.05, 0.85], [0.05, 0.05, 0.85, 0.05], [0.05, 0.85, 0.05, 0.05], [0.85, 0.05, 0.05, 0.05], [0.05, 0.05, 0.05, 0.85], [0.05, 0.05, 0.85, 0.05]])))
-                    seq_disp = seq_l if len(seq_l) <= 15 else seq_l[:14] + "…"
-                    _draw_pwm_logo_ax(ax_l, mat_l, f"{r_disp} · {seq_disp}\n{rv_short} · Z={zv:+.2f} (P={qv:.2g})")
-                    logo_rows.append({"rank": idx_r + 1, "RBP": r_raw, "consensus_RNA": seq_l, "best_region": rv_raw, "stat_Z": round(zv, 4), "P_FWER": round(qv, 5)})
-
-                logo_tsv = st_out / "top_motif_logos_plot_data.tsv"
-                pd.DataFrame(logo_rows).to_csv(logo_tsv, sep="\t", index=False)
-                ax_r = fig.add_subplot(gs[:, 3])
-                top15 = sub.sort_values("_abs_z", ascending=False).head(15).iloc[::-1]
-                zv15 = pd.to_numeric(top15[z_c], errors="coerce").fillna(0.0).to_numpy()
-                qv15 = pd.to_numeric(top15[fwer_c], errors="coerce").fillna(1.0).to_numpy()
-                lbls15 = [
-                    f"{_short_rbp_name(r[rbp_c], 15)} ({_short_region_label(r[reg_c])})"
-                    if reg_c and pd.notna(r.get(reg_c)) else _short_rbp_name(r[rbp_c], 20)
-                    for _, r in top15.iterrows()
-                ]
-                ax_r.barh(range(len(top15)), zv15, color=[K_RED if (q <= 0.05 and z > 0) else (K_BLUE if (q <= 0.05 and z < 0) else ("#5B84B1" if abs(z) >= 1.96 else K_SLATE)) for z, q in zip(zv15, qv15)], height=0.62)
-                ax_r.axvline(0, color=K_NAVY, linewidth=0.9)
-                ax_r.axvline(1.96, color=K_GRAY, linestyle="--", linewidth=0.9)
-                ax_r.axvline(-1.96, color=K_GRAY, linestyle="--", linewidth=0.9)
-                ax_r.set_yticks(range(len(top15)), lbls15, fontsize=8.2)
-                ax_r.set_xlabel("FWL Cis-Motif Enrichment Z", fontweight="bold", color=K_NAVY)
-                ax_r.set_title("Top 15 RBP Models (Regional maxT)", loc="left", fontsize=9.8, fontweight="bold", color=K_NAVY)
-                fig.suptitle(f"Sequence-First PWM Motif Logos & Positional Splicing-Map Statistics — {cid}", x=0.01, ha="left", fontsize=11.4, fontweight="bold", color=K_NAVY, y=1.01)
-                logo_png = fig_out / f"{_safe_slug(cid)}-sequence-logos-and-ranking.png"
-                _save_fig(fig, logo_png)
-                panels.append({
-                    "id": f"{_safe_slug(cid)}-motif-logos", "chapter": 7, "contrast_id": cid,
-                    "title": f"Sequence-first RBP PWM logos & regional FWER | {cid}",
-                    "caption": "Information-content PWM consensus logos (5'-to-3'), best positional splicing-map region, FWL Z-score, and regional maxT FWER.",
-                    "image": logo_png.relative_to(outdir).as_posix(), "svg": logo_png.with_suffix(".svg").relative_to(outdir).as_posix(),
-                    "data_links": [{"role": "plot_data", "label": "Top motif logos & stats (TSV)", "path": logo_tsv.relative_to(outdir).as_posix(), "unit": "motif_model", "contrast_id": cid, "policy": None}],
-                })
 
     # 2. Mature-mRNA Motif Gain/Loss Consequence Table (used by Chapter 07 & Chapter 08 4-Track GeneCard)
     conseq_f = next((p for p in (st_dir / "motif_consequence_changes.tsv", st_dir / "scsplicetrace_mature_consequences.tsv", *sorted(st_dir.glob("*motif_consequence*.tsv")), *sorted(st_dir.glob("*mature_consequences*.tsv"))) if p.is_file()), None)

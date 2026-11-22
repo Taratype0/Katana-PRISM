@@ -249,6 +249,132 @@ def compute_signed_tom(
     return tom, int(soft_power)
 
 
+def _fast_nanquantile_axis0(arr: np.ndarray, q: float) -> np.ndarray:
+    """Vectorized columnwise nanquantile (linear interpolation) avoiding Python O(E^2) loops."""
+    a = np.asarray(arr, dtype=float)
+    if a.ndim == 1:
+        a = a[:, None]
+    if a.shape[0] == 0 or a.shape[1] == 0:
+        return np.full(a.shape[1], np.nan, dtype=float)
+    fin = np.isfinite(a)
+    n_val = fin.sum(axis=0)
+    sorted_a = np.sort(np.where(fin, a, np.inf), axis=0)
+    pos = float(q) * np.maximum(n_val - 1, 0)
+    lo = np.floor(pos).astype(int)
+    hi = np.ceil(pos).astype(int)
+    frac = pos - lo
+    cols = np.arange(a.shape[1])
+    v_lo = np.where(n_val > 0, sorted_a[lo, cols], 0.0)
+    v_hi = np.where(n_val > 0, sorted_a[hi, cols], 0.0)
+    val = v_lo * (1.0 - frac) + v_hi * frac
+    return np.where(n_val > 0, val, np.nan)
+
+
+def _modularity_score(W: np.ndarray, labels: np.ndarray) -> float:
+    """Newman-Girvan weighted modularity Q across assigned clusters (label > 0)."""
+    tot = float(W.sum())
+    if tot <= 1e-12:
+        return 0.0
+    k = W.sum(axis=1)
+    q_val = 0.0
+    for c in set(int(x) for x in labels if int(x) > 0):
+        idx = labels == c
+        e_in = float(W[np.ix_(idx, idx)].sum())
+        k_c = float(k[idx].sum())
+        q_val += (e_in / tot) - (k_c / tot) ** 2
+    return q_val
+
+
+def _is_balanced_multimodule(labels: np.ndarray, n: int, min_module_size: int) -> bool:
+    pos = labels[labels > 0]
+    if len(pos) == 0:
+        return False
+    vc = pd.Series(pos).value_counts()
+    valid = vc[vc >= int(min_module_size)]
+    if len(valid) >= 2 and int(valid.max()) <= max(2 * int(min_module_size), int(0.72 * n)):
+        return True
+    return len(valid) >= 1 and n < 3 * int(min_module_size)
+
+
+def _louvain_or_modularity_cut(
+    d_clean: np.ndarray,
+    min_module_size: int = 10,
+    seed: int = 20261117,
+) -> np.ndarray:
+    """Multi-community Louvain + modularity-guided hierarchical fallback preventing single-M1 collapse."""
+    n = d_clean.shape[0]
+    W = np.clip(1.0 - d_clean, 0.0, 1.0)
+    np.fill_diagonal(W, 0.0)
+
+    try:
+        import networkx as nx
+
+        triu_i, triu_j = np.triu_indices(n, k=1)
+        weights = W[triu_i, triu_j]
+        pos_w = weights[weights > 1e-9]
+        if len(pos_w) >= max(4, n):
+            thr = float(np.quantile(pos_w, 0.70))
+            keep_mask = weights > thr
+            if int(keep_mask.sum()) < 2 * n:
+                keep_mask = weights > 1e-9
+            G = nx.Graph()
+            G.add_nodes_from(range(n))
+            for a, b_i, w_v in zip(triu_i[keep_mask], triu_j[keep_mask], weights[keep_mask]):
+                G.add_edge(int(a), int(b_i), weight=float(w_v))
+
+            for res_val in (1.0, 1.25):
+                comms = nx.community.louvain_communities(G, weight="weight", resolution=res_val, seed=int(seed))
+                big_comms = sorted([c for c in comms if len(c) >= int(min_module_size)], key=len, reverse=True)
+                if len(big_comms) >= 2 and len(big_comms[0]) <= max(2 * int(min_module_size), int(0.72 * n)):
+                    mapped = np.zeros(n, dtype=int)
+                    for new_id, comm in enumerate(big_comms, start=1):
+                        mapped[list(comm)] = new_id
+                    return mapped
+    except Exception:
+        pass
+
+    Z = average(squareform(d_clean, checks=False))
+    best_labels = np.zeros(n, dtype=int)
+    best_score = -1.0
+    max_cap = max(int(min_module_size), int(0.65 * n))
+    for q in np.linspace(0.15, 0.96, 28):
+        h = float(np.quantile(Z[:, 2], q))
+        raw_cl = fcluster(Z, t=h, criterion="distance")
+        vc = pd.Series(raw_cl).value_counts()
+        valid_c = vc[(vc >= int(min_module_size)) & (vc <= max_cap)].index.tolist()
+        if len(valid_c) < 2:
+            continue
+        mapped = np.zeros(n, dtype=int)
+        for new_id, cid in enumerate(valid_c, start=1):
+            mapped[raw_cl == cid] = new_id
+        cov = float(np.mean(mapped > 0))
+        q_mod = max(_modularity_score(W, mapped), 0.01)
+        score = q_mod * float(np.sqrt(max(cov, 0.05))) * float(np.log1p(min(len(valid_c), 12)))
+        if score > best_score:
+            best_score = score
+            best_labels = mapped
+    if int(best_labels.max()) >= 2:
+        return best_labels
+
+    best_single = np.zeros(n, dtype=int)
+    best_cov = -1.0
+    for q in (0.70, 0.80, 0.88, 0.94, 0.97):
+        h = float(np.quantile(Z[:, 2], q))
+        raw_cl = fcluster(Z, t=h, criterion="distance")
+        vc = pd.Series(raw_cl).value_counts()
+        valid_c = vc[(vc >= int(min_module_size)) & (vc <= int(0.85 * n))].index.tolist()
+        if not valid_c:
+            continue
+        mapped = np.zeros(n, dtype=int)
+        for new_id, cid in enumerate(valid_c, start=1):
+            mapped[raw_cl == cid] = new_id
+        score = float(np.mean(mapped > 0)) * float(np.log1p(len(valid_c)))
+        if score > best_cov:
+            best_cov = score
+            best_single = mapped
+    return best_single
+
+
 def _dynamic_cut_via_r_or_python(
     dissim_tom: np.ndarray,
     min_module_size: int = 10,
@@ -256,7 +382,7 @@ def _dynamic_cut_via_r_or_python(
     use_r_dynamic_cut: bool = False,
     rscript_exe: str | None = None,
 ) -> np.ndarray:
-    """Cluster 1 - TOM into co-splicing modules via pure-Python dynamicTreeCut (default, zero R needed!) or optional R."""
+    """Cluster 1 - TOM into co-splicing modules via dynamicTreeCut + Louvain/modularity anti-collapse guard."""
     import shutil
     n = dissim_tom.shape[0]
     if n < max(2 * min_module_size, 6):
@@ -265,6 +391,7 @@ def _dynamic_cut_via_r_or_python(
     d_clean = np.clip(0.5 * (dissim_tom + dissim_tom.T), 0.0, 1.0)
     np.fill_diagonal(d_clean, 0.0)
 
+    cand_lbl: np.ndarray | None = None
     r_bin = rscript_exe or (shutil.which("Rscript") if use_r_dynamic_cut else None)
     if use_r_dynamic_cut and r_bin and Path(r_bin).is_file():
         with tempfile.TemporaryDirectory(prefix="scsplicenet_") as tmp_dir:
@@ -285,37 +412,30 @@ def _dynamic_cut_via_r_or_python(
             if proc.returncode == 0 and tsv_out.is_file():
                 lbl = pd.read_csv(tsv_out, sep="\t")["label"].to_numpy(dtype=int)
                 if len(lbl) == n:
-                    return lbl
+                    cand_lbl = lbl
 
-    Z = average(squareform(d_clean, checks=False))
-    try:
-        from dynamicTreeCut import cutreeHybrid
-        res = cutreeHybrid(
-            Z, d_clean, minClusterSize=int(min_module_size), deepSplit=int(min(deep_split, 4)), pamRespectsDendro=False, verbose=0
-        )
-        lbl = np.asarray(res["labels"] if isinstance(res, dict) else res, dtype=int)
-        if len(lbl) == n:
-            return lbl
-    except Exception:
-        pass
+    if cand_lbl is None:
+        Z = average(squareform(d_clean, checks=False))
+        try:
+            from dynamicTreeCut import cutreeHybrid
+            res = cutreeHybrid(
+                Z, d_clean, minClusterSize=int(min_module_size), deepSplit=int(min(deep_split, 4)), pamRespectsDendro=False, verbose=0
+            )
+            lbl = np.asarray(res["labels"] if isinstance(res, dict) else res, dtype=int)
+            if len(lbl) == n:
+                cand_lbl = lbl
+        except Exception:
+            cand_lbl = None
 
-    best_labels = np.zeros(n, dtype=int)
-    best_score = -1.0
-    for q in (0.70, 0.80, 0.85, 0.90, 0.94, 0.97):
-        h = float(np.quantile(Z[:, 2], q))
-        raw_cl = fcluster(Z, t=h, criterion="distance")
-        vc = pd.Series(raw_cl).value_counts()
-        valid_c = vc[(vc >= min_module_size) & (vc <= int(0.75 * n))].index.tolist()
-        if not valid_c:
-            continue
-        mapped = np.zeros(n, dtype=int)
-        for new_id, cid in enumerate(valid_c, start=1):
-            mapped[raw_cl == cid] = new_id
-        score = float(np.mean(mapped > 0)) * np.log1p(len(valid_c))
-        if score > best_score:
-            best_score = score
-            best_labels = mapped
-    return best_labels
+    if cand_lbl is not None and _is_balanced_multimodule(cand_lbl, n, min_module_size):
+        return cand_lbl
+
+    louv_lbl = _louvain_or_modularity_cut(d_clean, min_module_size=min_module_size)
+    if _is_balanced_multimodule(louv_lbl, n, min_module_size) or cand_lbl is None:
+        return louv_lbl
+    if int(louv_lbl.max()) >= 2:
+        return louv_lbl
+    return cand_lbl
 
 
 def discover_sc_modules(
@@ -491,11 +611,11 @@ def fit_scsplicenet(
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             c_arr = np.asarray(cross_draws, dtype=float)
-            q25 = np.nanquantile(c_arr, 0.25, axis=0)
-            q75 = np.nanquantile(c_arr, 0.75, axis=0)
-            med_c = np.nanmedian(c_arr, axis=0)
+            q25 = _fast_nanquantile_axis0(c_arr, 0.25)
+            q75 = _fast_nanquantile_axis0(c_arr, 0.75)
+            med_c = _fast_nanquantile_axis0(c_arr, 0.50)
             cons_r = np.where(med_c >= 0.0, np.maximum(q25, 0.0), np.minimum(q75, 0.0))
-            eff_sup = np.nanmedian(neff_draws, axis=0)
+            eff_sup = _fast_nanquantile_axis0(np.asarray(neff_draws, dtype=float), 0.50)
 
         elig = cross_gene_pair & np.isfinite(full_r[ia, ib]) & (valid_splits >= min_valid) & np.isfinite(q25) & (eff_sup > 3.2)
         shrunk_vec, shrink_info = empirical_bayes_fisher_shrink(cons_r, eff_sup, elig)
@@ -552,9 +672,9 @@ def fit_scsplicenet(
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             s_mat = np.asarray(split_r_draws, dtype=float)
-            q25 = np.nanquantile(s_mat, 0.25, axis=0)
-            q75 = np.nanquantile(s_mat, 0.75, axis=0)
-            med_s = np.nanmedian(s_mat, axis=0)
+            q25 = _fast_nanquantile_axis0(s_mat, 0.25)
+            q75 = _fast_nanquantile_axis0(s_mat, 0.75)
+            med_s = _fast_nanquantile_axis0(s_mat, 0.50)
             cons_r = np.where(med_s >= 0.0, np.maximum(q25, 0.0), np.minimum(q75, 0.0))
 
         raw_blend = np.where(
@@ -596,9 +716,9 @@ def fit_scsplicenet(
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             w_mat = np.asarray(split_draws, dtype=float)
-            q25 = np.nanquantile(w_mat, 0.25, axis=0)
-            q75 = np.nanquantile(w_mat, 0.75, axis=0)
-            med_w = np.nanmedian(w_mat, axis=0)
+            q25 = _fast_nanquantile_axis0(w_mat, 0.25)
+            q75 = _fast_nanquantile_axis0(w_mat, 0.75)
+            med_w = _fast_nanquantile_axis0(w_mat, 0.50)
             cons_r = np.where(med_w >= 0.0, np.maximum(q25, 0.0), np.minimum(q75, 0.0))
         raw_vec = full_r[ia, ib]
         eff_sup = full_neff[ia, ib]

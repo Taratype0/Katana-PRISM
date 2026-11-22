@@ -212,7 +212,7 @@ def run_bulk_continuous_rescue(
     rbp_expr_df: pd.DataFrame | None = None,
     min_rbp_expr: float = 1.0,
     max_events_blind_depth: int = 3500,
-    n_permutations: int = 1999,
+    n_permutations: int = 4999,
     seed: int = 20261117,
     threads: int | None = None,
 ) -> SpliceTraceRescueResult:
@@ -274,8 +274,8 @@ def run_bulk_continuous_rescue(
     cont_df = panel_raw.loc[valid_mask].reset_index(drop=True)
     if cont_df.empty:
         return SpliceTraceRescueResult(
-            rbp_ranking=pd.DataFrame(columns=["RBP", "best_region", "direction", "stat_Z", "nominal_P", "rbp_P_FWER", "sequence_rank"]),
-            region_tests=pd.DataFrame(columns=["RBP", "region", "layer", "stat_Z", "nominal_P", "region_P_FWER"]),
+            rbp_ranking=pd.DataFrame(columns=["RBP", "best_region", "direction", "stat_Z", "nominal_P", "rbp_FDR_BH", "rbp_P_FWER", "sequence_rank"]),
+            region_tests=pd.DataFrame(columns=["RBP", "region", "layer", "stat_Z", "nominal_P", "region_FDR_BH", "region_P_FWER"]),
             event_contrasts=cont_df,
             mature_consequences=pd.DataFrame(),
             diagnostics={"status": "no_valid_events", "n_events_total": 0, "n_events_fg": 0},
@@ -391,12 +391,27 @@ def run_bulk_continuous_rescue(
     Z_obs_2d, rbp_nom_p, rbp_fwer_p, reg_nom_p, reg_fwer_p = fast_gene_block_maxt_permutations(
         yc, F_gc, sd_perm, valid_c, n_reg, n_rbp, n_permutations=int(n_permutations), seed=int(seed)
     )
+    def _bh_vec(p_arr: np.ndarray) -> np.ndarray:
+        p = np.clip(np.asarray(p_arr, dtype=float), 0.0, 1.0)
+        n = len(p)
+        if n == 0:
+            return p
+        order = np.argsort(p, kind="mergesort")
+        q = p[order] * n / np.arange(1, n + 1, dtype=float)
+        q = np.minimum.accumulate(q[::-1])[::-1]
+        out = np.empty(n, dtype=float)
+        out[order] = np.clip(q, 0.0, 1.0)
+        return out
+
+    reg_fdr_2d = _bh_vec(reg_nom_p.ravel()).reshape(n_reg, n_rbp)
+    rbp_fdr_bh = _bh_vec(rbp_nom_p)
     reg_rows = [
         {
             "RBP": str(rbps[m_i]),
             "region": str(region_names[r_i]),
             "stat_Z": float(Z_obs_2d[r_i, m_i]),
             "nominal_P": float(reg_nom_p[r_i, m_i]),
+            "region_FDR_BH": float(reg_fdr_2d[r_i, m_i]),
             "region_P_FWER": float(reg_fwer_p[r_i, m_i]),
         }
         for r_i in range(n_reg)
@@ -413,11 +428,12 @@ def run_bulk_continuous_rescue(
             "stat_Z": zv,
             "abs_Z": abs(zv),
             "nominal_P": float(rbp_nom_p[m_i]),
+            "rbp_FDR_BH": float(rbp_fdr_bh[m_i]),
             "rbp_P_FWER": float(rbp_fwer_p[m_i]),
             "sequence_evidence_score": float(-norm.logsf(abs(zv)) / np.log(10.0)),
         })
     rbp_df = pd.DataFrame(rbp_rows).sort_values(
-        by=["rbp_P_FWER", "sequence_evidence_score", "RBP"], ascending=[True, False, True], kind="mergesort"
+        by=["rbp_P_FWER", "rbp_FDR_BH", "sequence_evidence_score", "RBP"], ascending=[True, True, False, True], kind="mergesort"
     ).reset_index(drop=True)
     rbp_df["sequence_rank"] = np.arange(1, len(rbp_df) + 1, dtype=int)
     if rbp_expr_df is not None:
@@ -429,7 +445,7 @@ def run_bulk_continuous_rescue(
             min_rbp_expr=min_rbp_expr,
         )
 
-    sig_rbps = rbp_df.loc[rbp_df["rbp_P_FWER"] <= 0.05, "RBP"].tolist()[:10]
+    sig_rbps = rbp_df.loc[(rbp_df["rbp_P_FWER"] <= 0.05) | (rbp_df["rbp_FDR_BH"] <= 0.05), "RBP"].tolist()[:10]
     if not sig_rbps:
         sig_rbps = rbp_df.loc[rbp_df["nominal_P"] <= 0.01, "RBP"].tolist()[:5]
     conseq_df = pd.DataFrame()
@@ -450,5 +466,7 @@ def run_bulk_continuous_rescue(
             "foreground_events": int(cont_df["_is_fg"].sum()),
             "eligible_genes": int(G),
             "significant_rbps_fwer05": int((rbp_df["rbp_P_FWER"] <= 0.05).sum()),
+            "significant_rbps_fdr05": int((rbp_df["rbp_FDR_BH"] <= 0.05).sum()),
+            "significant_rbps_nom05": int((rbp_df["nominal_P"] <= 0.05).sum()),
         },
     )

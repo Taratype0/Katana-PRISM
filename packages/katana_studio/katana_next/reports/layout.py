@@ -196,7 +196,16 @@ def _motif_summary(record):
     status = record.get('status')
     heading = 'Significant motif sequences' if status == 'significant' else 'No significant motif' if status == 'no_significant_motif' else 'Motif tests not estimable'
     minimum = record.get('min_native_fdr')
-    note = (' Minimum recorded test FDR: ' + _cell(minimum) + '.') if minimum is not None else ''
+    min_fw = record.get('min_fwer')
+    min_nm = record.get('min_nominal_p')
+    notes = []
+    if minimum is not None:
+        notes.append(' Minimum BH-FDR: ' + _cell(minimum) + '.')
+    if min_fw is not None:
+        notes.append(' Minimum maxT FWER: ' + _cell(min_fw) + '.')
+    if min_nm is not None:
+        notes.append(' Minimum nominal P: ' + _cell(min_nm) + '.')
+    note = ''.join(notes)
     full = _link(record['ranking_path'], 'All models and original P / FDR') if record.get('ranking_path') else ''
     notice_txt = record.get('notice', record.get('summary', 'Completed SpliceTrace cis-regulatory sequence summary; see complete output tables.'))
     fam_txt = record.get('native_test_family', '')
@@ -206,8 +215,11 @@ def _motif_summary(record):
 def _network_browser(record):
     if record.get('whole_study'):
         b_title = record.get('title') or 'SpliceNet — Co-splicing network | all study samples and conditions'
-        return '<article class="exhibit wide network-browser" id="' + esc(record['id']) + '"' + _scope(record) + '><div class="exhibit-head"><h3>' + esc(b_title) + '</h3></div><p class="fig-notes">One shared sample/donor-level network across declared biological units. Changing the comparison selector does not refit or subset this network. Each module has its own genes, events, sample response and enrichment.</p><div class="fig-links">' + _link(record['source'], 'Open whole-study network report') + '</div><iframe loading="lazy" data-src="' + esc(str(record['source']).replace('\\', '/')) + '" title="' + esc(b_title) + '" class="network-frame"></iframe></article>'
-    return '<article class="exhibit wide network-browser" id="' + esc(record['id']) + '"' + _scope(record) + '><div class="exhibit-head"><h3>Module network and complete gene lists | ' + esc(record['contrast_id']) + '</h3></div><p class="fig-notes">Select a module below. The graph uses saved module membership and native adjacency; display-node and edge limits are stated in the browser. Gene symbols, IDs and all event memberships are searchable and downloadable.</p><div class="fig-links">' + _link(record['source'], 'Open network and module genes in a full window') + '</div><iframe loading="lazy" data-src="' + esc(str(record['source']).replace('\\', '/')) + '" title="Module network and gene lists" class="network-frame"></iframe></article>'
+        b_note = record.get('note') or 'One shared sample/donor-level network across declared biological units. Changing the comparison selector does not refit or subset this network. Each module has its own genes, events, sample response and enrichment.'
+        return '<article class="exhibit wide network-browser" id="' + esc(record['id']) + '"' + _scope(record) + '><div class="exhibit-head"><h3>' + esc(b_title) + '</h3></div><p class="fig-notes">' + esc(b_note) + '</p><div class="fig-links">' + _link(record['source'], 'Open whole-study network report') + '</div><iframe loading="lazy" data-src="' + esc(str(record['source']).replace('\\', '/')) + '" title="' + esc(b_title) + '" class="network-frame"></iframe></article>'
+    b_title = record.get('title') or ('Module network and complete gene lists | ' + str(record.get('contrast_id', '')))
+    b_note = record.get('note') or 'Select a module below. The graph uses saved module membership and native adjacency; display-node and edge limits are stated in the browser. Gene symbols, IDs and all event memberships are searchable and downloadable.'
+    return '<article class="exhibit wide network-browser" id="' + esc(record['id']) + '"' + _scope(record) + '><div class="exhibit-head"><h3>' + esc(b_title) + '</h3></div><p class="fig-notes">' + esc(b_note) + '</p><div class="fig-links">' + _link(record['source'], 'Open network and module genes in a full window') + '</div><iframe loading="lazy" data-src="' + esc(str(record['source']).replace('\\', '/')) + '" title="' + esc(b_title) + '" class="network-frame"></iframe></article>'
 
 
 def render(builder):

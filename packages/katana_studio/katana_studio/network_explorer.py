@@ -273,6 +273,11 @@ def build_chapter6_splicenet_suite(
     bridge_df: pd.DataFrame | None = None,
     edges_df: pd.DataFrame | None = None,
     existing_pathways_df: pd.DataFrame | None = None,
+    scope_slug: str | None = None,
+    scope_title: str | None = None,
+    scope_note: str | None = None,
+    comparison_ids: list[str] | None = None,
+    whole_study: bool = True,
 ) -> dict[str, Any]:
     """Build complete Chapter 06 non-circular interactive network + static exhibits & return event->module metadata."""
     if mod_df_raw is None or mod_df_raw.empty:
@@ -430,7 +435,7 @@ def build_chapter6_splicenet_suite(
         ora_df = _compute_module_ora(df, species=species)
 
     # Module summary records & graphs
-    net_dir = outdir / "outputs/network"
+    net_dir = (outdir / "outputs/network/populations" / scope_slug) if scope_slug else (outdir / "outputs/network")
     fig_dir = net_dir / "figures"
     tbl_dir = net_dir / "report_tables"
     brw_dir = net_dir / "browser"
@@ -444,10 +449,19 @@ def build_chapter6_splicenet_suite(
     if not ora_df.empty:
         ora_df.to_csv(tbl_dir / "module_go_kegg_enrichment.tsv", sep="\t", index=False)
 
-    tables.append({"name": "SpliceNet co-splicing module assignments (all events & kME)", "analysis_id": "programs.splicenet", "chapter": 6, "rows": len(df), "columns": list(df.columns), "source": (tbl_dir / "module_assignments_complete.tsv").relative_to(outdir).as_posix()})
-    tables.append({"name": "SpliceNet module omnibus & contrast associations (ΔME, P, BH FDR)", "analysis_id": "programs.splicenet_associations", "chapter": 6, "rows": len(assoc_df), "columns": list(assoc_df.columns), "source": (tbl_dir / "module_associations_complete.tsv").relative_to(outdir).as_posix()})
+    scope_lbl = f" ({scope_slug})" if scope_slug else ""
+    t_base_a: dict[str, Any] = {"name": f"SpliceNet co-splicing module assignments (all events & kME){scope_lbl}", "analysis_id": "programs.splicenet", "chapter": 6, "rows": len(df), "columns": list(df.columns), "source": (tbl_dir / "module_assignments_complete.tsv").relative_to(outdir).as_posix()}
+    t_base_b: dict[str, Any] = {"name": f"SpliceNet module omnibus & contrast associations (ΔME, P, BH FDR){scope_lbl}", "analysis_id": "programs.splicenet_associations", "chapter": 6, "rows": len(assoc_df), "columns": list(assoc_df.columns), "source": (tbl_dir / "module_associations_complete.tsv").relative_to(outdir).as_posix()}
+    if comparison_ids:
+        t_base_a["comparison_ids"] = comparison_ids
+        t_base_b["comparison_ids"] = comparison_ids
+    tables.append(t_base_a)
+    tables.append(t_base_b)
     if not ora_df.empty:
-        tables.append({"name": "SpliceNet deduplicated host-gene GO & KEGG pathway enrichment", "analysis_id": "programs.splicenet_pathways", "chapter": 6, "rows": len(ora_df), "columns": list(ora_df.columns), "source": (tbl_dir / "module_go_kegg_enrichment.tsv").relative_to(outdir).as_posix()})
+        t_base_c: dict[str, Any] = {"name": f"SpliceNet deduplicated host-gene GO & KEGG pathway enrichment{scope_lbl}", "analysis_id": "programs.splicenet_pathways", "chapter": 6, "rows": len(ora_df), "columns": list(ora_df.columns), "source": (tbl_dir / "module_go_kegg_enrichment.tsv").relative_to(outdir).as_posix()}
+        if comparison_ids:
+            t_base_c["comparison_ids"] = comparison_ids
+        tables.append(t_base_c)
 
     # Build graphs (`ALL` + per-module) with unique-gene hub deduplication
     psi_lookup = psi_events_by_units[[u for u in valid_units if u in psi_events_by_units.columns]] if not psi_events_by_units.empty else pd.DataFrame()
@@ -588,7 +602,7 @@ def build_chapter6_splicenet_suite(
                 "kME": round(float(r.kME), 4),
                 "abs_kME": round(float(r.abs_kME), 4),
             }
-            for r in df.sort_values(["module", "abs_kME"], ascending=[True, False]).head(1200).itertuples()
+            for r in df.sort_values(["module", "abs_kME"], ascending=[True, False]).head(1500).itertuples()
         ],
         "associations": json.loads(assoc_df.to_json(orient="records", double_precision=5)),
         "pathways": json.loads(ora_df.head(160).to_json(orient="records", double_precision=5)) if not ora_df.empty else [],
@@ -599,24 +613,36 @@ def build_chapter6_splicenet_suite(
 
     explorer_html_path = brw_dir / "SPLICE_NETWORK_EXPLORER.html"
     explorer_html_path.write_text(_render_network_explorer_html(net_payload), encoding="utf-8")
-    network_browsers.append({
-        "id": "splicenet-spatial-network",
+    br_rec: dict[str, Any] = {
+        "id": f"{scope_slug}-splicenet-spatial-network" if scope_slug else "splicenet-spatial-network",
         "contrast_id": "all",
-        "whole_study": True,
-        "title": (
+        "whole_study": bool(whole_study),
+        "title": scope_title or (
             "scSpliceNet — Multi-community co-splicing network | all donors & populations"
             if is_single_cell else
             "SpliceNet — Multi-community co-splicing network | all study samples & conditions"
         ),
         "source": explorer_html_path.relative_to(outdir).as_posix(),
-    })
+    }
+    if scope_note:
+        br_rec["note"] = scope_note
+    if comparison_ids:
+        br_rec["comparison_ids"] = list(comparison_ids)
+    network_browsers.append(br_rec)
 
     # --- Render Chapter 06 Static Consulting Figures ---
-    _render_static_module_overview(scores_mat, cond_by_unit, modules_json, df, outdir, fig_dir, tbl_dir, panels, is_single_cell)
+    id_pref = f"{scope_slug}-" if scope_slug else ""
+    _render_static_module_overview(
+        scores_mat, cond_by_unit, modules_json, df, outdir, fig_dir, tbl_dir, panels, is_single_cell,
+        panel_id_prefix=id_pref, title_suffix=scope_slug, comparison_ids=comparison_ids,
+    )
     for c_spec in contrasts_spec:
         _render_static_contrast_forest(assoc_df, str(c_spec["contrast_id"]), outdir, fig_dir, tbl_dir, panels)
     if not ora_df.empty:
-        _render_static_module_ora(ora_df, outdir, fig_dir, tbl_dir, panels)
+        _render_static_module_ora(
+            ora_df, outdir, fig_dir, tbl_dir, panels,
+            panel_id_prefix=id_pref, title_suffix=scope_slug, comparison_ids=comparison_ids,
+        )
 
     return {
         "event_to_module": dict(zip(df["event_key"], df["module"])),
@@ -636,6 +662,10 @@ def _render_static_module_overview(
     tbl_dir: Path,
     panels: list[dict[str, Any]],
     is_single_cell: bool,
+    *,
+    panel_id_prefix: str = "",
+    title_suffix: str | None = None,
+    comparison_ids: list[str] | None = None,
 ) -> None:
     if scores_mat.empty or not modules_json:
         return
@@ -687,17 +717,22 @@ def _render_static_module_overview(
     plot_tsv = tbl_dir / "splicenet_module_overview_plot_data.tsv"
     pd.DataFrame(modules_json).to_csv(plot_tsv, sep="\t", index=False)
 
-    panels.append({
-        "id": "splicenet-module-overview",
+    ov_rec: dict[str, Any] = {
+        "id": f"{panel_id_prefix}splicenet-module-overview",
         "chapter": 6,
         "contrast_id": "all",
-        "title": ("Katana-SC-SpliceNet" if is_single_cell else "Katana-SpliceNet") + " module eigengene structure & condition significance",
+        "title": ("Katana-SC-SpliceNet" if is_single_cell else "Katana-SpliceNet")
+        + " module eigengene structure & condition significance"
+        + (f" | {title_suffix}" if title_suffix else ""),
         "caption": "Left: standardized module eigengene scores across biological replicate units. Right: assigned splicing events, unique host genes, and BH FDR significance.",
         "image": png_p.relative_to(outdir).as_posix(),
         "svg": svg_p.relative_to(outdir).as_posix(),
         "metadata": {"analysis_id": "programs.splicenet"},
         "data_links": [{"role": "plot_data", "label": "Module summary & FDR data (TSV)", "path": plot_tsv.relative_to(outdir).as_posix(), "unit": "splicing_module", "contrast_id": "all", "policy": None}],
-    })
+    }
+    if comparison_ids:
+        ov_rec["comparison_ids"] = list(comparison_ids)
+    panels.append(ov_rec)
 
 
 def _render_static_contrast_forest(
@@ -776,6 +811,10 @@ def _render_static_module_ora(
     fig_dir: Path,
     tbl_dir: Path,
     panels: list[dict[str, Any]],
+    *,
+    panel_id_prefix: str = "",
+    title_suffix: str | None = None,
+    comparison_ids: list[str] | None = None,
 ) -> None:
     top = ora_df.sort_values(["q_BH", "p_value"]).groupby("module", as_index=False).head(4).sort_values(["q_BH", "p_value"]).head(12).iloc[::-1].copy()
     if top.empty:
@@ -814,17 +853,21 @@ def _render_static_module_ora(
 
     png_p = fig_dir / "splicenet_module_ora_dotplot.png"
     svg_p = _save_fig(fig, png_p)
-    panels.append({
-        "id": "splicenet-module-ora",
+    ora_rec: dict[str, Any] = {
+        "id": f"{panel_id_prefix}splicenet-module-ora",
         "chapter": 6,
         "contrast_id": "all",
-        "title": "Deduplicated host-gene GO & KEGG enrichment across co-splicing modules",
+        "title": "Deduplicated host-gene GO & KEGG enrichment across co-splicing modules"
+        + (f" | {title_suffix}" if title_suffix else ""),
         "caption": "Each host gene is counted at most once per module (eliminating multi-exon gene inflation); blue lollipops satisfy BH FDR ≤ 0.05.",
         "image": png_p.relative_to(outdir).as_posix(),
         "svg": svg_p.relative_to(outdir).as_posix(),
         "metadata": {"analysis_id": "programs.splicenet"},
         "data_links": [{"role": "plot_data", "label": "Plotted module ORA terms (TSV)", "path": plot_tsv.relative_to(outdir).as_posix(), "unit": "module_pathway", "contrast_id": "all", "policy": None}],
-    })
+    }
+    if comparison_ids:
+        ora_rec["comparison_ids"] = list(comparison_ids)
+    panels.append(ora_rec)
 
 
 def _render_network_explorer_html(payload: dict[str, Any]) -> str:

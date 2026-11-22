@@ -164,10 +164,16 @@ def annotate_rbp_expression_disambiguation(
     out = ranking_df.copy()
     rbp_upper = out["RBP"].astype(str).str.strip().str.upper()
     out["rbp_mean_expr"] = [mean_map.get(u, np.nan) for u in rbp_upper]
+    # Auto-adapt expression threshold for log1p-normalized single-cell matrices while preserving bulk TPM/CPM gating
+    eff_min_expr = float(min_rbp_expr)
+    pos_vals = np.array([v for v in mean_map.values() if np.isfinite(v) and v > 0.0], dtype=float)
+    if eff_min_expr == 1.0 and len(pos_vals) >= 20 and float(np.quantile(pos_vals, 0.99)) <= 10.0 and float(np.max(pos_vals)) <= 15.0:
+        eff_min_expr = 0.05
+    out["rbp_expr_threshold"] = eff_min_expr
     # Only enforce expression gating when at least one RBP symbol actually maps into the provided expression table
     # (prevents Ensembl-ID-only matrices from falsely flagging 100% of RBPs as unexpressed)
     if mean_map and any(u in mean_map for u in rbp_upper):
-        out["rbp_expressed"] = [bool(mean_map.get(u, 0.0) >= float(min_rbp_expr)) for u in rbp_upper]
+        out["rbp_expressed"] = [bool(mean_map.get(u, 0.0) >= eff_min_expr) for u in rbp_upper]
     else:
         out["rbp_expressed"] = True
 
@@ -601,6 +607,11 @@ def bridge_splicenet_modules_to_rbps(
         for m_lbl, n_m_ev, n_m_genes, arm_names, score_stack, Z_stack, rbp_max, nom_p, fwer_p, s_mod_max in per_mod_cache:
             p_obs_mod = (1.0 + np.sum(s_mod_max[:, None] >= rbp_max[None, :] - 1e-6, axis=0)) / (b_study + 1.0)
             study_fwer_p = (1.0 + np.sum(min_p_null[:, None] <= p_obs_mod[None, :] + 1e-12, axis=0)) / (b_study + 1.0)
+            n_m_r = len(nom_p)
+            o_nom = np.argsort(nom_p, kind="mergesort")
+            q_nom = np.minimum(1.0, np.minimum.accumulate((nom_p[o_nom] * n_m_r / np.arange(1, n_m_r + 1))[::-1])[::-1])
+            mod_fdr_bh = np.empty(n_m_r, dtype=float)
+            mod_fdr_bh[o_nom] = np.clip(q_nom, 0.0, 1.0)
             order = np.argsort(-rbp_max)
             for rank_i, r_i in enumerate(order, 1):
                 flat_best = int(np.argmax(score_stack[:, :, r_i])) if float(np.max(score_stack[:, :, r_i])) > 0.0 else int(np.argmax(Z_stack[:, :, r_i]))
@@ -614,6 +625,7 @@ def bridge_splicenet_modules_to_rbps(
                     "kme_direction": arm_names[best_a],
                     "stat_Z": round(float(Z_stack[best_a, best_reg, r_i]), 4),
                     "nominal_P": round(float(nom_p[r_i]), 5),
+                    "module_FDR_BH": round(float(mod_fdr_bh[r_i]), 5),
                     "module_P_FWER": round(float(fwer_p[r_i]), 5),
                     "study_P_FWER": round(float(study_fwer_p[r_i]), 5),
                     "sequence_rank": int(rank_i),

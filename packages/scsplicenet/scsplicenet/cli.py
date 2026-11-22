@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import pandas as pd
 
@@ -63,6 +64,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.usage is None or args.metadata is None or args.event_genes is None or args.out is None:
         p.error("--usage, --metadata, --event-genes, and --out are required.")
 
+    if int(args.threads or 0) > 0:
+        t_str = str(int(args.threads))
+        for env_k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+            os.environ[env_k] = t_str
+        try:
+            from threadpoolctl import threadpool_limits
+            threadpool_limits(limits=int(args.threads))
+        except Exception:
+            pass
+
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     usage = pd.read_csv(args.usage, sep="\t", index_col=0)
@@ -73,20 +84,30 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.select_budget > 0 and usage.shape[1] > args.select_budget:
         from scsplicenet.input_contract import validate_sc_usage_input
-        u_val, md_val, s_val, eg_val, _ = validate_sc_usage_input(
+        bundle = validate_sc_usage_input(
             usage, metadata, eg_df, support=support, require_qc_whitelist=("qc_pass" in metadata.columns)
         )
         host_df = pd.read_csv(args.host_expr, sep="\t", index_col=0) if args.host_expr else None
-        eg_ser_val = eg_val.set_index("event_id")["gene_id"].astype(str)
-        aud = audit_sc_events(u_val, eg_ser_val, support=s_val)
-        aud = attach_split_state_reliability_and_psix(aud, u_val, md_val, support=s_val, host_log_expr=host_df, seed=args.seed)
+        n_c = int(bundle.usage.shape[0])
+        min_c = max(3, min(15, int(n_c * 0.15)))
+        min_sup = max(3.0, min(10.0, float(min_c)))
+        aud = audit_sc_events(
+            bundle.usage, bundle.event_genes, support=bundle.support, min_cells=min_c, min_total_support=min_sup
+        )
+        if int(aud["qc_eligible"].sum()) < min(80, int(args.select_budget)) and min_c > 3:
+            aud = audit_sc_events(
+                bundle.usage, bundle.event_genes, support=bundle.support, min_cells=3, min_total_support=3.0
+            )
+        aud = attach_split_state_reliability_and_psix(
+            aud, bundle.usage, bundle.metadata, support=bundle.support, host_log_expr=host_df, seed=args.seed
+        )
         sel = select_sc_events(aud, budget=args.select_budget, max_per_gene=2, ranking_metric=args.selector)
         keep_ids = sel["event_id"].astype(str).tolist()
         if keep_ids:
-            usage = u_val.loc[:, keep_ids]
-            support = s_val.loc[:, keep_ids] if s_val is not None else None
-            metadata = md_val
-            eg_df = eg_val[eg_val["event_id"].astype(str).isin(set(keep_ids))].copy()
+            usage = bundle.usage.loc[:, keep_ids]
+            support = bundle.support.loc[:, keep_ids] if bundle.support is not None else None
+            metadata = bundle.metadata
+            eg_df = eg_df[eg_df["event_id"].astype(str).isin(set(keep_ids))].copy()
             sel.to_csv(out / "scsplicenet_selected_events.tsv", sep="\t", index=False)
 
     net = fit_scsplicenet(

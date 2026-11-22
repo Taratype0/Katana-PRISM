@@ -460,11 +460,13 @@ class BlockFamilyV2:
             n_models_used.append(len(idxs))
 
         if not rbp_names:
-            return pd.DataFrame(columns=["RBP", "layer", "evaluable_models", "rbp_pivotal_Z", "rbp_P_FWER", "rank"])
+            return pd.DataFrame(columns=["RBP", "layer", "evaluable_models", "rbp_pivotal_Z", "nominal_P", "rbp_FDR_BH", "rbp_P_FWER", "rank"])
 
         mat = np.vstack(rbp_piv_vecs)  # shape (n_rbps, B + 1)
         obs = mat[:, 0]
-        # Exact (B + 1)-exchangeable global max across RBPs (index 0 included via +1 in numerator!)
+        # Exact (B + 1)-exchangeable per-RBP nominal P & global max-T FWER (index 0 included via +1 in numerator!)
+        nom_p = np.array([(1.0 + float(np.sum(mat[r_i, 1:] >= obs[r_i] - 1e-12))) / (self.B + 1.0) for r_i in range(len(obs))])
+        fdr_bh = bh(nom_p)
         global_null_max = np.max(mat[:, 1:], axis=0)
         p_fwer = np.array([(1.0 + float(np.sum(global_null_max >= v - 1e-12))) / (self.B + 1.0) for v in obs])
 
@@ -473,6 +475,8 @@ class BlockFamilyV2:
             "layer": layer,
             "evaluable_models": n_models_used,
             "rbp_pivotal_Z": obs,
+            "nominal_P": nom_p,
+            "rbp_FDR_BH": fdr_bh,
             "rbp_P_FWER": p_fwer,
         })
         out["rank"] = out["rbp_pivotal_Z"].rank(ascending=False, method="average")

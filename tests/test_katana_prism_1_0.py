@@ -820,6 +820,260 @@ def test_sparse_subtype_empty_and_headerless_splicetrace_files(tmp_path: Path) -
     assert pd.read_csv(mc_tsv, sep="\t").empty
 
 
+def test_scsplicenet_multimodule_fast_quantiles_and_cli_budget(tmp_path: Path) -> None:
+    """Verify vectorized nanquantile parity, multi-module anti-collapse clustering, and CLI --select-budget."""
+    from scsplicenet.cli import main as scsn_main
+    from scsplicenet.network import _fast_nanquantile_axis0, _louvain_or_modularity_cut, fit_scsplicenet
+
+    rng = np.random.default_rng(123)
+    arr = rng.normal(0.0, 1.0, size=(8, 12))
+    arr[0, 0] = np.nan
+    arr[2:5, 3] = np.nan
+    arr[:, 7] = np.nan
+    for qv in (0.25, 0.50, 0.75):
+        got = _fast_nanquantile_axis0(arr, qv)
+        exp = np.nanquantile(arr, qv, axis=0)
+        assert np.allclose(got, exp, atol=1e-12, equal_nan=True)
+
+    # Synthetic 3-community co-splicing usage matrix (36 cells x 45 distinct genes/events)
+    n_cells = 36
+    cells = [f"Cell_{i:02d}" for i in range(n_cells)]
+    meta = pd.DataFrame({
+        "cell_id": cells,
+        "donor_id": [f"D{(i % 6) + 1}" for i in range(n_cells)],
+        "cell_type": ["PopA" if i < 18 else "PopB" for i in range(n_cells)],
+        "condition": ["Stim" if (i % 2 == 0) else "Ctrl" for i in range(n_cells)],
+        "qc_pass": True,
+    })
+    eids = [f"EV_{j:02d}" for j in range(45)]
+    eg_df = pd.DataFrame({"event_id": eids, "gene_id": [f"G_{j:02d}" for j in range(45)]})
+
+    # Three orthogonal latent splicing factors across 3x15 events
+    z1 = np.array([1.0 if (i % 2 == 0) else -1.0 for i in range(n_cells)])
+    z2 = np.array([1.0 if i < 18 else -1.0 for i in range(n_cells)])
+    z3 = np.array([1.0 if (i % 4 < 2) else -1.0 for i in range(n_cells)])
+    psi_mat = np.zeros((n_cells, 45), dtype=float)
+    for k_f, zf in enumerate((z1, z2, z3)):
+        for j in range(15):
+            psi_mat[:, k_f * 15 + j] = np.clip(0.50 + 0.30 * zf + rng.normal(0.0, 0.04, n_cells), 0.05, 0.95)
+    u_df = pd.DataFrame(psi_mat, index=cells, columns=eids)
+    s_df = pd.DataFrame(np.full((n_cells, 45), 35.0), index=cells, columns=eids)
+
+    net = fit_scsplicenet(u_df, meta, eg_df, support=s_df, repeats=4, min_module_size=8, compute_modules=True)
+    assert net.diagnostics["discovered_modules"] >= 2
+    vc_m = net.modules.loc[net.modules["module"].ne("M0"), "module"].value_counts()
+    assert int(vc_m.max()) <= int(0.65 * 45)
+
+    # Anti-collapse modularity cut on a 60-node 3-block dissimilarity matrix must find >= 2 communities
+    blk = np.ones((20, 20), dtype=float)
+    W3 = np.zeros((60, 60), dtype=float)
+    for b_i in range(3):
+        W3[b_i * 20:(b_i + 1) * 20, b_i * 20:(b_i + 1) * 20] = 0.85 * blk
+    np.fill_diagonal(W3, 1.0)
+    lbl3 = _louvain_or_modularity_cut(1.0 - W3, min_module_size=10)
+    assert len(set(lbl3) - {0}) >= 3
+
+    # CLI --select-budget execution must succeed without unpacking ValidatedSCUsageInput
+    u_p = tmp_path / "psi.tsv"
+    s_p = tmp_path / "sup.tsv"
+    m_p = tmp_path / "meta.tsv"
+    eg_p = tmp_path / "eg.tsv"
+    u_df.to_csv(u_p, sep="\t", index_label="cell_id")
+    s_df.to_csv(s_p, sep="\t", index_label="cell_id")
+    meta.to_csv(m_p, sep="\t", index=False)
+    eg_df.to_csv(eg_p, sep="\t", index=False)
+    out_cli = tmp_path / "cli_budget_out"
+    rc = scsn_main([
+        "--usage", str(u_p), "--support", str(s_p), "--metadata", str(m_p), "--event-genes", str(eg_p),
+        "--select-budget", "30", "--min-module-size", "8", "--repeats", "4", "--threads", "2", "--out", str(out_cli),
+    ])
+    assert rc == 0
+    assert (out_cli / "scsplicenet_selected_events.tsv").is_file()
+    assert len(pd.read_csv(out_cli / "scsplicenet_selected_events.tsv", sep="\t")) == 30
+
+
+def test_dual_bh_fdr_and_log1p_rbp_expression_gating(tmp_path: Path) -> None:
+    """Verify dual maxT FWER + BH-FDR emission/rendering and auto-adaptation on log1p single-cell expression."""
+    from katana_studio.full_suite_views import render_ch7_splicetrace_suite
+    from scsplicetrace.contrast_discovery import discover_sc_rbp_programs
+    from scsplicetrace.module_bridge import annotate_rbp_expression_disambiguation as sc_annot
+    from splicetrace.module_bridge import annotate_rbp_expression_disambiguation as bulk_annot
+    from splicetrace.continuous_rescue import run_bulk_continuous_rescue
+    from splicetrace.library import load_bundled_human_rbp_library
+
+    # 1. Expression gating: log1p single-cell scale auto-adapts to 0.05; bulk TPM keeps 1.0
+    bg_genes = [f"GENE{i}" for i in range(1, 35)]
+    sc_expr_df = pd.DataFrame({
+        "gene_symbol": ["RBFOX1", "PTBP1", "ESRP1"] + bg_genes,
+        "mean_expr": [0.65, 0.18, 0.0] + [0.45] * len(bg_genes),
+    })
+    rk_mock = pd.DataFrame([
+        {"RBP": "RBFOX1", "stat_Z": 4.1, "rbp_P_FWER": 0.01},
+        {"RBP": "PTBP1", "stat_Z": 3.2, "rbp_P_FWER": 0.12},
+        {"RBP": "ESRP1", "stat_Z": 2.9, "rbp_P_FWER": 0.25},
+    ])
+    sc_out = sc_annot(rk_mock, sc_expr_df)
+    assert float(sc_out["rbp_expr_threshold"].iloc[0]) == pytest.approx(0.05)
+    assert bool(sc_out.loc[sc_out["RBP"] == "RBFOX1", "rbp_expressed"].iloc[0]) is True
+    assert bool(sc_out.loc[sc_out["RBP"] == "PTBP1", "rbp_expressed"].iloc[0]) is True
+    assert bool(sc_out.loc[sc_out["RBP"] == "ESRP1", "rbp_expressed"].iloc[0]) is False
+
+    bulk_expr_df = pd.DataFrame({
+        "gene_symbol": ["PTBP1", "PTBP2"] + bg_genes,
+        "TPM": [42.0, 0.2] + [25.0] * len(bg_genes),
+    })
+    bulk_out = bulk_annot(rk_mock.iloc[1:2].copy(), bulk_expr_df)
+    assert float(bulk_out["rbp_expr_threshold"].iloc[0]) == pytest.approx(1.0)
+    assert bool(bulk_out.iloc[0]["rbp_expressed"]) is True
+
+    # 2. Synthetic discovery outputs include rbp_FDR_BH & region_FDR_BH in both bulk and SC
+    fx = _create_synthetic_study(tmp_path)
+    lib = load_bundled_human_rbp_library(species="mouse")
+    se_df = pd.read_csv(fx["rmats"] / "SE.MATS.JCEC.txt", sep="\t")
+    from splicetrace.rmats_io import _standardize_rmats_df
+    std_df = _standardize_rmats_df(se_df, "SE", {"chr1"}, "synth")
+    bulk_res = run_bulk_continuous_rescue(std_df, fx["fasta"], lib, n_permutations=29, seed=11)
+    assert {"rbp_FDR_BH", "rbp_P_FWER", "nominal_P"}.issubset(bulk_res.rbp_ranking.columns)
+    assert {"region_FDR_BH", "region_P_FWER", "nominal_P"}.issubset(bulk_res.region_tests.columns)
+
+    rng = np.random.default_rng(7)
+    n_ev_s = 30
+    c_df = pd.DataFrame({
+        "event_id": [f"E_{i}" for i in range(n_ev_s)],
+        "gene_id": [f"G_{i}" for i in range(n_ev_s)],
+        "eligible": True,
+        "baseline_PSI": rng.uniform(0.2, 0.8, n_ev_s),
+        "z_shift": rng.normal(0.0, 1.5, n_ev_s),
+    })
+    cov_df = pd.DataFrame({
+        "event_id": c_df["event_id"],
+        "exon_GC": 0.5,
+        "flank_GC": 0.45,
+        "log_length": 4.5,
+        "event_type": "SE",
+    })
+    tensor = rng.normal(0.0, 1.0, size=(n_ev_s, 3, 5))
+    sc_res = discover_sc_rbp_programs(
+        c_df, tensor, np.array(["RBFOX1", "PTBP1", "SRSF1", "TIAL1", "MBNL1"]),
+        ["upstream_intron_0_35", "alt_exon_5p_50", "downstream_exon_5p_50"],
+        cov_df, n_permutations=29, seed=11,
+    )
+    assert {"rbp_FDR_BH", "rbp_P_FWER", "nominal_P"}.issubset(sc_res.rbp_ranking.columns)
+    assert {"region_FDR_BH", "region_P_FWER", "nominal_P"}.issubset(sc_res.region_tests.columns)
+
+    # 3. Ch07 dual-tier rendering preserves both FDR_BH and P_FWER
+    st_dir = tmp_path / "st_ch7"
+    st_dir.mkdir(parents=True)
+    pd.DataFrame([
+        {"RBP": "Rbfox1", "best_region": "downstream_exon_5p_50", "stat_Z": -3.85, "nominal_P": 0.0002, "rbp_FDR_BH": 0.025, "rbp_P_FWER": 0.11},
+        {"RBP": "Ptbp1", "best_region": "upstream_intron_0_35", "stat_Z": 3.10, "nominal_P": 0.0120, "rbp_FDR_BH": 0.420, "rbp_P_FWER": 0.65},
+    ]).to_csv(st_dir / "scsplicetrace_rbp_ranking.tsv", sep="\t", index=False)
+    pd.DataFrame([
+        {"RBP": "Rbfox1", "region": "downstream_exon_5p_50", "stat_Z": -3.85, "nominal_P": 0.0002, "region_FDR_BH": 0.04, "region_P_FWER": 0.11},
+        {"RBP": "Rbfox1", "region": "upstream_intron_0_35", "stat_Z": 0.45, "nominal_P": 0.65, "region_FDR_BH": 0.90, "region_P_FWER": 1.0},
+        {"RBP": "Ptbp1", "region": "downstream_exon_5p_50", "stat_Z": 0.25, "nominal_P": 0.80, "region_FDR_BH": 0.95, "region_P_FWER": 1.0},
+        {"RBP": "Ptbp1", "region": "upstream_intron_0_35", "stat_Z": 3.10, "nominal_P": 0.012, "region_FDR_BH": 0.42, "region_P_FWER": 0.65},
+    ]).to_csv(st_dir / "scsplicetrace_region_tests.tsv", sep="\t", index=False)
+
+    rep_ch7 = tmp_path / "rep_ch7"
+    rep_ch7.mkdir(parents=True)
+    p7: list[dict] = []
+    t7: list[dict] = []
+    ms7: list[dict] = []
+    render_ch7_splicetrace_suite(st_dir, "PopA__Stim_vs_Ctrl", "mouse", rep_ch7, p7, t7, ms7)
+    assert ms7 and ms7[0]["status"] == "significant"
+    assert ms7[0]["min_native_fdr"] == pytest.approx(0.025)
+    assert ms7[0]["min_fwer"] == pytest.approx(0.11)
+    logo_plot_df = pd.read_csv(rep_ch7 / "outputs/splicetrace/PopA__Stim_vs_Ctrl/top_motif_logos_plot_data.tsv", sep="\t")
+    assert {"FDR_BH", "P_FWER", "nominal_P"}.issubset(logo_plot_df.columns)
+
+
+def test_per_celltype_ch6_networks_and_studio_zip_import(tmp_path: Path) -> None:
+    """Verify per-population switchable Ch06 networks from --subtypes-dirs and REPORT.zip archive import."""
+    import importlib.util as _ilu
+    from katana_studio.report_builder import run_single_cell
+
+    fx = _create_synthetic_study(tmp_path)
+    meta_df = pd.read_csv(fx["sc_meta"], sep="\t")
+    ev_df = pd.read_csv(fx["sc_events"], sep="\t")
+    psi_df = pd.read_csv(fx["sc_psi"], sep="\t", index_col=0)
+    sup_df = pd.read_csv(fx["sc_sup"], sep="\t", index_col=0)
+    expr_df = pd.read_csv(fx["sc_expr"], sep="\t", index_col=0)
+
+    # Create two synthetic subtypes with distinct population-specific scsplicenet modules
+    sub_dirs: list[Path] = []
+    for pop_name, ct_match, mod_assign in [
+        ("PopA", "T_cell", ["M1"] * 15 + ["M2"] * 15 + ["M0"] * 15),
+        ("PopB", "Monocyte", ["M1"] * 12 + ["M2"] * 12 + ["M3"] * 11 + ["M0"] * 10),
+    ]:
+        cid = f"{pop_name}__Activated_vs_Resting"
+        sd = tmp_path / "subtypes" / cid
+        (sd / "sc_matrices").mkdir(parents=True)
+        (sd / "scsplicenet").mkdir(parents=True)
+        (sd / "scsplicetrace").mkdir(parents=True)
+
+        sub_cells = meta_df[meta_df["cell_type"] == ct_match].copy()
+        sub_cells.to_csv(sd / "sc_matrices/sc_cells.tsv", sep="\t", index=False)
+        s_ev = ev_df.copy()
+        s_ev["pvalue"] = [0.002 if j < 15 else 0.70 for j in range(len(s_ev))]
+        s_ev["fdr"] = [0.01 if j < 15 else 0.85 for j in range(len(s_ev))]
+        s_ev.to_csv(sd / "sc_matrices/sc_events.tsv", sep="\t", index=False)
+
+        pd.DataFrame({
+            "event_id": ev_df["event_id"],
+            "gene_id": ev_df["gene_id"],
+            "module": mod_assign,
+            "kME": [0.85 if m != "M0" else 0.0 for m in mod_assign],
+        }).to_csv(sd / "scsplicenet/scsplicenet_modules.tsv", sep="\t", index=False)
+        pd.DataFrame([
+            {"RBP": "Rbfox1", "best_region": "downstream_exon_5p_50", "stat_Z": 3.4, "nominal_P": 0.001, "rbp_FDR_BH": 0.04, "rbp_P_FWER": 0.15}
+        ]).to_csv(sd / "scsplicetrace/scsplicetrace_rbp_ranking.tsv", sep="\t", index=False)
+        sub_dirs.append(sd)
+
+    rep_dir = tmp_path / "sc_report"
+    receipt = run_single_cell(
+        outdir=rep_dir,
+        events=ev_df,
+        cells=meta_df,
+        psi_matrix=psi_df.T,
+        support_matrix=sup_df.T,
+        expression=expr_df.T,
+        gtf=fx["gtf"],
+        subtypes_dirs=sub_dirs,
+        study_name="Multi-Subtype Per-Population Network Study",
+        species="mouse",
+    )
+    assert receipt["missing_plot_data"] == 0
+    manifest = json.loads((rep_dir / "report-manifest.json").read_text(encoding="utf-8"))
+    browsers = manifest.get("network_browsers", [])
+    assert len(browsers) == 2
+    comp_groups = {b["id"]: b.get("comparison_ids") for b in browsers}
+    assert any(v == ["PopA__Activated_vs_Resting"] for v in comp_groups.values())
+    assert any(v == ["PopB__Activated_vs_Resting"] for v in comp_groups.values())
+    assert len({b["source"] for b in browsers}) == 2
+
+    html_txt = (rep_dir / "REPORT.html").read_text(encoding="utf-8")
+    assert "PopA__Activated_vs_Resting" in html_txt and "PopB__Activated_vs_Resting" in html_txt
+    assert (rep_dir / "REPORT.zip").is_file()
+    with zipfile.ZipFile(rep_dir / "REPORT.zip") as zf:
+        names = set(zf.namelist())
+        assert "REPORT.html" in names and "report-manifest.json" in names
+        for b in browsers:
+            assert b["source"] in names
+
+    # Verify REPORT.zip passes report_source + import_report cleanly when duckdb is installed
+    if _ilu.find_spec("duckdb") is not None:
+        from katana_next.services.report_archive import report_source
+        from katana_next.services.report_import import import_report
+
+        cache_root = tmp_path / "studio_cache"
+        ws_dest = tmp_path / "studio_workspace"
+        unpacked_dir = report_source(rep_dir / "REPORT.zip", cache_root)
+        ctx = import_report(unpacked_dir, ws_dest)
+        assert (ws_dest / "katana.project.json").is_file()
+        assert len(ctx.catalog.list_artifacts(ctx.manifest.project_id)) > 0
+
+
 # ---------------------------------------------------------------------------
 # 4. Repository-Wide Confidentiality, Brand & Naming Hygiene Audit
 # ---------------------------------------------------------------------------

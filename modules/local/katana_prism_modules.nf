@@ -228,12 +228,14 @@ process SCSPLICENET {
     def expr_arg = host_expression.name != 'NO_EXPRESSION' ? "--host-expr ${host_expression}" : ''
     """
     ${prismPythonPathBlock(projectDir)}
+    export OMP_NUM_THREADS=${task.cpus} OPENBLAS_NUM_THREADS=${task.cpus} MKL_NUM_THREADS=${task.cpus}
     scsplicenet \
         --usage "${psi_matrix}" \
         --metadata "${cell_metadata}" \
         --event-genes "${event_genes}" \
         ${sup_arg} \
         ${expr_arg} \
+        --select-budget 1500 \
         --threads ${task.cpus} \
         --out scsplicenet_out \
         --emit-versions-yml versions.yml \
@@ -754,12 +756,14 @@ process SC_SUBTYPE_DOWNSTREAM {
     N_CELLS=\$(awk 'NR>1{c++} END{print c+0}' "\${SM_DIR}/sc_cells.tsv")
     N_EV=\$(awk 'NR>1{c++} END{print c+0}' "\${SM_DIR}/sc_events.tsv")
     if [[ "${do_net}" == "1" && "\${N_CELLS}" -ge 20 && "\${N_EV}" -ge 15 ]]; then
+        export OMP_NUM_THREADS=${task.cpus} OPENBLAS_NUM_THREADS=${task.cpus} MKL_NUM_THREADS=${task.cpus}
         if scsplicenet \
             --usage "\${SM_DIR}/sc_psi.tsv.gz" \
             --metadata "\${SM_DIR}/sc_cells.tsv" \
             --event-genes "\${SM_DIR}/sc_event_genes.tsv" \
             --support "\${SM_DIR}/sc_support.tsv.gz" \
             \${EXPR_NET} \
+            --select-budget 1500 \
             --threads ${task.cpus} \
             --out "${contrast_id}/scsplicenet"; then
             if [[ -s "${contrast_id}/scsplicenet/scsplicenet_modules.tsv" ]]; then

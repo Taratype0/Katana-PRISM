@@ -249,15 +249,21 @@ def attach_split_state_reliability_and_psix(
 
     # 2. Psix-style KNN cell-manifold autocorrelation comparator (Buen Abad Najar et al., Genome Biol 2022)
     # Build cell-cell similarity graph from host_log_expr (or usage PCA fallback) on training cells ONLY
+    mat_cell = None
     if host_log_expr is not None:
         h_df = host_log_expr.copy()
         h_df.index = h_df.index.astype(str)
         h_df.columns = h_df.columns.astype(str)
         u_idx_s = usage.index.astype(str)
-        if len(set(h_df.columns) & set(u_idx_s)) > len(set(h_df.index) & set(u_idx_s)):
-            h_df = h_df.T
-        mat_cell = np.nan_to_num(h_df.reindex(index=u_idx_s).to_numpy(dtype=float), nan=0.0)
-    else:
+        u_set = set(u_idx_s)
+        if len(set(h_df.columns) & u_set) > len(set(h_df.index) & u_set):
+            keep_cols = [c for c in h_df.columns if c in u_set]
+            h_df = h_df.loc[:, keep_cols].apply(pd.to_numeric, errors="coerce").T
+        else:
+            h_df = h_df.reindex(index=u_idx_s).select_dtypes(include=[np.number])
+        if h_df.shape[1] > 0:
+            mat_cell = np.nan_to_num(h_df.reindex(index=u_idx_s).to_numpy(dtype=float), nan=0.0)
+    if mat_cell is None or mat_cell.shape[1] == 0:
         col_m = np.nanmean(u, axis=0)
         mat_cell = np.where(finite, u - col_m[None, :], 0.0)
     if n_cells <= 1:

@@ -136,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--query-rbp", default=None)
     p.add_argument("--models-json", type=Path, default=None)
     p.add_argument("--assignments-tsv", type=Path, default=None)
-    p.add_argument("--permutations", type=int, default=1999)
+    p.add_argument("--permutations", type=int, default=4999)
     p.add_argument("--seed", type=int, default=20261117)
     p.add_argument("-o", "--out", "--output-dir", dest="out", type=Path, required=False)
     p.add_argument("--emit-versions-yml", type=Path, default=None)
@@ -251,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
             distal_intron_nt=args.distal_intron_nt,
             rbp_expr_df=rbp_expr_df,
             min_rbp_expr=args.min_rbp_expr,
-            n_permutations=min(args.permutations, 999), seed=args.seed,
+            n_permutations=min(args.permutations, 3999), seed=args.seed,
         )
         br_df.to_csv(out / "sc_module_rbp_bridge.tsv", sep="\t", index=False)
         summary["bridged_module_rbp_rows"] = int(len(br_df))
