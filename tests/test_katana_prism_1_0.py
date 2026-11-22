@@ -648,6 +648,117 @@ def test_v1_0_2_scientific_audit_regression_suite(tmp_path: Path) -> None:
     assert len(got_edges) == 4 and abs(got_edges[0][3] - 0.88) < 1e-4
 
 
+def test_sc_multiplexed_bam_sashimi_and_dardel_wiring(tmp_path: Path) -> None:
+    """Verify single-cell multiplexed BC-tagged BAM RPKM Katana Native Sashimi & Nextflow/Dardel wiring."""
+    import importlib.util as _ilu
+    import struct
+    from katana_next.targets.native_sashimi_adapter import NativeSashimiAdapter
+    from katana_studio.candidate_workbench import _load_sc_barcode_aliases
+
+    # Load BGZF helper directly from bin/katana_make_dummy_bam.py
+    spec = _ilu.spec_from_file_location("katana_make_dummy_bam", REPO_ROOT / "bin" / "katana_make_dummy_bam.py")
+    assert spec is not None and spec.loader is not None
+    bam_mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(bam_mod)
+
+    # Construct valid coordinate-sorted BGZF BAM on chr1 with spliced & exonic reads carrying binary BC:Z tags
+    sam_hdr = "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:5000\n".encode("ascii")
+    bam_bytes = bytearray(b"BAM\x01")
+    bam_bytes += struct.pack("<i", len(sam_hdr)) + sam_hdr + struct.pack("<i", 1)
+    cname = b"chr1\x00"
+    bam_bytes += struct.pack("<i", len(cname)) + cname + struct.pack("<i", 5000)
+
+    def _pack_read(qname_s: str, pos0: int, cigar_pairs: list[tuple[int, int]], bc_str: str) -> bytes:
+        qname = qname_s.encode("ascii") + b"\x00"
+        cigar_packed = b"".join(struct.pack("<I", (ln << 4) | op) for op, ln in cigar_pairs)
+        qlen = sum(ln for op, ln in cigar_pairs if op in (0, 1, 4, 7, 8))
+        seq_enc = bytes([0x11] * ((qlen + 1) // 2))
+        qual = bytes([40] * qlen)
+        aux = b"NH\x69" + struct.pack("<i", 1) + b"BCZ" + bc_str.encode("ascii") + b"\x00"
+        body = (
+            struct.pack("<iiBBHHHiiii", 0, pos0, len(qname), 60, 4680, len(cigar_pairs), 0, qlen, -1, -1, 0)
+            + qname
+            + cigar_packed
+            + seq_enc
+            + qual
+            + aux
+        )
+        return struct.pack("<i", len(body)) + body
+
+    # SE locus: upstream exon 1001..1100, skipped exon 1301..1400, downstream exon 1601..1700
+    # Arm 0 (C1 -> D1, C2 via alias BC_C2_ALIAS -> D2): high inclusion (25M 200N 25M and 25M 200N 25M)
+    # Arm 1 (C3 -> D3, C4 -> D4): high skipping (25M 500N 25M)
+    reads = [
+        _pack_read("r1", 1075, [(0, 25), (3, 200), (0, 25)], "C1"),
+        _pack_read("r2", 1075, [(0, 25), (3, 200), (0, 25)], "BC_C2_ALIAS"),
+        _pack_read("r3", 1075, [(0, 25), (3, 500), (0, 25)], "C3"),
+        _pack_read("r4", 1075, [(0, 25), (3, 500), (0, 25)], "C4"),
+        _pack_read("r5", 1320, [(0, 50)], "C1"),
+        _pack_read("r6", 1375, [(0, 25), (3, 200), (0, 25)], "BC_C2_ALIAS"),
+    ]
+    bam_path = tmp_path / "sc_mux.bam"
+    bam_path.write_bytes(bam_mod.make_bgzf_block(bytes(bam_bytes) + b"".join(reads)) + bam_mod.BGZF_EOF)
+
+    shares_path = tmp_path / "barcode_shares.txt"
+    shares_path.write_text("C2\tBC_C2_ALIAS\n", encoding="utf-8")
+    cell_to_bcs = _load_sc_barcode_aliases({"C1", "C2", "C3", "C4"}, shares_path)
+    assert "BC_C2_ALIAS" in cell_to_bcs["C2"]
+
+    bc_to_donor_arm: dict[str, tuple[int, str]] = {}
+    for cid_s, don in (("C1", "D1"), ("C2", "D2")):
+        for bc in cell_to_bcs[cid_s]:
+            bc_to_donor_arm[bc] = (0, don)
+    for cid_s, don in (("C3", "D3"), ("C4", "D4")):
+        for bc in cell_to_bcs[cid_s]:
+            bc_to_donor_arm[bc] = (1, don)
+
+    adapter = NativeSashimiAdapter()
+    ev_row = {
+        "event_id": "SE:chr1:+:1300:1400:1000:1100:1600:1700",
+        "gene_symbol": "Nrxn1",
+        "geneSymbol": "Nrxn1",
+        "gene_id": "ENSMUSG00000024109",
+        "chr": "chr1",
+        "strand": "+",
+        "exonStart_0base": 1300,
+        "exonEnd": 1400,
+        "upstreamES": 1000,
+        "upstreamEE": 1100,
+        "downstreamES": 1600,
+        "downstreamEE": 1700,
+    }
+    res_s = adapter.render_event_sashimi_figure(
+        event_row=ev_row,
+        event_type="SE",
+        label1="Stim",
+        label2="Ctrl",
+        out_stem=tmp_path / "nrxn1_mux_sashimi",
+        multiplexed_bam=bam_path,
+        bc_to_donor_arm=bc_to_donor_arm,
+        donor_cell_counts=({"D1": 1, "D2": 1}, {"D3": 1, "D4": 1}),
+        total_study_cells=4,
+        bc_tag="BC",
+        dpsi=0.65,
+        fdr=0.001,
+        psi1=[0.90, 0.88],
+        psi2=[0.18, 0.22],
+        save_pdf=False,
+    )
+    assert res_s["mode"] == "bam_rpkm"
+    assert Path(res_s["svg"]).is_file() and Path(res_s["svg"]).stat().st_size > 2000
+    assert Path(res_s["png"]).is_file() and Path(res_s["png"]).stat().st_size > 2000
+
+    # Verify Nextflow Dardel wiring: PYTHONPATH live override, --sc-bam, --group-col, and 16.GB KATANA_REPORT_SC budget
+    mods_txt = (REPO_ROOT / "modules" / "local" / "katana_prism_modules.nf").read_text(encoding="utf-8")
+    sc_wf_txt = (REPO_ROOT / "workflows" / "katana_singlecell.nf").read_text(encoding="utf-8")
+    res_txt = (REPO_ROOT / "conf" / "portable_resources.config").read_text(encoding="utf-8")
+    assert "prismPythonPathBlock" in mods_txt and "export PYTHONPATH=" in mods_txt
+    assert "--sc-bam" in mods_txt and "--sc-barcode-shares" in mods_txt
+    assert mods_txt.count('--group-col "${group_col}"') >= 3
+    assert "ch_sc_bam_val" in sc_wf_txt and "ch_sc_bcs_val" in sc_wf_txt
+    assert "16.GB * task.attempt" in res_txt and "KATANA_REPORT_SC" in res_txt
+
+
 # ---------------------------------------------------------------------------
 # 4. Repository-Wide Confidentiality, Brand & Naming Hygiene Audit
 # ---------------------------------------------------------------------------

@@ -58,6 +58,9 @@ def report_main(argv: list[str] | None = None) -> int:
     psc.add_argument("--expression", type=Path, default=None)
     psc.add_argument("--gtf", type=Path, default=None, help="Optional annotation GTF for Katana Native Sashimi exon labels")
     psc.add_argument("--bams", type=Path, default=None, help="Optional directory of donor-level indexed BAMs for BAM RPKM Katana Native Sashimi")
+    psc.add_argument("--sc-bam", type=Path, default=None, help="Optional multiplexed single-cell BAM for localized per-condition BAM RPKM Katana Native Sashimi")
+    psc.add_argument("--sc-bc-tag", default="BC", help="BAM cell-barcode auxiliary tag (default: BC)")
+    psc.add_argument("--sc-barcode-shares", type=Path, default=None, help="Optional barcode_shares.txt mapping aliased cell barcodes to QC-passed cells")
     psc.add_argument("--splicemanifold-dir", type=Path, default=None, help="Optional precomputed splicemanifold single-cell directory")
     psc.add_argument("--scsplicenet-dir", type=Path, default=None, help="Optional precomputed scsplicenet output directory")
     psc.add_argument("--scsplicetrace-dir", type=Path, default=None, help="Optional precomputed scsplicetrace output directory")
@@ -127,6 +130,9 @@ def report_main(argv: list[str] | None = None) -> int:
             expression=args.expression,
             gtf=args.gtf,
             bams=args.bams,
+            sc_bam=args.sc_bam,
+            sc_bc_tag=args.sc_bc_tag,
+            sc_barcode_shares=args.sc_barcode_shares,
             splicemanifold_dir=args.splicemanifold_dir,
             scsplicenet_dir=args.scsplicenet_dir,
             scsplicetrace_dir=args.scsplicetrace_dir,

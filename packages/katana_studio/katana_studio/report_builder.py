@@ -1344,6 +1344,9 @@ def run_single_cell(
     expression: str | Path | pd.DataFrame | None = None,
     gtf: str | Path | None = None,
     bams: str | Path | None = None,
+    sc_bam: str | Path | None = None,
+    sc_bc_tag: str = "BC",
+    sc_barcode_shares: str | Path | None = None,
     splicemanifold_dir: str | Path | None = None,
     scsplicenet_dir: str | Path | None = None,
     scsplicetrace_dir: str | Path | None = None,
@@ -1910,6 +1913,9 @@ def run_single_cell(
         sc_support_cells=sup_df,
         sc_cells_meta=samples_list,
         sc_contrasts_cell_spec=contrasts_list,
+        sc_bam_path=Path(sc_bam) if (sc_bam and str(sc_bam) != "NO_SC_BAM") else None,
+        sc_bc_tag=sc_bc_tag or "BC",
+        sc_barcode_shares=Path(sc_barcode_shares) if (sc_barcode_shares and str(sc_barcode_shares) != "NO_BARCODE_SHARES") else None,
     )
 
     return _finalize_consulting_report_and_zip(

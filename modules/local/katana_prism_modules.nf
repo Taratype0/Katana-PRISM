@@ -7,6 +7,10 @@
 // Single-Cell Smart-seq3:
 //   - SPLICEMANIFOLD_SC, SCSPLICENET, SCSPLICETRACE, KATANA_REPORT_SC
 
+def prismPythonPathBlock(projDir) {
+    return "if [[ -d \"${projDir}/packages/katana_studio\" ]]; then export PYTHONPATH=\"${projDir}/packages/katana_studio:${projDir}/packages/splicemanifold:${projDir}/packages/splicenet:${projDir}/packages/splicetrace:${projDir}/packages/scsplicenet:${projDir}/packages/scsplicetrace:\${PYTHONPATH:-}\"; fi"
+}
+
 process SPLICEMANIFOLD {
     tag "${study_name}"
     label 'process_low'
@@ -24,6 +28,7 @@ process SPLICEMANIFOLD {
 
     script:
     """
+    ${prismPythonPathBlock(projectDir)}
     splicemanifold bulk \
         --bundle "${bundle}" \
         --rmats-mode "${rmats_mode}" \
@@ -53,6 +58,7 @@ process SPLICENET {
 
     script:
     """
+    ${prismPythonPathBlock(projectDir)}
     splicenet \
         --bundle "${bundle}" \
         --rmats-mode "${rmats_mode}" \
@@ -86,6 +92,7 @@ process SPLICETRACE {
     def net_arg = splicenet_dir.name != 'NO_SPLICENET' ? "--splicenet-modules \"${splicenet_dir}/module_assignments.tsv\" --splicenet-scores \"${splicenet_dir}/module_scores.tsv\"" : ''
     def sp_val  = (species in ['human', 'mouse']) ? species : 'mouse'
     """
+    ${prismPythonPathBlock(projectDir)}
     fasta_ref="${fasta}"
     if [[ "\$fasta_ref" == *.gz ]]; then gzip -dc "\$fasta_ref" > genome_unpacked.fa; fasta_ref="genome_unpacked.fa"; fi
     if [[ ! -f "\${fasta_ref}.fai" ]]; then cp -L "\$fasta_ref" genome_local.fa && fasta_ref="genome_local.fa" && samtools faidx "\$fasta_ref"; fi
@@ -141,6 +148,7 @@ process KATANA_REPORT {
     def trace_arg  = trace_list ? "--splicetrace-dirs " + trace_list.collect { "\"${it}\"" }.join(' ') : ''
     def sp_val     = (species in ['auto', 'human', 'mouse']) ? species : 'auto'
     """
+    ${prismPythonPathBlock(projectDir)}
     fasta_ref="${fasta}"
     if [[ "\$fasta_ref" == *.gz ]]; then gzip -dc "\$fasta_ref" > genome_unpacked.fa; fasta_ref="genome_unpacked.fa"; fi
     if [[ ! -f "\${fasta_ref}.fai" ]]; then cp -L "\$fasta_ref" genome_local.fa && fasta_ref="genome_local.fa" && samtools faidx "\$fasta_ref"; fi
@@ -185,6 +193,7 @@ process SPLICEMANIFOLD_SC {
     def sup_arg  = support_matrix.name != 'NO_SUPPORT' ? "--support ${support_matrix}" : ''
     def expr_arg = host_expression.name != 'NO_EXPRESSION' ? "--expression ${host_expression}" : ''
     """
+    ${prismPythonPathBlock(projectDir)}
     splicemanifold single-cell \
         --psi "${psi_matrix}" \
         --metadata "${cell_metadata}" \
@@ -218,6 +227,7 @@ process SCSPLICENET {
     def sup_arg  = support_matrix.name != 'NO_SUPPORT' ? "--support ${support_matrix}" : ''
     def expr_arg = host_expression.name != 'NO_EXPRESSION' ? "--host-expr ${host_expression}" : ''
     """
+    ${prismPythonPathBlock(projectDir)}
     scsplicenet \
         --usage "${psi_matrix}" \
         --metadata "${cell_metadata}" \
@@ -244,6 +254,7 @@ process SCSPLICETRACE {
     path fasta
     path gtf
     val  species
+    val  group_col
     val  numerator
     val  denominator
     path scsplicenet_dir
@@ -258,6 +269,7 @@ process SCSPLICETRACE {
     def net_arg  = scsplicenet_dir.name != 'NO_SCSPLICENET' ? "--splicenet-modules ${scsplicenet_dir}/scsplicenet_modules.tsv" : ''
     def sp_val   = (species in ['human', 'mouse']) ? species : 'human'
     """
+    ${prismPythonPathBlock(projectDir)}
     fasta_ref="${fasta}"
     if [[ "\$fasta_ref" == *.gz ]]; then gzip -dc "\$fasta_ref" > genome_unpacked.fa; fasta_ref="genome_unpacked.fa"; fi
     if [[ ! -f "\${fasta_ref}.fai" ]]; then cp -L "\$fasta_ref" genome_local.fa && fasta_ref="genome_local.fa" && samtools faidx "\$fasta_ref"; fi
@@ -270,6 +282,7 @@ process SCSPLICETRACE {
         --fasta "\${fasta_ref}" \
         --gtf "\${gtf_ref}" \
         --species "${sp_val}" \
+        --group-col "${group_col}" \
         --numerator "${numerator}" \
         --denominator "${denominator}" \
         ${sup_arg} \
@@ -464,6 +477,10 @@ process KATANA_REPORT_SC {
     val  species
     val  das_fdr
     val  das_dpsi
+    path sc_bam
+    path sc_bam_bai
+    path sc_barcode_shares
+    val  sc_bc_tag
 
     output:
     path "report/REPORT.html"         , emit: html
@@ -480,13 +497,19 @@ process KATANA_REPORT_SC {
     def st_arg   = scsplicetrace_dir.name != 'NO_SCSPLICETRACE' ? "--scsplicetrace-dir \"${scsplicetrace_dir}\"" : ''
     def sub_list = [subtypes_dirs].flatten().findAll { it.name != 'NO_SUBTYPES' }
     def sub_arg  = sub_list ? "--subtypes-dirs " + sub_list.collect { "\"${it}\"" }.join(' ') : ''
+    def bam_arg  = sc_bam.name != 'NO_SC_BAM' ? "--sc-bam \"${sc_bam}\" --sc-bc-tag \"${sc_bc_tag}\"" : ''
+    def bcs_arg  = (sc_bam.name != 'NO_SC_BAM' && sc_barcode_shares.name != 'NO_BARCODE_SHARES') ? "--sc-barcode-shares \"${sc_barcode_shares}\"" : ''
     def sp_val   = (species in ['human', 'mouse']) ? species : 'human'
     """
+    ${prismPythonPathBlock(projectDir)}
     gtf_ref="${gtf}"
     GTF_ARG=""
     if [[ "\$gtf_ref" != "NO_GTF" && -s "\$gtf_ref" ]]; then
         if [[ "\$gtf_ref" == *.gz ]]; then gzip -dc "\$gtf_ref" > annotation_unpacked.gtf; gtf_ref="annotation_unpacked.gtf"; fi
         GTF_ARG="--gtf \${gtf_ref}"
+    fi
+    if [[ "${sc_bam}" != "NO_SC_BAM" && -s "${sc_bam}" && ! -f "${sc_bam}.bai" ]]; then
+        samtools index -@ ${task.cpus} "${sc_bam}"
     fi
     katana-report single-cell \
         --events "${events_table}" \
@@ -495,6 +518,8 @@ process KATANA_REPORT_SC {
         ${sup_arg} \
         ${expr_arg} \
         \${GTF_ARG} \
+        ${bam_arg} \
+        ${bcs_arg} \
         ${sm_arg} \
         ${sn_arg} \
         ${st_arg} \
@@ -690,6 +715,7 @@ process SC_SUBTYPE_DOWNSTREAM {
     def do_net  = skip_network ? '0' : '1'
     def do_trc  = skip_splicetrace ? '0' : '1'
     """
+    ${prismPythonPathBlock(projectDir)}
     mkdir -p "${contrast_id}"
     python3 "${projectDir}/bin/katana_sc_slice_contrast.py" \
         --events "${events_table}" \
@@ -756,6 +782,7 @@ process SC_SUBTYPE_DOWNSTREAM {
             --fasta "\${fasta_ref}" \
             --gtf "\${gtf_ref}" \
             --species "${sp_val}" \
+            --group-col "${group_col}" \
             --numerator "${numerator}" \
             --denominator "${denominator}" \
             --support "\${SM_DIR}/sc_support.tsv.gz" \

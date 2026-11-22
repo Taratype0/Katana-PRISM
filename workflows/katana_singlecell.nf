@@ -84,6 +84,7 @@ workflow KATANA_SINGLE_CELL {
             ch_fa_val,
             ch_gtf_val,
             params.species ?: 'human',
+            params.sc_group_col ?: 'condition',
             params.sc_numerator,
             params.sc_denominator,
             ch_sc_net
@@ -159,6 +160,10 @@ workflow KATANA_SINGLE_CELL {
         ch_subtypes_all = Channel.value(file('NO_SUBTYPES'))
     }
 
+    ch_sc_bam_val = params.sc_bam ? Channel.value(file(params.sc_bam, checkIfExists: true)) : Channel.value(file('NO_SC_BAM'))
+    ch_sc_bai_val = (params.sc_bam && file("${params.sc_bam}.bai").exists()) ? Channel.value(file("${params.sc_bam}.bai")) : Channel.value(file('NO_SC_BAM_BAI'))
+    ch_sc_bcs_val = params.sc_barcode_shares ? Channel.value(file(params.sc_barcode_shares, checkIfExists: true)) : Channel.value(file('NO_BARCODE_SHARES'))
+
     KATANA_REPORT_SC(
         params.study_name,
         ch_ev_val,
@@ -173,7 +178,11 @@ workflow KATANA_SINGLE_CELL {
         ch_subtypes_all,
         params.species ?: 'human',
         params.das_fdr,
-        params.das_dpsi
+        params.das_dpsi,
+        ch_sc_bam_val,
+        ch_sc_bai_val,
+        ch_sc_bcs_val,
+        params.sc_bc_tag ?: 'BC'
     )
     ch_versions = ch_versions.mix(KATANA_REPORT_SC.out.versions)
 

@@ -64,6 +64,8 @@ class NativeSashimiAdapter:
         self._gtf_cache_key: str = ""
         self._gtf_by_gene: dict[str, dict[str, list[tuple[int, int, str]]]] = {}
         self._pure_bam_cache: dict[str, tuple[dict[str, int], dict[int, list[tuple[int, int, tuple[tuple[int, int], ...]]]], int]] = {}
+        self._mux_contig_cache: dict[str, tuple[dict[str, str], int]] = {}
+        self._pure_mux_bam_cache: dict[str, tuple[dict[str, int], dict[int, list[tuple[int, int, tuple[tuple[int, int], ...], str]]], int]] = {}
 
     def preload_gtf_for_genes(
         self,
@@ -126,6 +128,11 @@ class NativeSashimiAdapter:
         gtf_path: Path | None = None,
         bams_1: list[Path] | None = None,
         bams_2: list[Path] | None = None,
+        multiplexed_bam: Path | None = None,
+        bc_to_donor_arm: dict[str, tuple[int, str]] | None = None,
+        donor_cell_counts: tuple[dict[str, int], dict[str, int]] | None = None,
+        total_study_cells: int = 0,
+        bc_tag: str = "BC",
         title: str | None = None,
         subtitle: str | None = None,
         dpsi: float | None = None,
@@ -202,6 +209,40 @@ class NativeSashimiAdapter:
                     "png": str(out_stem.with_suffix(".png")),
                     "mode": "bam_rpkm",
                 }
+            except Exception:
+                pass
+        elif multiplexed_bam is not None and Path(multiplexed_bam).is_file() and bc_to_donor_arm and donor_cell_counts:
+            try:
+                samtools_sc = self._samtools_executable()
+                tracks_1, tracks_2 = self._multiplexed_group_tracks(
+                    Path(multiplexed_bam),
+                    geometry,
+                    mapper,
+                    bc_to_donor_arm=bc_to_donor_arm,
+                    donor_cell_counts=donor_cell_counts,
+                    total_study_cells=total_study_cells,
+                    bc_tag=bc_tag,
+                    samtools=samtools_sc,
+                )
+                if tracks_1 and tracks_2:
+                    group_tracks = [_mean_track(label1, tracks_1, p1), _mean_track(label2, tracks_2, p2)]
+                    group_tracks[0]["group_index"] = 0
+                    group_tracks[1]["group_index"] = 1
+                    self._plot_tracks(
+                        out_stem,
+                        fig_title,
+                        metadata,
+                        geometry,
+                        mapper,
+                        group_tracks,
+                        view_label="compressed event view",
+                        save_pdf=save_pdf,
+                    )
+                    return {
+                        "svg": str(out_stem.with_suffix(".svg")),
+                        "png": str(out_stem.with_suffix(".png")),
+                        "mode": "bam_rpkm",
+                    }
             except Exception:
                 pass
 
@@ -535,6 +576,329 @@ class NativeSashimiAdapter:
         res = (ref_to_tid, by_tid, mapped_reads)
         self._pure_bam_cache[key] = res
         return res
+
+    @staticmethod
+    def _extract_bam_aux_str_tag(data: bytes, aux_start: int, rec_end: int, target_tag: bytes) -> str | None:
+        pos = aux_start
+        fixed_sizes = {65: 1, 99: 1, 67: 1, 115: 2, 83: 2, 105: 4, 73: 4, 102: 4}  # A,c,C,s,S,i,I,f
+        arr_sizes = {99: 1, 67: 1, 115: 2, 83: 2, 105: 4, 73: 4, 102: 4}
+        while pos + 3 <= rec_end:
+            tag = data[pos : pos + 2]
+            vtype = data[pos + 2]
+            pos += 3
+            if vtype in fixed_sizes:
+                pos += fixed_sizes[vtype]
+            elif vtype in (90, 72):  # Z, H (null-terminated)
+                nul = data.find(b"\x00", pos, rec_end)
+                if nul < 0:
+                    break
+                if vtype == 90 and tag == target_tag:
+                    return data[pos:nul].decode("ascii", errors="ignore")
+                pos = nul + 1
+            elif vtype == 66:  # B typed array
+                if pos + 5 > rec_end:
+                    break
+                elem_sz = arr_sizes.get(data[pos], 0)
+                cnt = struct.unpack_from("<I", data, pos + 1)[0]
+                if elem_sz <= 0:
+                    break
+                pos += 5 + elem_sz * cnt
+            else:
+                break
+        return None
+
+    def _load_pure_mux_bam(
+        self,
+        bam: Path,
+        bc_tag: str = "BC",
+    ) -> tuple[dict[str, int], dict[int, list[tuple[int, int, tuple[tuple[int, int], ...], str]]], int]:
+        key = f"{bam.resolve()}::{bc_tag}"
+        cached = self._pure_mux_bam_cache.get(key)
+        if cached is not None:
+            return cached
+        data = self._decompress_bgzf_stream(bam)
+        if len(data) < 8 or data[:4] != b"BAM\x01":
+            raise RuntimeError(f"Invalid BAM magic in {bam}")
+        off = 4
+        l_text = struct.unpack_from("<i", data, off)[0]
+        off += 4 + l_text
+        n_ref = struct.unpack_from("<i", data, off)[0]
+        off += 4
+        ref_to_tid: dict[str, int] = {}
+        for tid in range(n_ref):
+            l_name = struct.unpack_from("<i", data, off)[0]
+            off += 4
+            name = data[off : off + l_name - 1].decode("ascii", errors="ignore")
+            off += l_name + 4
+            ref_to_tid[name] = tid
+            if name.startswith("chr"):
+                ref_to_tid.setdefault(name[3:], tid)
+            else:
+                ref_to_tid.setdefault("chr" + name, tid)
+
+        tag_bytes = bc_tag.encode("ascii", errors="ignore")[:2].ljust(2, b" ")
+        by_tid: dict[int, list[tuple[int, int, tuple[tuple[int, int], ...], str]]] = {}
+        mapped_reads = 0
+        n_data = len(data)
+        while off + 4 <= n_data:
+            bsize = struct.unpack_from("<i", data, off)[0]
+            off += 4
+            rec_end = off + bsize
+            if rec_end > n_data or bsize < 32:
+                break
+            ref_id, pos0, l_rn_mq_bin, flag_nc, l_seq = struct.unpack_from("<iiIIi", data, off)
+            l_read_name = l_rn_mq_bin & 0xFF
+            flag = (flag_nc >> 16) & 0xFFFF
+            n_cigar = flag_nc & 0xFFFF
+            if ref_id >= 0 and (flag & 0x904) == 0 and n_cigar > 0:
+                mapped_reads += 1
+                aux_off = off + 32 + l_read_name + 4 * n_cigar + ((max(0, l_seq) + 1) // 2) + max(0, l_seq)
+                bc_val = self._extract_bam_aux_str_tag(data, aux_off, rec_end, tag_bytes)
+                if bc_val:
+                    cigar_off = off + 32 + l_read_name
+                    raw_cigar = struct.unpack_from(f"<{n_cigar}I", data, cigar_off)
+                    cigar_ops = tuple((int(c & 0xF), int(c >> 4)) for c in raw_cigar)
+                    ref_span = sum(ln for op, ln in cigar_ops if op in {0, 2, 3, 7, 8})
+                    by_tid.setdefault(ref_id, []).append((pos0 + 1, pos0 + ref_span, cigar_ops, bc_val))
+            off = rec_end
+
+        for recs in by_tid.values():
+            recs.sort(key=lambda item: item[0])
+
+        bai_p = self._bam_index_path(bam)
+        if bai_p is not None and bai_p.is_file():
+            try:
+                braw = bai_p.read_bytes()
+                if braw[:4] == b"BAI\x01":
+                    bo = 4
+                    bn_ref = struct.unpack_from("<i", braw, bo)[0]
+                    bo += 4
+                    bai_mapped = 0
+                    for _ in range(bn_ref):
+                        n_bin = struct.unpack_from("<i", braw, bo)[0]
+                        bo += 4
+                        for _ in range(n_bin):
+                            bin_id, n_chunk = struct.unpack_from("<Ii", braw, bo)
+                            bo += 8
+                            if bin_id == 37450 and n_chunk >= 2:
+                                _, _, n_m, _ = struct.unpack_from("<QQQQ", braw, bo)
+                                bai_mapped += int(n_m)
+                            bo += 16 * n_chunk
+                        n_intv = struct.unpack_from("<i", braw, bo)[0]
+                        bo += 4 + 8 * n_intv
+                    if bai_mapped > 0:
+                        mapped_reads = bai_mapped
+            except Exception:
+                pass
+
+        res = (ref_to_tid, by_tid, mapped_reads)
+        self._pure_mux_bam_cache[key] = res
+        return res
+
+    def _mux_contigs_and_mapped(self, bam: Path, samtools: str | None) -> tuple[dict[str, str], int]:
+        key = str(bam.resolve())
+        cached = self._mux_contig_cache.get(key)
+        if cached is not None:
+            return cached
+        contig_map: dict[str, str] = {}
+        total_mapped = 0
+        has_bai = self._bam_index_path(bam) is not None
+        if samtools is not None and has_bai:
+            try:
+                res = subprocess.run([samtools, "idxstats", str(bam)], capture_output=True, text=True, check=True)
+                for line in res.stdout.splitlines():
+                    parts = line.split("\t")
+                    if len(parts) < 3 or parts[0] == "*":
+                        continue
+                    cname = parts[0]
+                    contig_map[cname] = cname
+                    contig_map.setdefault(cname[3:] if cname.startswith("chr") else ("chr" + cname), cname)
+                    try:
+                        total_mapped += int(parts[2])
+                    except ValueError:
+                        continue
+                out_c = (contig_map, total_mapped)
+                self._mux_contig_cache[key] = out_c
+                return out_c
+            except Exception:
+                contig_map.clear()
+                total_mapped = 0
+
+        if self._pysam_available() and has_bai:
+            try:
+                import pysam
+                with pysam.AlignmentFile(str(bam), "rb") as alignment:
+                    for item in alignment.get_index_statistics():
+                        cname = str(item.contig)
+                        contig_map[cname] = cname
+                        contig_map.setdefault(cname[3:] if cname.startswith("chr") else ("chr" + cname), cname)
+                        total_mapped += int(item.mapped)
+                out_c = (contig_map, total_mapped)
+                self._mux_contig_cache[key] = out_c
+                return out_c
+            except Exception:
+                contig_map.clear()
+                total_mapped = 0
+
+        ref_to_tid, _, total_mapped = self._load_pure_mux_bam(bam)
+        for alias_name in ref_to_tid:
+            contig_map.setdefault(alias_name, alias_name)
+        out_c = (contig_map, total_mapped)
+        self._mux_contig_cache[key] = out_c
+        return out_c
+
+    def _multiplexed_group_tracks(
+        self,
+        bam: Path,
+        geometry: EventGeometry,
+        mapper: "_CompressedMapper",
+        *,
+        bc_to_donor_arm: dict[str, tuple[int, str]],
+        donor_cell_counts: tuple[dict[str, int], dict[str, int]],
+        total_study_cells: int,
+        bc_tag: str = "BC",
+        samtools: str | None = None,
+    ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+        import bisect
+
+        contig_map, total_mapped = self._mux_contigs_and_mapped(bam, samtools)
+        bam_chrom = contig_map.get(geometry.chrom)
+        if bam_chrom is None:
+            return [], []
+
+        target_lookup = {(j.start, j.end): j.label for j in geometry.junctions}
+        acc: tuple[dict[str, dict[str, object]], dict[str, dict[str, object]]] = ({}, {})
+        for arm_i in (0, 1):
+            for d_id in donor_cell_counts[arm_i]:
+                acc[arm_i][d_id] = {
+                    "bins": np.zeros(240, dtype=float),
+                    "junction_counts": {j.label: 0 for j in geometry.junctions},
+                    "aligned_bases": 0,
+                    "aligned_read_count": 0,
+                }
+        if not acc[0] or not acc[1]:
+            return [], []
+
+        def _accumulate_ops(slot: dict[str, object], start1: int, cigar_ops: list[tuple[int, int]] | tuple[tuple[int, int], ...]) -> None:
+            ref_pos = start1
+            read_aligned_bases = 0
+            bins_d = slot["bins"]
+            jcounts_d = slot["junction_counts"]
+            for idx_op, (op, length) in enumerate(cigar_ops):
+                if op in {0, 7, 8}:
+                    self._add_coverage_segment(bins_d, mapper.map(ref_pos), mapper.map(ref_pos + length - 1))
+                    read_aligned_bases += length
+                    ref_pos += length
+                elif op == 2:
+                    ref_pos += length
+                elif op == 3:
+                    label = target_lookup.get((ref_pos, ref_pos + length - 1))
+                    if label is not None:
+                        la, ra = _junction_anchors_bamnostic(list(cigar_ops), idx_op)
+                        if min(la, ra) >= 8:
+                            jcounts_d[label] = int(jcounts_d.get(label, 0)) + 1
+                    ref_pos += length
+            if read_aligned_bases > 0:
+                slot["aligned_bases"] = int(slot["aligned_bases"]) + read_aligned_bases
+                slot["aligned_read_count"] = int(slot["aligned_read_count"]) + 1
+
+        has_bai = self._bam_index_path(bam) is not None
+        if samtools is not None and has_bai:
+            op_map = {"M": 0, "I": 1, "D": 2, "N": 3, "S": 4, "H": 5, "P": 6, "=": 7, "X": 8}
+            region = f"{bam_chrom}:{geometry.region_start}-{geometry.region_end}"
+            tag_pref = f"{bc_tag}:Z:"
+            proc = subprocess.Popen(
+                [samtools, "view", "-F", "2308", str(bam), region],
+                stdout=subprocess.PIPE,
+                text=True,
+                bufsize=1 << 20,
+            )
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 12 or parts[5] == "*":
+                    continue
+                bc_val = None
+                for field in parts[11:]:
+                    if field.startswith(tag_pref):
+                        bc_val = field[len(tag_pref):]
+                        break
+                if bc_val is None:
+                    continue
+                hit = bc_to_donor_arm.get(bc_val)
+                if hit is None:
+                    continue
+                arm_i, donor_id = hit
+                slot = acc[arm_i].get(donor_id)
+                if slot is None:
+                    continue
+                cigar_ops = [(op_map.get(op_c, 0), int(ln_s)) for ln_s, op_c in CIGAR_RE.findall(parts[5])]
+                _accumulate_ops(slot, int(parts[3]), cigar_ops)
+            rc_view = proc.wait()
+            if rc_view != 0:
+                return [], []
+        elif self._pysam_available() and has_bai:
+            import pysam
+            with pysam.AlignmentFile(str(bam), "rb") as alignment:
+                for record in alignment.fetch(bam_chrom, max(0, geometry.region_start - 1), geometry.region_end):
+                    if record.is_unmapped or record.is_secondary or record.is_supplementary or not record.has_tag(bc_tag):
+                        continue
+                    hit = bc_to_donor_arm.get(str(record.get_tag(bc_tag)))
+                    if hit is None:
+                        continue
+                    slot = acc[hit[0]].get(hit[1])
+                    if slot is not None and record.cigartuples:
+                        _accumulate_ops(slot, int(record.reference_start) + 1, list(record.cigartuples))
+        else:
+            ref_to_tid, by_tid, mapped_p = self._load_pure_mux_bam(bam, bc_tag=bc_tag)
+            if total_mapped <= 0:
+                total_mapped = mapped_p
+            tid = ref_to_tid.get(geometry.chrom)
+            if tid is None or tid not in by_tid:
+                return [], []
+            recs = by_tid[tid]
+            lo_idx = bisect.bisect_left(recs, (max(1, geometry.region_start - 25000), 0, (), ""))
+            for r_start, r_end, cigar_ops, bc_val in recs[lo_idx:]:
+                if r_start > geometry.region_end:
+                    break
+                if r_end < geometry.region_start:
+                    continue
+                hit = bc_to_donor_arm.get(bc_val)
+                if hit is None:
+                    continue
+                slot = acc[hit[0]].get(hit[1])
+                if slot is not None:
+                    _accumulate_ops(slot, r_start, cigar_ops)
+
+        arm_reads = [sum(int(s["aligned_read_count"]) for s in acc[i].values()) for i in (0, 1)]
+        if arm_reads[0] <= 0 or arm_reads[1] <= 0:
+            return [], []
+
+        out_tracks: tuple[list[dict[str, object]], list[dict[str, object]]] = ([], [])
+        for arm_i in (0, 1):
+            for donor_id, n_cells_d in donor_cell_counts[arm_i].items():
+                slot = acc[arm_i][donor_id]
+                rd_cnt = int(slot["aligned_read_count"])
+                if total_mapped > 0:
+                    donor_mapped = max(1, int(round(total_mapped * (max(1, n_cells_d) / max(1, total_study_cells)))))
+                else:
+                    donor_mapped = max(rd_cnt * 200, 10000)
+                cov, mean_rl = self._normalize_coverage_bins(
+                    slot["bins"],
+                    donor_mapped,
+                    int(slot["aligned_bases"]),
+                    rd_cnt,
+                )
+                out_tracks[arm_i].append({
+                    "sample": str(donor_id),
+                    "bam": str(bam),
+                    "coverage": cov,
+                    "junction_counts": slot["junction_counts"],
+                    "mapped_reads": donor_mapped,
+                    "mean_aligned_read_length": mean_rl,
+                    "coverage_normalization": "RPKM-style: average read-depth per bin / mapped-reads-per-million * 1000 / mean aligned read length",
+                })
+        return out_tracks
 
     def _sample_track_pure_python(self, bam: Path, geometry: EventGeometry, mapper: "_CompressedMapper") -> dict[str, object]:
         import bisect

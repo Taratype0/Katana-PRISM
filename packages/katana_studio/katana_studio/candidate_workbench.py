@@ -205,6 +205,25 @@ def _extract_event_geom_dict(row_dict: dict[str, Any], eid: str, etype: str) -> 
     }
 
 
+def _load_sc_barcode_aliases(qc_cells: set[str], barcode_shares: Path | None) -> dict[str, list[str]]:
+    """Return `cell_id -> [barcodes]` honoring optional `barcode_shares.txt` pairing (for multiplexed BAM RPKM)."""
+    cell_to_bcs: dict[str, list[str]] = {c: [c] for c in qc_cells}
+    if barcode_shares is not None and Path(barcode_shares).is_file():
+        with Path(barcode_shares).open("r", encoding="utf-8-sig", errors="replace") as fh:
+            for line in fh:
+                pts = [p.strip() for p in line.strip().split("\t") if p.strip()]
+                if len(pts) < 2:
+                    continue
+                b1, b2 = pts[0], pts[1]
+                canon = b1 if b1 in qc_cells else (b2 if b2 in qc_cells else None)
+                if canon is None:
+                    continue
+                for b_alias in (b1, b2):
+                    if b_alias not in cell_to_bcs[canon]:
+                        cell_to_bcs[canon].append(b_alias)
+    return cell_to_bcs
+
+
 def _discover_bams_for_samples(bams_dir: Path | None, sample_ids: list[str]) -> list[Path]:
     if bams_dir is None or not Path(bams_dir).is_dir() or not sample_ids:
         return []
@@ -337,6 +356,9 @@ def build_chapter8_synthesis_and_workbench(
     sc_support_cells: pd.DataFrame | None = None,
     sc_cells_meta: list[dict[str, Any]] | None = None,
     sc_contrasts_cell_spec: list[dict[str, Any]] | None = None,
+    sc_bam_path: Path | None = None,
+    sc_bc_tag: str = "BC",
+    sc_barcode_shares: Path | None = None,
     max_sashimi_per_contrast: int = 12,
 ) -> None:
     """Assemble Chapter 08 multi-evidence tables, static scorecards, authentic Katana Native Sashimi SVGs/PNGs,
@@ -689,6 +711,7 @@ def build_chapter8_synthesis_and_workbench(
         return
 
     # Pre-render authentic Katana Native Sashimi SVGs/PNGs for the top-N unique-gene targets per contrast!
+    eff_max_sashimi = min(max_sashimi_per_contrast, 6) if len(contrasts_spec) > 12 else max_sashimi_per_contrast
     sashimi_adapter = NativeSashimiAdapter()
     top_gene_syms: set[str] = set()
     top_gene_ids: set[str] = set()
@@ -706,7 +729,7 @@ def build_chapter8_synthesis_and_workbench(
             top_gene_syms.add(cand["gene_symbol"])
             top_gene_ids.add(cand["gene_id"])
             render_queue.append((c_spec, cand, rank_k, cid))
-            if rank_k >= max_sashimi_per_contrast:
+            if rank_k >= eff_max_sashimi:
                 break
 
     if gtf_path is not None and Path(gtf_path).is_file() and (top_gene_syms or top_gene_ids):
@@ -728,6 +751,41 @@ def build_chapter8_synthesis_and_workbench(
             if b1 and b2:
                 bams_cache[cid] = (b1, b2)
 
+    mux_bam_file = Path(sc_bam_path) if (is_single_cell and sc_bam_path is not None and Path(sc_bam_path).is_file()) else None
+    all_study_cells = {str(s["sample_id"]) for s in (sc_cells_meta or [])}
+    if mux_bam_file is not None and all_study_cells:
+        cell_to_bcs = _load_sc_barcode_aliases(all_study_cells, sc_barcode_shares)
+        total_study_cells = max(1, len(all_study_cells))
+    else:
+        cell_to_bcs = {}
+        total_study_cells = 0
+    mux_cache: dict[str, tuple[dict[str, tuple[int, str]], tuple[dict[str, int], dict[str, int]]]] = {}
+
+    def _get_mux_contrast_map(contrast_id: str, spec_c: dict[str, Any]) -> tuple[dict[str, tuple[int, str]], tuple[dict[str, int], dict[str, int]]] | None:
+        if mux_bam_file is None or not cell_to_bcs:
+            return None
+        if contrast_id in mux_cache:
+            return mux_cache[contrast_id]
+        sc_sp = sc_cell_spec_by_cid.get(contrast_id, spec_c)
+        bc_map: dict[str, tuple[int, str]] = {}
+        counts_0: dict[str, int] = {}
+        counts_1: dict[str, int] = {}
+        for c_id in sc_sp.get("numerator", {}).get("sample_ids", []):
+            cid_s = str(c_id)
+            don = cell_to_donor.get(cid_s, cid_s)
+            counts_0[don] = counts_0.get(don, 0) + 1
+            for bc in cell_to_bcs.get(cid_s, (cid_s,)):
+                bc_map[bc] = (0, don)
+        for c_id in sc_sp.get("denominator", {}).get("sample_ids", []):
+            cid_s = str(c_id)
+            don = cell_to_donor.get(cid_s, cid_s)
+            counts_1[don] = counts_1.get(don, 0) + 1
+            for bc in cell_to_bcs.get(cid_s, (cid_s,)):
+                bc_map[bc] = (1, don)
+        val = (bc_map, (counts_0, counts_1))
+        mux_cache[contrast_id] = val
+        return val
+
     for c_spec, cand, rank_k, cid in render_queue:
         slug = re.sub(r"[^A-Za-z0-9._-]+", "-", cid)
         g_slug = re.sub(r"[^A-Za-z0-9._-]+", "-", str(cand["gene_symbol"]))[:28]
@@ -738,6 +796,17 @@ def build_chapter8_synthesis_and_workbench(
         lbl1 = str(c_spec.get("numerator", {}).get("label", "Numerator"))
         lbl2 = str(c_spec.get("denominator", {}).get("label", "Denominator"))
         b1, b2 = bams_cache.get(cid, ([], []))
+        mux_args: dict[str, Any] = {}
+        if not (b1 and b2) and mux_bam_file is not None:
+            m_info = _get_mux_contrast_map(cid, c_spec)
+            if m_info is not None and m_info[0]:
+                mux_args = {
+                    "multiplexed_bam": mux_bam_file,
+                    "bc_to_donor_arm": m_info[0],
+                    "donor_cell_counts": m_info[1],
+                    "total_study_cells": total_study_cells,
+                    "bc_tag": str(sc_bc_tag or "BC"),
+                }
         sub_txt = (
             "Katana Native Sashimi · Single-cell donor-aggregated IJC/SJC counts, donor PSI, dPSI and FDR"
             if is_single_cell
@@ -753,6 +822,7 @@ def build_chapter8_synthesis_and_workbench(
                 gtf_path=Path(gtf_path) if (gtf_path and Path(gtf_path).is_file()) else None,
                 bams_1=b1 or None,
                 bams_2=b2 or None,
+                **mux_args,
                 title=f"{cand['gene_symbol']} | {cand['event_type']} ({cand['geom']['chrom']}:{cand['geom']['region_start']:,}-{cand['geom']['region_end']:,})",
                 subtitle=sub_txt,
                 dpsi=float(cand["dpsi"]),
