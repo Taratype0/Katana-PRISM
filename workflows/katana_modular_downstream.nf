@@ -1,10 +1,11 @@
 // Native nf-core scatter-gather downstream workflow orchestrating Katana-PRISM 1.0.0 packages:
 //   1. SPLICEMANIFOLD (study-wide PS-DAS qualification + Beyond-Jutils PSI Clustermap/PCA/UMAP)
 //   2. SPLICENET      (study-wide Excess-BioVar Signed TOM co-splicing network)
-//   3. SPLICETRACE    (per-contrast parallel 170-RBP splicing map, module bridge & NMD/UniProt consequences)
-//   4. KATANA_REPORT  (unified 4-facet GO/KEGG ORA + MultiQC 5'->3' synthesis + REPORT.html & REPORT.zip)
+//   3. SPLICETRACE         (per-contrast parallel 170-RBP splicing map, module bridge & NMD/UniProt consequences)
+//   4. KATANA_CROSS_PARADIGM (rMATS × DEXSeq × SUPPA2 AF/AL × stageR DTU × GTF cross-paradigm resolver)
+//   5. KATANA_REPORT       (unified 4-facet GO/KEGG ORA + MultiQC 5'->3' synthesis + REPORT.html & REPORT.zip)
 
-include { SPLICEMANIFOLD; SPLICENET; SPLICETRACE; KATANA_REPORT } from '../modules/local/katana_prism_modules'
+include { SPLICEMANIFOLD; SPLICENET; SPLICETRACE; KATANA_CROSS_PARADIGM; KATANA_REPORT } from '../modules/local/katana_prism_modules'
 
 workflow KATANA_MODULAR_DOWNSTREAM {
     take:
@@ -67,7 +68,23 @@ workflow KATANA_MODULAR_DOWNSTREAM {
         ch_splicetrace_all = Channel.value(file('NO_SPLICETRACE'))
     }
 
-    // 4. Unified Executive Report & Portable Archive (Katana Report)
+    // 4. Cross-Paradigm Synthesis (rMATS × DEXSeq × SUPPA2 AF/AL × stageR DTU × GTF)
+    if (!params.skip_cross_paradigm) {
+        KATANA_CROSS_PARADIGM(
+            params.study_name,
+            ch_bundle,
+            ch_gtf,
+            params.rmats_mode ?: 'JCEC',
+            params.das_fdr,
+            ch_splicetrace_all
+        )
+        ch_cross_paradigm = KATANA_CROSS_PARADIGM.out.results.first()
+        ch_versions       = ch_versions.mix(KATANA_CROSS_PARADIGM.out.versions)
+    } else {
+        ch_cross_paradigm = Channel.value(file('NO_CROSS_PARADIGM'))
+    }
+
+    // 5. Unified Executive Report & Portable Archive (Katana Report)
     KATANA_REPORT(
         params.study_name,
         ch_bundle,
@@ -79,7 +96,8 @@ workflow KATANA_MODULAR_DOWNSTREAM {
         params.das_dpsi,
         ch_manifold,
         ch_splicenet,
-        ch_splicetrace_all
+        ch_splicetrace_all,
+        ch_cross_paradigm
     )
     ch_versions = ch_versions.mix(KATANA_REPORT.out.versions)
 
@@ -89,5 +107,6 @@ workflow KATANA_MODULAR_DOWNSTREAM {
     report_dir     = KATANA_REPORT.out.report_dir
     splicemanifold = ch_manifold
     splicenet      = ch_splicenet
+    cross_paradigm = ch_cross_paradigm
     versions       = ch_versions
 }

@@ -2,8 +2,9 @@
 // Bulk RNA-seq:
 //   - SPLICEMANIFOLD : PS-DAS qualification + Empirical-Bayes PSI Clustermap / PERMANOVA PCA / Event-PSI UMAP (`splicemanifold`)
 //   - SPLICENET      : Excess-BioVar debiased signed TOM co-splicing network & hub modules (`splicenet`)
-//   - SPLICETRACE    : Per-contrast 170-RBP PWM 11-channel splicing map, module bridge & 50-nt EJC NMD / UniProt consequences (`splicetrace`)
-//   - KATANA_REPORT  : 4-facet GO/KEGG ORA, MultiQC 5'->3' synthesis & SHA256-verified REPORT.html + REPORT.zip (`katana-report`)
+//   - SPLICETRACE         : Per-contrast 170-RBP PWM 11-channel splicing map, module bridge & 50-nt EJC NMD / UniProt consequences (`splicetrace`)
+//   - KATANA_CROSS_PARADIGM: Multi-paradigm resolver (rMATS × DEXSeq × SUPPA2 AF/AL × stageR DTU × GTF) (`katana-cross-paradigm`)
+//   - KATANA_REPORT       : 4-facet GO/KEGG ORA, MultiQC 5'->3' synthesis & SHA256-verified REPORT.html + REPORT.zip (`katana-report`)
 // Single-Cell Smart-seq3:
 //   - SPLICEMANIFOLD_SC, SCSPLICENET, SCSPLICETRACE, KATANA_REPORT_SC
 
@@ -117,6 +118,41 @@ process SPLICETRACE {
     """
 }
 
+process KATANA_CROSS_PARADIGM {
+    tag "${study_name}"
+    label 'process_low'
+
+    input:
+    val  study_name
+    path bundle
+    path gtf
+    val  rmats_mode
+    val  das_fdr
+    path splicetrace_outs
+
+    output:
+    path "cross_paradigm_out", emit: results
+    path "versions.yml"      , emit: versions
+
+    script:
+    def trace_list = [splicetrace_outs].flatten().findAll { it.name != 'NO_SPLICETRACE' }
+    def trace_arg  = trace_list ? "--splicetrace-dirs " + trace_list.collect { "\"${it}\"" }.join(' ') : ''
+    """
+    ${prismPythonPathBlock(projectDir)}
+    gtf_ref="${gtf}"
+    if [[ "\$gtf_ref" == *.gz ]]; then gzip -dc "\$gtf_ref" > annotation_unpacked.gtf; gtf_ref="annotation_unpacked.gtf"; fi
+    python3 -m katana_studio.cross_paradigm \
+        --bundle "${bundle}" \
+        --gtf "\${gtf_ref}" \
+        --rmats-mode "${rmats_mode}" \
+        --fdr ${das_fdr} \
+        ${trace_arg} \
+        --outdir cross_paradigm_out \
+        --emit-versions-yml versions.yml \
+        --process-name "${task.process}"
+    """
+}
+
 process KATANA_REPORT {
     tag "${study_name}"
     label 'process_low'
@@ -133,6 +169,7 @@ process KATANA_REPORT {
     path splicemanifold_out
     path splicenet_out
     path splicetrace_outs
+    path cross_paradigm_out
 
     output:
     path "report/REPORT.html"         , emit: html
@@ -146,6 +183,7 @@ process KATANA_REPORT {
     def net_arg    = splicenet_out.name != 'NO_SPLICENET' ? "--splicenet-dir \"${splicenet_out}\"" : ''
     def trace_list = [splicetrace_outs].flatten().findAll { it.name != 'NO_SPLICETRACE' }
     def trace_arg  = trace_list ? "--splicetrace-dirs " + trace_list.collect { "\"${it}\"" }.join(' ') : ''
+    def cp_arg     = cross_paradigm_out.name != 'NO_CROSS_PARADIGM' ? "--cross-paradigm-dir \"${cross_paradigm_out}\"" : ''
     def sp_val     = (species in ['auto', 'human', 'mouse']) ? species : 'auto'
     """
     ${prismPythonPathBlock(projectDir)}
@@ -166,6 +204,7 @@ process KATANA_REPORT {
         ${sm_arg} \
         ${net_arg} \
         ${trace_arg} \
+        ${cp_arg} \
         --outdir report \
         --emit-versions-yml versions.yml \
         --process-name "${task.process}"

@@ -83,8 +83,25 @@ def test_nextflow_resource_and_alignment_optimizations() -> None:
 
     port_res = (REPO_ROOT / "conf" / "portable_resources.config").read_text(encoding="utf-8")
     assert "54.GB" in port_res, "STAR_GENOMEGENERATE attempt 1 should fit 64-GB hosts & Dardel shared queue"
-    for proc_name in ("SPLICEMANIFOLD", "SPLICENET", "SPLICETRACE", "SCSPLICENET", "SCSPLICETRACE", "KATANA_REPORT"):
+    bam_qc_nf = (REPO_ROOT / "modules" / "local" / "bam_qc_stats.nf").read_text(encoding="utf-8")
+    assert "trap 'rm -rf tmp_java' EXIT" in bam_qc_nf
+    assert "rm -rf tmp_java" in bam_qc_nf
+    assert "maxForks    = 2" in port_res
+    assert "afterScript = 'rm -rf tmp_java || true'" in port_res
+    assert "COLLATE_GENOME_BAM" in port_res and "maxForks = 4" in port_res
+    for proc_name in ("SPLICEMANIFOLD", "SPLICENET", "SPLICETRACE", "KATANA_CROSS_PARADIGM", "SCSPLICENET", "SCSPLICETRACE", "KATANA_REPORT"):
         assert proc_name in port_res
+
+    nf_cfg = (REPO_ROOT / "nextflow.config").read_text(encoding="utf-8")
+    assert "skip_cross_paradigm" in nf_cfg
+    assert "KATANA_CROSS_PARADIGM" in nf_cfg
+    std_out = (REPO_ROOT / "conf" / "standard_outputs.config").read_text(encoding="utf-8")
+    assert "KATANA_CROSS_PARADIGM" in std_out
+    mod_nf = (REPO_ROOT / "modules" / "local" / "katana_prism_modules.nf").read_text(encoding="utf-8")
+    assert "process KATANA_CROSS_PARADIGM" in mod_nf
+    assert "--cross-paradigm-dir" in mod_nf
+    down_nf = (REPO_ROOT / "workflows" / "katana_modular_downstream.nf").read_text(encoding="utf-8")
+    assert "KATANA_CROSS_PARADIGM(" in down_nf
 
 
 # ---------------------------------------------------------------------------
@@ -1492,6 +1509,170 @@ def test_sashimi_events_skips_coordinate_less_annotation_cards() -> None:
     ]
     assert out[0]["source_evidence_id"] == "geometry-only"
     assert out[1]["source_evidence_id"] == "ev_rmats"
+
+
+def test_cross_paradigm_dexseq_sign_fix_and_fused_bulk_report(tmp_path: Path) -> None:
+    """Verify DEXSeq log2fold_<ctrl>_<treat> sign calibration and end-to-end Cross-Paradigm fusion into Chapters 04, 07, and 08 (no Ch09)."""
+    import shutil
+    from katana_studio.cli import report_main
+    from katana_studio.cross_paradigm import cli_main as cp_cli_main
+
+    fx = _create_synthetic_study(tmp_path)
+
+    # Augment synthetic GTF with explicit transcript lines so Gene10 has Coding -> NMD isoform switching
+    gtf_txt = fx["gtf"].read_text(encoding="utf-8")
+    g10_base = 200 + 10 * 700
+    g10_gid = "ENSMUSG00000000010"
+    g10_coding = "ENSMUST00000000010"
+    g10_nmd = "ENSMUST00000000110"
+    extra_gtf = "\n".join([
+        f'chr1\tsynth\ttranscript\t{g10_base}\t{g10_base + 540}\t.\t+\t.\tgene_id "{g10_gid}"; transcript_id "{g10_coding}"; gene_name "Gene10"; transcript_type "protein_coding";',
+        f'chr1\tsynth\ttranscript\t{g10_base}\t{g10_base + 540}\t.\t+\t.\tgene_id "{g10_gid}"; transcript_id "{g10_nmd}"; gene_name "Gene10"; transcript_type "nonsense_mediated_decay";',
+        f'chr1\tsynth\texon\t{g10_base}\t{g10_base + 90}\t.\t+\t.\tgene_id "{g10_gid}"; transcript_id "{g10_nmd}"; gene_name "Gene10";',
+        f'chr1\tsynth\texon\t{g10_base + 200}\t{g10_base + 290}\t.\t+\t.\tgene_id "{g10_gid}"; transcript_id "{g10_nmd}"; gene_name "Gene10";',
+    ])
+    aug_gtf = tmp_path / "annotation_aug.gtf"
+    aug_gtf.write_text(gtf_txt + extra_gtf + "\n", encoding="utf-8")
+
+    # Build Nextflow-style katana_bundle layout
+    bundle = tmp_path / "bundle_cp"
+    for d in ("rmats/KO_vs_WT/rmats_post", "DEG", "dexseq_exon/annotation", "suppa/KO_vs_WT/diffsplice/per_local_event", "suppa/KO_vs_WT/diffsplice/per_isoform", "dtu/results/stager", "quant/matrices"):
+        (bundle / d).mkdir(parents=True, exist_ok=True)
+    shutil.copy2(fx["samples"], bundle / "samplesheet.csv")
+    shutil.copy2(fx["contrasts"], bundle / "contrastsheet.csv")
+    for fn in ("SE.MATS.JCEC.txt", "SE.MATS.JC.txt"):
+        shutil.copy2(fx["rmats"] / fn, bundle / "rmats/KO_vs_WT/rmats_post" / fn)
+
+    sample_ids = ["KO_1", "KO_2", "KO_3", "WT_1", "WT_2", "WT_3"]
+    # DEG: Gene1..4 significant; Gene10 explicitly non-significant (hidden from DEG)
+    deg_rows = []
+    cnt_rows = []
+    for g_idx in range(1, 16):
+        gid = f"ENSMUSG{g_idx:011d}"
+        gsym = f"Gene{g_idx}"
+        deg_rows.append({
+            "gene_id": gid, "gene_symbol": gsym, "baseMean": 400.0 + g_idx * 15,
+            "log2FoldChange": 1.6 if g_idx <= 4 else 0.08,
+            "pvalue": 1e-4 if g_idx <= 4 else 0.65,
+            "padj": 0.005 if g_idx <= 4 else 0.78,
+        })
+        cnt_rows.append({"gene_id": gid, "gene_symbol": gsym, **{s: round(250.0 + g_idx * 5, 2) for s in sample_ids}})
+    pd.DataFrame(deg_rows).to_csv(bundle / "DEG/KO_vs_WT.deseq2.results.tsv", sep="\t", index=False)
+    pd.DataFrame(cnt_rows).to_csv(bundle / "DEG/all.normalised_counts.tsv", sep="\t", index=False)
+
+    # DEXSeq: intentionally emit inverted log2fold_WT_KO (ctrl/treat polarity!) matching rMATS exon coords
+    gff_rows = []
+    dex_rows = []
+    for g_idx in range(1, 16):
+        base = 200 + g_idx * 700
+        gid = f"ENSMUSG{g_idx:011d}"
+        is_c1 = g_idx <= 5
+        # Bin E001 (5' exon) + E002 (exact rMATS skipped exon [base+200, base+290]) + E003 (3' exon)
+        for bin_i, (s_b, e_b) in enumerate([(base, base + 90), (base + 200, base + 290), (base + 420, base + 540)], 1):
+            fid = f"E{bin_i:03d}"
+            gff_rows.append(f'chr1\tdexseq\texonic_part\t{s_b}\t{e_b}\t.\t+\t.\tgene_id "{gid}"; exonic_part_number "{bin_i:03d}";')
+            if bin_i == 2 and is_c1:
+                raw_lfc, pv, pa, ko_m, wt_m = -1.85, 1e-8, 1e-6, 18.0, 4.5
+            elif bin_i == 1 and g_idx == 12:
+                raw_lfc, pv, pa, ko_m, wt_m = -1.60, 2e-6, 2e-4, 14.0, 4.0
+            else:
+                raw_lfc, pv, pa, ko_m, wt_m = 0.05, 0.70, 0.85, 10.0, 10.2
+            dex_rows.append({
+                "groupID": gid, "featureID": fid, "exonBaseMean": 120.0,
+                "dispersion": 0.05, "stat": 12.0, "pvalue": pv, "padj": pa,
+                "KO": ko_m, "WT": wt_m, "log2fold_WT_KO": raw_lfc,
+                "genomicData.seqnames": "chr1", "genomicData.start": s_b, "genomicData.end": e_b, "genomicData.strand": "+",
+            })
+    (bundle / "dexseq_exon/annotation/DEXSeq.gff").write_text("\n".join(gff_rows) + "\n", encoding="utf-8")
+    pd.DataFrame(dex_rows).to_csv(bundle / "dexseq_exon/DEXSeqResults.KO_vs_WT.csv", index=False)
+
+    # SUPPA2 local events including rMATS-blind AF and AL boundary events
+    pd.DataFrame([
+        {"event_id": "ENSMUSG00000000011;AF:chr1:7900-7990:8100-8190:+", "KO-WT_dPSI": 0.48, "KO-WT_p-val": 0.0001},
+        {"event_id": "ENSMUSG00000000013;AL:chr1:9600-9680:9720-9840:+", "KO-WT_dPSI": -0.44, "KO-WT_p-val": 0.0002},
+        {"event_id": "ENSMUSG00000000001;SE:chr1:990-1100:1190-1320:+", "KO-WT_dPSI": 0.35, "KO-WT_p-val": 0.0010},
+    ]).to_csv(bundle / "suppa/KO_vs_WT/diffsplice/per_local_event/local_events.dpsi", sep="\t", index=False)
+
+    # stageR DTU + Salmon transcript TPM for Gene10 (Coding -> NMD, hidden from DEG)
+    pd.DataFrame([
+        {"geneID": g10_gid, "txID": g10_coding, "gene": 1e-4, "transcript": 2e-4},
+        {"geneID": g10_gid, "txID": g10_nmd, "gene": 1e-4, "transcript": 3e-4},
+    ]).to_csv(bundle / "dtu/results/stager/getAdjustedPValues.KO_vs_WT.tsv", sep="\t", index=False)
+    pd.DataFrame([
+        {"tx": g10_coding, "gene_id": g10_gid, "KO_1": 18.0, "KO_2": 20.0, "KO_3": 22.0, "WT_1": 88.0, "WT_2": 90.0, "WT_3": 92.0},
+        {"tx": g10_nmd, "gene_id": g10_gid, "KO_1": 82.0, "KO_2": 80.0, "KO_3": 78.0, "WT_1": 12.0, "WT_2": 10.0, "WT_3": 8.0},
+    ]).to_csv(bundle / "quant/matrices/salmon.merged.transcript_tpm.tsv", sep="\t", index=False)
+
+    # Step 1: Run standalone KATANA_CROSS_PARADIGM CLI
+    cp_dir = tmp_path / "cp_precomputed"
+    ver_yml = tmp_path / "cp_versions.yml"
+    rc_cp = cp_cli_main([
+        "--bundle", str(bundle),
+        "--gtf", str(aug_gtf),
+        "--rmats-mode", "JCEC",
+        "--outdir", str(cp_dir),
+        "--emit-versions-yml", str(ver_yml),
+    ])
+    assert rc_cp == 0 and ver_yml.is_file()
+    cp_sum = json.loads((cp_dir / "cross_paradigm_summary.json").read_text(encoding="utf-8"))
+    assert cp_sum["available"] is True
+    cnt = cp_sum["contrasts"]["KO_vs_WT"]["counts"]
+    assert cp_sum["contrasts"]["KO_vs_WT"]["dexseq_sign_inverted"] is True
+    assert cnt["class1_events"] >= 1 and cnt["class1_concordant_pct"] == 100.0
+    assert cnt["suppa_af_al_nom"] == 2
+    assert cnt["dtu_switch_resolved"] == 1 and cnt["dtu_hidden_from_deg"] == 1
+    assert cp_sum["contrasts"]["KO_vs_WT"]["tables_preview"]["class3_switches"][0]["fate"] == "Coding -> NMD (Loss of ORF)"
+    assert "gene_lists" in cp_sum["contrasts"]["KO_vs_WT"]
+    assert len(cp_sum["contrasts"]["KO_vs_WT"]["gene_lists"]["class3_switches"]) == 1
+    assert len(cp_sum["contrasts"]["KO_vs_WT"]["gene_lists"]["class2_af_al"]) == 2
+
+    # Step 2: Run full katana-report bulk CLI reusing --cross-paradigm-dir and fuse into existing 8 chapters
+    rep_dir = tmp_path / "fused_report"
+    rc_rep = report_main([
+        "bulk",
+        "--bundle", str(bundle),
+        "--fasta", str(fx["fasta"]),
+        "--gtf", str(aug_gtf),
+        "--cross-paradigm-dir", str(cp_dir),
+        "--study-name", "Cross-Paradigm Fused Smoke Test",
+        "--species", "mouse",
+        "--outdir", str(rep_dir),
+    ])
+    assert rc_rep == 0
+
+    manifest = json.loads((rep_dir / "report-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["figure_data_links"]["missing_plot_data"] == []
+    assert {p["chapter"] for p in manifest["panels"]}.issubset({1, 2, 3, 4, 5, 6, 7, 8})
+
+    # Verify DEXSeq parquet auto-calibration reversed log2fold_WT_KO (-1.85 -> +1.85)
+    dex_pq = pd.read_parquet(rep_dir / "outputs/comparisons/KO_vs_WT/DEXSeq-complete.parquet")
+    c1_bin = dex_pq[(dex_pq["gene_id"] == "ENSMUSG00000000001") & (dex_pq["feature_id"] == "E002")].iloc[0]
+    assert float(c1_bin["log2fc"]) > 1.5
+
+    # Verify Ch04, Ch07, Ch08 fusion + zero Ch09 + interactive explorer + candidate enrichment
+    panel_chapters = {p["id"]: p["chapter"] for p in manifest["panels"]}
+    assert panel_chapters["cp-taxonomy-concordance-KO_vs_WT"] == 4
+    assert panel_chapters["cp-afal-positional-KO_vs_WT"] == 4
+    assert panel_chapters["cp-isoform-fates-KO_vs_WT"] == 7
+
+    html_txt = (rep_dir / "REPORT.html").read_text(encoding="utf-8")
+    assert "interactive-cross-paradigm-isoform-explorer" in html_txt
+    assert "Jump to Cross-Paradigm" not in html_txt
+    assert "Gene Story Explorer" not in html_txt
+    assert "fmtQ" in html_txt and "sigStars" in html_txt
+    assert "gene_dex_bins" in html_txt and "rmats_fdr" in html_txt and "tx_confirm_tier" in html_txt
+    assert "kcp-genelist-box" in html_txt and "kcp-guide" in html_txt and "syncGeneDropdown" in html_txt
+    for ch_n in (1, 2, 3, 4, 6, 7, 8):
+        assert f"Chapter 0{ch_n}" in html_txt
+    assert "Chapter 09" not in html_txt and "chapter-9" not in html_txt
+
+    prio_df = pd.read_csv(rep_dir / "outputs/synthesis/integrative_priority_targets_KO_vs_WT.tsv", sep="\t")
+    assert {"coord_verified_exon", "isoform_switch_fate", "hidden_from_deg"}.issubset(set(prio_df.columns))
+
+    with zipfile.ZipFile(rep_dir / "REPORT.zip", "r") as zf:
+        znames = set(zf.namelist())
+        assert "REPORT.html" in znames
+        assert "outputs/cross_paradigm/CROSS_PARADIGM_EXPLORER.html" in znames
 
 
 # ---------------------------------------------------------------------------

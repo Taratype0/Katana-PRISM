@@ -465,8 +465,8 @@ def _resolve_bundle_inputs(bundle_dir: Path) -> dict[str, Any]:
         raise FileNotFoundError(f"Bundle directory not found: {bundle}")
     samples_f = next((p for p in (bundle / "pipeline_info/samplesheet.valid.csv", bundle / "inputs/samplesheet.csv", bundle / "samplesheet.csv", bundle / "samples.csv", bundle / "provenance/strandedness/samplesheet.requested.csv") if p.is_file()), None)
     contrasts_f = next((p for p in (bundle / "pipeline_info/contrastsheet.valid.csv", bundle / "inputs/contrastsheet.csv", bundle / "contrasts.csv", bundle / "contrastsheet.csv") if p.is_file()), None)
-    rmats_dir = next((p for p in (bundle / "rmats", bundle / "splicing/rmats") if p.is_dir()), None)
-    deg_dir = next((p for p in (bundle / "DEG", bundle / "deseq2") if p.is_dir()), None)
+    rmats_dir = next((p for p in (bundle / "rmats", bundle / "splicing/rmats", bundle / "rnasplicing/rmats") if p.is_dir()), None)
+    deg_dir = next((p for p in (bundle / "DEG", bundle / "differential/deg", bundle / "deseq2") if p.is_dir()), None)
     multiqc_dir = next((p for p in (bundle / "qc/multiqc", bundle / "qc", bundle / "multiqc") if p.is_dir()), None)
     fasta_f = next((p for p in (bundle / "refs/genome.fasta", bundle / "refs/genome.fa") if p.is_file()), None)
     gtf_f = next((p for p in (bundle / "refs/annotation.gtf", bundle / "refs/genes.gtf") if p.is_file()), None)
@@ -687,6 +687,7 @@ def run_bulk(
     splicemanifold_dir: str | Path | None = None,
     splicenet_dir: str | Path | None = None,
     splicetrace_dirs: list[str | Path] | dict[str, Path] | None = None,
+    cross_paradigm_dir: str | Path | None = None,
     rmats_mode: str = "JCEC",
     study_name: str = "Katana Bulk Splicing Study",
     species: str = "auto",
@@ -1238,6 +1239,7 @@ def run_bulk(
     ) if p is not None and p.is_file()), None)
     prot_by_contrast: dict[str, pd.DataFrame] = {}
     conseq_by_contrast: dict[str, pd.DataFrame] = {}
+    resolved_st_dirs: dict[str, Path] = {}
     bridge_frames: list[pd.DataFrame] = []
 
     for c_spec in contrasts_list:
@@ -1267,6 +1269,7 @@ def run_bulk(
                 st_dir_c = None
 
         if st_dir_c is not None and st_dir_c.is_dir():
+            resolved_st_dirs[cid] = st_dir_c
             p_df_c, csq_df_c, br_df_c = render_ch7_splicetrace_suite(
                 st_dir=st_dir_c,
                 cid=cid,
@@ -1310,6 +1313,43 @@ def run_bulk(
             existing_pathways_df=sn_ora_existing,
         )
 
+    # Cross-Paradigm Synthesis (rMATS × DEXSeq × SUPPA2 AF/AL × stageR DTU × GTF): mounted into Ch 04, 07, and 08
+    from .cross_paradigm import (
+        integrate_cross_paradigm_into_report,
+        load_precomputed_cross_paradigm,
+        run_cross_paradigm_analysis,
+    )
+
+    cp_lookup: dict[str, dict[str, Any]] = {}
+    cp_blocks: list[dict[str, Any]] = []
+    cp_res: dict[str, Any] = {"available": False}
+    if cross_paradigm_dir is not None and Path(cross_paradigm_dir).is_dir():
+        cp_res = load_precomputed_cross_paradigm(Path(cross_paradigm_dir))
+    if not cp_res.get("available"):
+        try:
+            cp_res = run_cross_paradigm_analysis(
+                outdir=out / "outputs/cross_paradigm",
+                bundle_dir=bundle_path,
+                gtf_path=gtf,
+                contrasts_list=contrasts_list,
+                samples_list=samples_list,
+                das_by_contrast=das_by_contrast,
+                deg_by_contrast=deg_by_contrast,
+                splicetrace_dirs=resolved_st_dirs or splicetrace_dirs,
+                rmats_mode=rmats_mode,
+                fdr_cutoff=fdr_cutoff,
+            )
+        except Exception:
+            cp_res = {"available": False}
+    if cp_res.get("available"):
+        cp_lookup = integrate_cross_paradigm_into_report(
+            cp_result=cp_res,
+            outdir=out,
+            panels=panels,
+            tables=tables,
+            interactive_blocks=cp_blocks,
+        )
+
     # Chapter 08: Convergent 7-Pillar Scorecard + Self-Contained Interactive Candidate Gene Finder & Katana Native Sashimi 4-Track Workbench
     interactive_blocks: list[dict[str, Any]] = []
     build_chapter8_synthesis_and_workbench(
@@ -1333,7 +1373,9 @@ def run_bulk(
         multilayer_evidence=multilayer_evidence,
         gtf_path=Path(gtf) if gtf else None,
         bams_dir=Path(bams) if bams else None,
+        cross_paradigm_lookup=cp_lookup,
     )
+    interactive_blocks.extend(cp_blocks)
 
     return _finalize_consulting_report_and_zip(
         outdir=out,
@@ -2400,9 +2442,10 @@ def run_report_from_nextflow(
     splicemanifold_dir: str | Path | None = None,
     splicenet_dir: str | Path | None = None,
     splicetrace_dirs: list[str | Path] | dict[str, Path] | None = None,
+    cross_paradigm_dir: str | Path | None = None,
     dummy: bool = False,
 ) -> dict[str, Any]:
-    """Assemble Katana Report (`REPORT.html` + `REPORT.zip`) in Nextflow, reusing upstream SpliceManifold, SpliceNet & SpliceTrace outputs."""
+    """Assemble Katana Report (`REPORT.html` + `REPORT.zip`) in Nextflow, reusing upstream SpliceManifold, SpliceNet, SpliceTrace & Cross-Paradigm outputs."""
     return run_bulk(
         outdir=outdir,
         bundle=bundle,
@@ -2416,5 +2459,6 @@ def run_report_from_nextflow(
         splicemanifold_dir=splicemanifold_dir,
         splicenet_dir=splicenet_dir,
         splicetrace_dirs=splicetrace_dirs,
+        cross_paradigm_dir=cross_paradigm_dir,
         dummy=dummy,
     )

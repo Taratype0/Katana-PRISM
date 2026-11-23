@@ -52,6 +52,7 @@ process QUALIMAP_GENEBODY {
     """
     unset DISPLAY
     mkdir -p tmp_java
+    trap 'rm -rf tmp_java' EXIT
     export _JAVA_OPTIONS="-Djava.awt.headless=true -Djava.io.tmpdir=\$PWD/tmp_java"
     qualimap --java-mem-size=${java_mem_mb}M rnaseq \\
         -bam "$bam" \\
@@ -59,6 +60,7 @@ process QUALIMAP_GENEBODY {
         -p $protocol \\
         $paired_arg \\
         -outdir "${meta.id}"
+    rm -rf tmp_java
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         qualimap: \$(qualimap --version 2>&1 | grep -i 'QualiMap v' | sed 's/.*QualiMap v.//; s/ .*//' || echo '2.3')

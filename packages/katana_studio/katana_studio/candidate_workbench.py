@@ -360,6 +360,7 @@ def build_chapter8_synthesis_and_workbench(
     sc_bc_tag: str = "BC",
     sc_barcode_shares: Path | None = None,
     max_sashimi_per_contrast: int = 12,
+    cross_paradigm_lookup: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     """Assemble Chapter 08 multi-evidence tables, static scorecards, authentic Katana Native Sashimi SVGs/PNGs,
     Top-10s & self-contained interactive Candidate Gene Finder + 4-Track GeneCard Workbench."""
@@ -460,6 +461,7 @@ def build_chapter8_synthesis_and_workbench(
         dtu_lookup = _build_ortho_gene_lookup(dtu_df_c, effect_col="gene_q", stat_col="gene_q", stat_col2="transcript_q", sort_asc_effect=True)
         n_ortho_avail = int(bool(sup_lookup)) + int(bool(dex_lookup)) + int(bool(dtu_lookup))
         has_ml_c = n_ortho_avail > 0
+        cp_gmap = (cross_paradigm_lookup or {}).get(cid, {})
 
         prot_df = prot_by_contrast.get(cid, pd.DataFrame())
         prot_lookup: dict[str, dict[str, Any]] = {}
@@ -621,6 +623,7 @@ def build_chapter8_synthesis_and_workbench(
                 )
 
             conseq_badge = _human_consequence_badge(nmd_cls, dom_str, frame_st)
+            cp_info = cp_gmap.get(gid) or cp_gmap.get(gsym) or {}
 
             cand_rows.append({
                 "comparison_id": cid,
@@ -666,6 +669,9 @@ def build_chapter8_synthesis_and_workbench(
                 "has_domain": has_dom,
                 "has_nmd": has_nmd,
                 "consequence_summary": conseq_badge,
+                "coord_verified_exon": cp_info.get("coord_verified_exon"),
+                "isoform_switch_fate": cp_info.get("isoform_switch_fate"),
+                "hidden_from_deg": cp_info.get("hidden_from_deg"),
                 "pillars_supported": pillars_hit,
                 "pillars_total": pillars_total,
                 "s_dpsi": round(s_dpsi, 4),
@@ -884,6 +890,8 @@ def build_chapter8_synthesis_and_workbench(
                 "suppa_sig", "suppa_dpsi", "dexseq_sig", "dex_log2fc", "dex_padj",
                 "dtu_sig", "dtu_gene_q",
             ])
+        if cp_gmap:
+            export_cols.extend(["coord_verified_exon", "isoform_switch_fate", "hidden_from_deg"])
         export_cols.extend([
             "splicenet_module", "module_abs_kME", "cis_rbp_motifs",
             "uniprot_acc", "nmd_switch_class", "disrupted_uniprot_domains",

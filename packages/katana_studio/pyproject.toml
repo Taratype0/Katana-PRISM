@@ -40,6 +40,7 @@ dependencies = [
 [project.scripts]
 katana-studio = "katana_studio.cli:studio_main"
 katana-report = "katana_studio.cli:report_main"
+katana-cross-paradigm = "katana_studio.cross_paradigm:cli_main"
 
 [tool.setuptools.packages.find]
 where = ["."]

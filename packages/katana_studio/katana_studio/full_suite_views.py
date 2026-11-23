@@ -818,6 +818,41 @@ def render_multilayer_orthogonal_convergence(
     })
 
 
+def _orient_dexseq_lfc_treat_over_ctrl(
+    raw_x: pd.DataFrame,
+    lfc_col: str,
+    treat_lbl: str,
+    ctrl_lbl: str,
+) -> tuple[pd.Series, bool]:
+    """Ensure DEXSeq log2FC is oriented as log2(treatment / control).
+
+    DEXSeq (`~ sample + exon + condition:exon`) commonly emits a column named
+    `log2fold_<control>_<treatment>` equal to log2(control / treatment). Verify
+    against fitted group-mean columns first, then fall back to header order.
+    """
+    raw_lfc = pd.to_numeric(raw_x[lfc_col], errors="coerce")
+    if treat_lbl and ctrl_lbl and treat_lbl != ctrl_lbl:
+        t_col = treat_lbl if treat_lbl in raw_x.columns else None
+        c_col = ctrl_lbl if ctrl_lbl in raw_x.columns else None
+        if t_col and c_col:
+            dt = pd.to_numeric(raw_x[t_col], errors="coerce") - pd.to_numeric(raw_x[c_col], errors="coerce")
+            q_col = next((c for c in ("padj", "FDR", "fdr", "qvalue") if c in raw_x.columns), None)
+            mask = raw_lfc.notna() & dt.notna() & raw_lfc.abs().ge(0.25) & (dt != 0)
+            if q_col:
+                sig_m = mask & pd.to_numeric(raw_x[q_col], errors="coerce").lt(0.05)
+                if int(sig_m.sum()) >= 5:
+                    mask = sig_m
+            if int(mask.sum()) >= 3:
+                corr_sign = float(np.sign(dt[mask] * raw_lfc[mask]).mean())
+                if corr_sign < 0.0:
+                    return -raw_lfc, True
+                if corr_sign > 0.0:
+                    return raw_lfc, False
+        if lfc_col.lower().startswith(f"log2fold_{ctrl_lbl.lower()}_{treat_lbl.lower()}"):
+            return -raw_lfc, True
+    return raw_lfc, False
+
+
 def ingest_bulk_multilayer_deg_dtu_dexseq(
     bundle_dir: Path | None,
     deseq2_dir: Path | None,
@@ -833,7 +868,14 @@ def ingest_bulk_multilayer_deg_dtu_dexseq(
     """Ingest DESeq2 (DEG) + lossless SUPPA2 / DEXSeq / DRIMSeq-stageR DTU tables into Chapter 03
     (ZERO unwanted SUPPA2/DEXSeq/DTU volcanoes!) and render Chapter 04 DEG×DAS Decoupling Quadrants
     + Multi-Layer Orthogonal Splicing Evidence Convergence exhibits."""
-    deg_root = Path(deseq2_dir) if (deseq2_dir and Path(deseq2_dir).exists()) else (bundle_dir / "DEG" if bundle_dir and (bundle_dir / "DEG").is_dir() else None)
+    deg_root = (
+        Path(deseq2_dir)
+        if (deseq2_dir and Path(deseq2_dir).exists())
+        else next(
+            (p for p in ((bundle_dir / "DEG", bundle_dir / "differential/deg", bundle_dir / "deseq2") if bundle_dir else ()) if p.is_dir()),
+            None,
+        )
+    )
 
     gene_sym_map: dict[str, str] = {}
     for q_df in das_by_contrast.values():
@@ -880,6 +922,8 @@ def ingest_bulk_multilayer_deg_dtu_dexseq(
 
     for c_spec in contrasts_list:
         cid = c_spec["contrast_id"]
+        treat_lbl = str(c_spec.get("numerator", {}).get("label", "")).strip()
+        ctrl_lbl = str(c_spec.get("denominator", {}).get("label", "")).strip()
         comp_dir = outdir / "outputs/comparisons" / _safe_slug(cid)
         comp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -941,6 +985,7 @@ def ingest_bulk_multilayer_deg_dtu_dexseq(
                 bundle_dir / "suppa" / cid / "diffsplice/per_local_event/local_events.dpsi",
                 *(sorted((bundle_dir / "suppa" / cid / "diffsplice/per_local_event").glob("*.dpsi")) if (bundle_dir / "suppa" / cid / "diffsplice/per_local_event").is_dir() else []),
                 *(sorted((bundle_dir / "suppa" / cid).glob("*.dpsi")) if (bundle_dir / "suppa" / cid).is_dir() else []),
+                *([bundle_dir / "rnasplicing/suppa/diffsplice_ioe" / f"{ctrl_lbl}-{treat_lbl}_local_diffsplice.dpsi"] if (treat_lbl and ctrl_lbl) else []),
             ]
             sup_f = next((p for p in sup_candidates if p.is_file()), None)
             if sup_f is not None:
@@ -983,6 +1028,7 @@ def ingest_bulk_multilayer_deg_dtu_dexseq(
             # 3. DEXSeq Differential Exon Usage (lossless Ch03 table ONLY — NO volcano!)
             dex_candidates = [
                 bundle_dir / "dexseq_exon" / f"DEXSeqResults.{cid}.csv",
+                bundle_dir / "differential/dexseq_exon" / f"DEXSeqResults.{cid}.csv",
                 bundle_dir / "dexseq_exon" / f"DEXSeqResults.{cid}.tsv",
                 bundle_dir / "dexseq_exon" / f"perGeneQValue.{cid}.csv",
                 bundle_dir / "dexseq_exon" / f"DEXSeqResults_{cid}.csv",
@@ -1001,11 +1047,15 @@ def ingest_bulk_multilayer_deg_dtu_dexseq(
                         q_c = next((c for c in ("padj", "FDR", "fdr", "qvalue") if c in raw_x.columns), pv_c)
                         if q_c:
                             gid_x = raw_x[grp_c].astype(str).map(lambda s: s.split("+", 1)[0].split(".")[0])
+                            if lfc_c:
+                                lfc_series, _dex_inverted = _orient_dexseq_lfc_treat_over_ctrl(raw_x, lfc_c, treat_lbl, ctrl_lbl)
+                            else:
+                                lfc_series = pd.Series(np.nan, index=raw_x.index, dtype=float)
                             df_x = pd.DataFrame({
                                 "gene_id": gid_x,
                                 "gene_symbol": gid_x.map(_map_sym),
                                 "feature_id": raw_x[feat_c].astype(str) if feat_c else "",
-                                "log2fc": pd.to_numeric(raw_x[lfc_c], errors="coerce") if lfc_c else np.nan,
+                                "log2fc": lfc_series,
                                 "pvalue": pd.to_numeric(raw_x[pv_c], errors="coerce") if pv_c else np.nan,
                                 "padj": pd.to_numeric(raw_x[q_c], errors="coerce"),
                             })
@@ -1029,9 +1079,14 @@ def ingest_bulk_multilayer_deg_dtu_dexseq(
                     pass
 
             # 4. DRIMSeq / stageR Differential Transcript Usage (lossless Ch03 table ONLY — NO volcano!)
+            dtu_pair = f"{treat_lbl}-{ctrl_lbl}" if (treat_lbl and ctrl_lbl) else cid
             dtu_candidates = [
                 bundle_dir / "dtu/results/stager" / f"getAdjustedPValues.{cid}.tsv",
+                bundle_dir / "dtu/results/stager" / f"getAdjustedPValues.{dtu_pair}.tsv",
+                bundle_dir / "differential/dtu/stager" / f"getAdjustedPValues.{cid}.tsv",
+                bundle_dir / "differential/dtu/stager" / f"getAdjustedPValues.{dtu_pair}.tsv",
                 bundle_dir / "dtu/stager" / f"getAdjustedPValues.{cid}.tsv",
+                bundle_dir / "dtu/stager" / f"getAdjustedPValues.{dtu_pair}.tsv",
                 bundle_dir / "dtu/results/stager" / f"{cid}.tsv",
                 bundle_dir / "dtu/results/stager" / f"{cid}.csv",
                 bundle_dir / "dtu/stager" / f"{cid}.tsv",

@@ -41,6 +41,7 @@ def report_main(argv: list[str] | None = None) -> int:
     pb.add_argument("--splicemanifold-dir", type=Path, default=None, help="Optional precomputed SpliceManifold bulk directory")
     pb.add_argument("--splicenet-dir", type=Path, default=None, help="Optional precomputed SpliceNet output directory")
     pb.add_argument("--splicetrace-dirs", nargs="*", type=str, default=None, help="Optional precomputed per-contrast SpliceTrace directories (`dir` or `contrast_id=dir`)")
+    pb.add_argument("--cross-paradigm-dir", type=Path, default=None, help="Optional precomputed KATANA_CROSS_PARADIGM output directory")
     pb.add_argument("--study-name", default="Katana Bulk Splicing Study")
     pb.add_argument("--species", choices=["auto", "human", "mouse"], default="auto")
     pb.add_argument("--fdr", type=float, default=0.05)
@@ -83,7 +84,12 @@ def report_main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "bulk":
-        if args.bundle is not None and (args.splicemanifold_dir is not None or args.splicenet_dir is not None or args.splicetrace_dirs):
+        if args.bundle is not None and (
+            args.splicemanifold_dir is not None
+            or args.splicenet_dir is not None
+            or args.splicetrace_dirs
+            or args.cross_paradigm_dir is not None
+        ):
             receipt = run_report_from_nextflow(
                 outdir=args.outdir,
                 bundle=args.bundle,
@@ -97,6 +103,7 @@ def report_main(argv: list[str] | None = None) -> int:
                 splicemanifold_dir=args.splicemanifold_dir,
                 splicenet_dir=args.splicenet_dir,
                 splicetrace_dirs=args.splicetrace_dirs,
+                cross_paradigm_dir=args.cross_paradigm_dir,
                 dummy=args.dummy,
             )
         else:
@@ -114,6 +121,7 @@ def report_main(argv: list[str] | None = None) -> int:
                 splicemanifold_dir=args.splicemanifold_dir,
                 splicenet_dir=args.splicenet_dir,
                 splicetrace_dirs=args.splicetrace_dirs,
+                cross_paradigm_dir=args.cross_paradigm_dir,
                 study_name=args.study_name,
                 species=args.species,
                 fdr_cutoff=args.fdr,
