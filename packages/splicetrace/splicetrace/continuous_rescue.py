@@ -17,7 +17,12 @@ from splicetrace.rna_forms import (
     extract_event_rna,
     trace_motif_instances,
 )
-from splicetrace.fast_accel import configure_server_threads, fast_gene_block_maxt_permutations, fast_score_mean_log_odds
+from splicetrace.fast_accel import (
+    configure_server_threads,
+    fast_gene_block_maxt_permutations,
+    fast_gene_block_rademacher_maxt,
+    fast_score_mean_log_odds,
+)
 
 
 @dataclass(frozen=True)
@@ -213,10 +218,13 @@ def run_bulk_continuous_rescue(
     min_rbp_expr: float = 1.0,
     max_events_blind_depth: int = 3500,
     n_permutations: int = 4999,
+    calibration: str = "gene_block_permutation",
     seed: int = 20261117,
     threads: int | None = None,
 ) -> SpliceTraceRescueResult:
     """Run SpliceTrace 1.0 multi-core calibrated rescue engine."""
+    if calibration not in ("gene_block_permutation", "rademacher_hc"):
+        raise ValueError(f"Unsupported calibration mode: {calibration!r}")
     configure_server_threads(threads)
     lib = load_bundled_human_rbp_library() if library is None else library
     df = all_measurable_events.copy()
@@ -388,9 +396,14 @@ def run_bulk_continuous_rescue(
     yc = y_g - y_g.mean()
     sd_perm = np.sqrt(np.sum(yc * yc) * np.sum(F_gc * F_gc, axis=0) / max(G - 1, 1))
     valid_c = sd_perm > 1e-12
-    Z_obs_2d, rbp_nom_p, rbp_fwer_p, reg_nom_p, reg_fwer_p = fast_gene_block_maxt_permutations(
-        yc, F_gc, sd_perm, valid_c, n_reg, n_rbp, n_permutations=int(n_permutations), seed=int(seed)
-    )
+    if calibration == "rademacher_hc":
+        Z_obs_2d, rbp_nom_p, rbp_fwer_p, reg_nom_p, reg_fwer_p = fast_gene_block_rademacher_maxt(
+            yc, F_gc, valid_c, n_reg, n_rbp, n_permutations=int(n_permutations), seed=int(seed)
+        )
+    else:
+        Z_obs_2d, rbp_nom_p, rbp_fwer_p, reg_nom_p, reg_fwer_p = fast_gene_block_maxt_permutations(
+            yc, F_gc, sd_perm, valid_c, n_reg, n_rbp, n_permutations=int(n_permutations), seed=int(seed)
+        )
     def _bh_vec(p_arr: np.ndarray) -> np.ndarray:
         p = np.clip(np.asarray(p_arr, dtype=float), 0.0, 1.0)
         n = len(p)
@@ -461,7 +474,8 @@ def run_bulk_continuous_rescue(
         mature_consequences=conseq_df,
         diagnostics={
             "status": "complete",
-            "inference_mode": "case_control_cpg_gene_block_maxT",
+            "inference_mode": "case_control_cpg_rademacher_hc_maxT" if calibration == "rademacher_hc" else "case_control_cpg_gene_block_maxT",
+            "calibration": calibration,
             "evaluated_events": len(cont_df),
             "foreground_events": int(cont_df["_is_fg"].sum()),
             "eligible_genes": int(G),

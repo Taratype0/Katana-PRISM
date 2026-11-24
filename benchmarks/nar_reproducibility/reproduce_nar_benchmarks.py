@@ -1,4 +1,4 @@
-"""Portable public benchmark runner for Katana-PRISM v1.0.1 (Nucleic Acids Research).
+"""Portable public benchmark runner for Katana-PRISM v1.0.2 (Nucleic Acids Research).
 
 Reproduces & verifies:
   1. 13-channel (`distal_intron_nt = 500`, mature-RNA path + 12 spatial windows) FWL-orthogonalized `SpliceTrace`
@@ -157,6 +157,9 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_PTBP2") & s1_ds["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "qualified_foreground_events"].iloc[0]) == 2700
     assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_NegA") & s1_ds["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "qualified_foreground_events"].iloc[0]) == 1041
     assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_NegA"), "downstream_SpliceTrace_sig_rbps_fwer05"].sum()) == 0
+    enc_u = s1_ds[s1_ds["cohort"].str.startswith("ENCODE_")]
+    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "retained_full_ENCODE_UniProt_switches"].sum()) == 3807
+    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Strict All>=10 Filter"), "retained_full_ENCODE_UniProt_switches"].sum()) == 3590
 
     # 2. SpliceTrace 18-cohort calibration, ablations, native rMAPS3, and untruncated rMAPS2-style
     f2c = pd.read_csv(tables_path / "fig2c_splicetrace_exact_and_ablations.tsv", sep="\t")
@@ -177,6 +180,10 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert len(rm3) == 18 and list(rm3.loc[["GSE206660_NegA", "SUPV3L1", "PNPT1"], "rmaps3_sig_rbps_bonf_full"].astype(int)) == [10, 26, 29]
     rm2 = pd.read_csv(tables_path / "tableS2a_untruncated_rmaps2_169rbp_all18.tsv", sep="\t").set_index("case")
     assert len(rm2) == 18 and list(rm2.loc[["GSE206660_NegA", "SUPV3L1", "PNPT1"], "rMAPS2_sig_rbps_bonf"].astype(int)) == [4, 1, 0]
+    het_bulk = pd.read_csv(tables_path / "tableS2_bulk_heteroskedastic_null_calibration.tsv", sep="\t")
+    assert len(het_bulk) == 4
+    assert float(het_bulk.iloc[0]["perm_exchangeable_FWER05_pct"]) <= 5.0 and float(het_bulk.iloc[0]["rademacher_hc_FWER05_pct"]) <= 5.0
+    assert float(het_bulk.iloc[-1]["rademacher_hc_FWER05_pct"]) <= 5.0
 
     # 3. Multi-donor GSE122380 SpliceNet, bulk manifold, GEUVADIS, GSE62669, Regulatory Bridge & 50-trial null benchmark
     f3d = pd.read_csv(tables_path / "fig3d_gse122380_fair_wgcna_and_djexpress.tsv", sep="\t")
@@ -194,8 +201,8 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert float(b_df.loc[b_df["module"].isin(["M3", "M4"]), "study_P_FWER"].min()) > 0.05
 
     flows = pd.read_csv(tables_path / "fig4_causal_alluvial_flows.tsv", sep="\t")
-    assert len(flows) == 978 and flows["event_id"].nunique() == 978
-    assert int((flows["bridge_tier"] == "Study_FWER<=0.05_Bridged").sum()) == 612
+    assert len(flows) == 977 and flows["event_id"].nunique() == 977
+    assert int((flows["bridge_tier"] == "Study_FWER<=0.05_Bridged").sum()) == 611
     assert int((flows["bridge_tier"] == "Orphan_DonorBackground_FWER>0.05").sum()) == 366
 
     f4d = pd.read_csv(tables_path / "fig4d_deconvolution_vs_competitors.tsv", sep="\t").set_index("method")
@@ -212,7 +219,7 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert "input_representation" in f5a.columns and "kallisto" in str(f5a["input_representation"].iloc[0])
 
     f5b = pd.read_csv(tables_path / "fig5b_gse270928_sc_proteome_consequences.tsv", sep="\t")
-    f5b_cod = f5b[f5b["frame_status"].isin(["frameshift", "in_frame_indel", "translation_start_altered"])]
+    f5b_cod = f5b[f5b["frame_status"].isin(["frameshift", "in_frame_indel", "in_frame_PTC", "translation_start_altered"])]
     assert len(f5b_cod) == 167
     assert int(f5b_cod["contributing_donors"].eq(1).sum()) == 89 and int(f5b_cod["contributing_donors"].ge(2).sum()) == 78
     slam_b = f5b_cod[f5b_cod["gene_symbol"].eq("SLAMF1")].iloc[0]
@@ -261,7 +268,16 @@ def verify_bundled_tables(tables_path: Path) -> None:
 
     assert len(pd.read_csv(tables_path / "suite4_gse270928_task3_paired_bootstrap_ci.tsv", sep="\t")) == 6
     assert len(pd.read_csv(tables_path / "upgrade3_sc_cosplice_v21_tasic_gaba_glut.tsv", sep="\t")) == 12
-    assert len(pd.read_csv(tables_path / "fig5d_real_multidonor_sc_vs_rmaps3_and_stouffer.tsv", sep="\t")) == 12
+    f5d = pd.read_csv(tables_path / "fig5d_real_multidonor_sc_vs_rmaps3_and_stouffer.tsv", sep="\t")
+    assert len(f5d) == 12
+    f5d_sc = f5d[f5d["method"].eq("Katana_PRISM_scSpliceTrace_DonorSignFlip_FWER05")].set_index("cohort")
+    assert int(f5d_sc.loc["TabulaMuris_cardiac (D=7 mice, 3,294 cells)", "paired_eligible_events"]) == 379
+    assert int(f5d_sc.loc["TabulaMuris_brain (D=7 mice, 1,850 cells)", "paired_eligible_events"]) == 247
+    assert abs(float(f5d_sc.loc["TabulaMuris_cardiac (D=7 mice, 3,294 cells)", "real_population_null_familywise_FPR_pct"]) - 1.43) < 1e-2
+    assert abs(float(f5d_sc.loc["TabulaMuris_brain (D=7 mice, 1,850 cells)", "real_population_null_familywise_FPR_pct"]) - 4.29) < 1e-2
+    f5d_hits = pd.read_csv(tables_path / "fig5d_real_multidonor_rbp_hits.tsv", sep="\t")
+    assert f5d_hits[f5d_hits["cohort"].eq("TabulaMuris_cardiac_7mice")].iloc[0]["RBP"] == "Rbm10"
+    assert f5d_hits[f5d_hits["cohort"].eq("TabulaMuris_brain_7mice")].iloc[0]["RBP"] == "Tut1"
 
     s4c = pd.read_csv(tables_path / "figS4c_gse270928_qr_fwl_projection_check.tsv", sep="\t")
     assert float(s4c["max_abs_r_after_fwl"].max()) == 0.0
@@ -286,6 +302,8 @@ def verify_bundled_tables(tables_path: Path) -> None:
 
     het_sw = pd.read_csv(tables_path / "tableS6_semisynthetic_sigma_het_sweep.tsv", sep="\t")
     assert len(het_sw) == 6 and float(het_sw.iloc[0]["Cell_Pooled_rMAPS3_Holm_FPR_pct"]) == 0.0
+    assert abs(float(het_sw.iloc[-1]["Cell_Pooled_rMAPS3_Holm_FPR_pct"]) - 70.0) < 1e-2
+    assert abs(float(het_sw.iloc[-1]["scSpliceTrace_DonorMaxT_FPR_pct"]) - 5.0) < 1e-2
     s1_bam = pd.read_csv(tables_path / "tableS1_zero_resort_bam_concordance.tsv", sep="\t")
     assert len(s1_bam) == 11 and float(s1_bam["exact_coordinate_overlap_pct"].min()) == 100.0 and float(s1_bam["max_abs_delta_dpsi"].max()) == 0.0
     s6_map = pd.read_csv(tables_path / "tableS6_event_coordinate_mapping_audit.tsv", sep="\t")
@@ -294,7 +312,7 @@ def verify_bundled_tables(tables_path: Path) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Reproduce or verify Katana-PRISM v1.0.1 NAR benchmarks.")
+    ap = argparse.ArgumentParser(description="Reproduce or verify Katana-PRISM v1.0.2 NAR benchmarks.")
     ap.add_argument("--verify-bundled", action="store_true", help="Verify bundled summary TSV invariants.")
     ap.add_argument("--splicetools-dir", type=Path, default=None, help="Directory with public ENCODE rMATS tables.")
     ap.add_argument("--hg38-fasta", type=Path, default=None, help="Indexed hg38 FASTA for sequence extraction.")

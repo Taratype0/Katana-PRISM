@@ -47,6 +47,8 @@ def compute_sc_splicing_contrast(
     donor_col: str = "donor_id",
     min_cells_per_group: int = 8,
     min_support_per_group: float = 10.0,
+    min_paired_donors: int = 3,
+    min_unpaired_donors_per_group: int = 2,
     n_cell_blocks_if_few_donors: int = 8,
     seed: int = 20261117,
 ) -> tuple[pd.DataFrame, pd.DataFrame | None, dict]:
@@ -125,14 +127,23 @@ def compute_sc_splicing_contrast(
     paired_mean_d: np.ndarray | None = None
     paired_base_d: np.ndarray | None = None
     df_event = np.full(u.shape[1], np.nan, dtype=float)
+    n_paired_ev = np.zeros(u.shape[1], dtype=int)
+    n_donors_num_ev = np.zeros(u.shape[1], dtype=int)
+    n_donors_den_ev = np.zeros(u.shape[1], dtype=int)
+    min_pd = int(max(3, min_paired_donors))
+    min_ud = int(max(2, min_unpaired_donors_per_group))
     if len(paired_donors) >= 5:
         inference_unit = "paired_donor_population"
         d_deltas = []
         d_bases = []
         d_vars = []
+        num_cov_list = []
+        den_cov_list = []
         for d in paired_donors:
             p1, v1, c1, s1 = _pooled_stats(is_num & (d_vec == d))
             p0, v0, c0, s0 = _pooled_stats(is_den & (d_vec == d))
+            num_cov_list.append((c1 >= 2) & (s1 >= 3.0) & np.isfinite(p1))
+            den_cov_list.append((c0 >= 2) & (s0 >= 3.0) & np.isfinite(p0))
             ok_d = (c1 >= 2) & (c0 >= 2) & (s1 >= 3.0) & (s0 >= 3.0) & np.isfinite(p1) & np.isfinite(p0)
             d_deltas.append(np.where(ok_d, p1 - p0, np.nan))
             d_bases.append(np.where(ok_d, p0, np.nan))
@@ -140,16 +151,20 @@ def compute_sc_splicing_contrast(
         d_mat = np.stack(d_deltas, axis=0)  # D x E
         b_d_mat = np.stack(d_bases, axis=0)
         n_d = np.isfinite(d_mat).sum(axis=0)
-        mean_d = np.divide(np.nansum(d_mat, axis=0), np.maximum(n_d, 1), out=np.full(u.shape[1], np.nan), where=n_d >= 3)
+        n_paired_ev = n_d.astype(int)
+        n_donors_num_ev = np.stack(num_cov_list, axis=0).sum(axis=0).astype(int)
+        n_donors_den_ev = np.stack(den_cov_list, axis=0).sum(axis=0).astype(int)
+        donor_eligible = n_d >= min_pd
+        mean_d = np.divide(np.nansum(d_mat, axis=0), np.maximum(n_d, 1), out=np.full(u.shape[1], np.nan), where=donor_eligible)
         paired_mean_d = mean_d
-        paired_base_d = np.divide(np.nansum(b_d_mat, axis=0), np.maximum(n_d, 1), out=np.full(u.shape[1], np.nan), where=n_d >= 3)
+        paired_base_d = np.divide(np.nansum(b_d_mat, axis=0), np.maximum(n_d, 1), out=np.full(u.shape[1], np.nan), where=donor_eligible)
         var_between = np.divide(
             np.nansum((d_mat - mean_d[None, :]) ** 2, axis=0),
             np.maximum(n_d - 1, 1) * np.maximum(n_d, 1),
             out=np.full(u.shape[1], np.nan),
-            where=n_d >= 3,
+            where=donor_eligible,
         )
-        df_event = np.where(n_d >= 3, np.maximum(n_d - 1, 1).astype(float), np.nan)
+        df_event = np.where(donor_eligible, np.maximum(n_d - 1, 1).astype(float), np.nan)
         donor_delta_df = pd.DataFrame(d_mat, index=paired_donors, columns=u_df.columns.astype(str))
     elif len(donors_num) >= 2 and len(donors_den) >= 2:
         # Unpaired multi-donor cohort (e.g., 2v2, 3v3, 4v4 animals/patients):
@@ -159,18 +174,28 @@ def compute_sc_splicing_contrast(
         p_den_d = np.stack([_pooled_stats(is_den & (d_vec == d))[0] for d in donors_den], axis=0)
         n1_d = np.isfinite(p_num_d).sum(axis=0)
         n0_d = np.isfinite(p_den_d).sum(axis=0)
+        n_donors_num_ev = n1_d.astype(int)
+        n_donors_den_ev = n0_d.astype(int)
         m1_d = np.divide(np.nansum(p_num_d, axis=0), np.maximum(n1_d, 1), out=np.full(u.shape[1], np.nan), where=n1_d >= 1)
         m0_d = np.divide(np.nansum(p_den_d, axis=0), np.maximum(n0_d, 1), out=np.full(u.shape[1], np.nan), where=n0_d >= 1)
         v1_d = np.divide(np.nansum((p_num_d - m1_d[None, :]) ** 2, axis=0), np.maximum(n1_d - 1, 1), out=np.zeros(u.shape[1]), where=n1_d >= 2)
         v0_d = np.divide(np.nansum((p_den_d - m0_d[None, :]) ** 2, axis=0), np.maximum(n0_d - 1, 1), out=np.zeros(u.shape[1]), where=n0_d >= 2)
         se1_sq = np.divide(v1_d, np.maximum(n1_d, 1), out=np.zeros(u.shape[1]), where=n1_d >= 2)
         se0_sq = np.divide(v0_d, np.maximum(n0_d, 1), out=np.zeros(u.shape[1]), where=n0_d >= 2)
-        both_d = (n1_d >= 2) & (n0_d >= 2)
-        var_between = np.where(both_d, se1_sq + se0_sq, 0.0)
+        both_d = (n1_d >= min_ud) & (n0_d >= min_ud)
+        donor_eligible = both_d
+        var_between = np.where(both_d, se1_sq + se0_sq, np.nan)
         denom_df = (se1_sq ** 2) / np.maximum(n1_d - 1, 1) + (se0_sq ** 2) / np.maximum(n0_d - 1, 1)
         df_event = np.where(both_d & (denom_df > 1e-18), ((se1_sq + se0_sq) ** 2) / np.maximum(denom_df, 1e-18), np.where(both_d, np.maximum(n1_d + n0_d - 2, 1).astype(float), np.nan))
     else:
         inference_unit = "gene_block_contrast"
+        donor_eligible = np.ones(u.shape[1], dtype=bool)
+        if len(donors_num) > 0:
+            p_num_c = np.stack([_pooled_stats(is_num & (d_vec == d))[2] > 0 for d in donors_num], axis=0)
+            n_donors_num_ev = p_num_c.sum(axis=0).astype(int)
+        if len(donors_den) > 0:
+            p_den_c = np.stack([_pooled_stats(is_den & (d_vec == d))[2] > 0 for d in donors_den], axis=0)
+            n_donors_den_ev = p_den_c.sum(axis=0).astype(int)
         rng = np.random.default_rng(int(seed))
         K = int(max(4, n_cell_blocks_if_few_donors))
         num_idx = rng.permutation(np.flatnonzero(is_num))
@@ -197,7 +222,7 @@ def compute_sc_splicing_contrast(
             where=n_b >= 2,
         )
 
-    eligible = (
+    pooled_ok = (
         (nc_num >= int(min_cells_per_group))
         & (nc_den >= int(min_cells_per_group))
         & (sup_num >= float(min_support_per_group))
@@ -205,18 +230,19 @@ def compute_sc_splicing_contrast(
         & np.isfinite(psi_num)
         & np.isfinite(psi_den)
     )
-    # For >=5 paired donors, use within-donor mean_d & donor-averaged baseline_psi to eliminate Simpson's paradox
+    eligible = pooled_ok & donor_eligible
+    # For >=5 paired donors, use strictly within-donor mean_d & donor-averaged baseline_psi (never fall back to cell-pooled PSI)
     if paired_mean_d is not None and paired_base_d is not None:
-        use_p = eligible & np.isfinite(paired_mean_d)
-        raw_dpsi = np.where(use_p, paired_mean_d, np.where(eligible, psi_num - psi_den, np.nan))
-        baseline_psi = np.where(use_p & np.isfinite(paired_base_d), paired_base_d, np.where(eligible, psi_den, np.nan))
+        raw_dpsi = np.where(eligible & np.isfinite(paired_mean_d), paired_mean_d, np.nan)
+        baseline_psi = np.where(eligible & np.isfinite(paired_base_d), paired_base_d, np.nan)
+        eligible = eligible & np.isfinite(raw_dpsi)
     else:
         raw_dpsi = np.where(eligible, psi_num - psi_den, np.nan)
         baseline_psi = np.where(eligible, psi_den, np.nan)
-    se2_tot = np.maximum(np.nan_to_num(se2_num + se2_den, nan=0.05), np.nan_to_num(var_between, nan=0.0)) + 0.0016
+    se2_tot = np.where(eligible, np.maximum(np.nan_to_num(se2_num + se2_den, nan=0.05), np.nan_to_num(var_between, nan=0.0)) + 0.0016, np.nan)
     se_tot = np.sqrt(se2_tot)
     z_shift = np.where(eligible, raw_dpsi / se_tot, np.nan)
-    # Two-sided donor-aware event P-value & BH FDR across eligible events
+    # Two-sided donor-aware event P-value & BH FDR strictly across donor-eligible events
     p_event = np.full(u.shape[1], np.nan, dtype=float)
     use_t = eligible & np.isfinite(df_event) & (df_event >= 1.0)
     use_z = eligible & (~use_t)
@@ -229,11 +255,22 @@ def compute_sc_splicing_contrast(
     tau2_dpsi = max(float(np.nanmean(np.maximum(raw_dpsi[eligible] ** 2 - se2_tot[eligible], 0.0))) if np.any(eligible) else 0.005, 0.001)
     shrunk_dpsi = np.where(eligible, raw_dpsi * (tau2_dpsi / (tau2_dpsi + se2_tot)), np.nan)
 
+    insufficient_label = "insufficient_paired_donors" if inference_unit == "paired_donor_population" else "insufficient_group_donors"
+    ev_inf_unit = np.where(
+        eligible,
+        inference_unit,
+        np.where(pooled_ok & (~donor_eligible), insufficient_label, "insufficient_cells_or_support"),
+    )
+
     genes = event_genes.reindex(u_df.columns).astype(str).to_numpy()
     contrast_df = pd.DataFrame({
         "event_id": u_df.columns.astype(str),
         "gene_id": genes,
         "eligible": eligible,
+        "event_inference_unit": ev_inf_unit,
+        "n_paired_donors": n_paired_ev,
+        "n_donors_numerator": n_donors_num_ev,
+        "n_donors_denominator": n_donors_den_ev,
         "psi_numerator": psi_num,
         "psi_denominator": psi_den,
         "baseline_PSI": baseline_psi,
@@ -253,6 +290,9 @@ def compute_sc_splicing_contrast(
         "paired_donors": len(paired_donors),
         "donors_numerator": len(donors_num),
         "donors_denominator": len(donors_den),
+        "min_paired_donors": min_pd if inference_unit == "paired_donor_population" else 0,
+        "min_unpaired_donors_per_group": min_ud if inference_unit == "unpaired_donor_pseudobulk" else 0,
+        "events_excluded_donor_insufficiency": int((pooled_ok & (~donor_eligible)).sum()),
         "eligible_events": int(eligible.sum()),
         "eligible_genes": int(len(set(genes[eligible]))),
     }

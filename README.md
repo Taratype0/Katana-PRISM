@@ -1,4 +1,4 @@
-# Katana-PRISM (`1.0.1`)
+# Katana-PRISM (`1.0.2`)
 
 **Katana-PRISM** (*Precision Regulatory Isoform & Splicing Mechanisms*) is a decoupled, publication-grade computational ecosystem for **alternative splicing qualification, depth-stabilized splicing manifold geometry, co-splicing network topology, cis-regulatory RBP splicing maps, and isoform protein/NMD consequence modeling** across bulk RNA-seq and full-length single-cell RNA-seq (`Smart-seq3`).
 
@@ -16,7 +16,7 @@ Katana-PRISM cleanly separates **cluster/container workflow scheduling** from **
 
 ---
 
-## Official Module & Package Catalog (`1.0.1`)
+## Official Module & Package Catalog (`1.0.2`)
 
 | Component | Package / Directory | CLI Command | Scope & Methodological Innovation |
 | :--- | :--- | :--- | :--- |

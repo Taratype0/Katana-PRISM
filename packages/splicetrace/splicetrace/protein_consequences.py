@@ -15,6 +15,7 @@ Key fixes & guarantees in 1.0.0:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 import gzip
 from importlib import resources
 import json
@@ -50,6 +51,7 @@ _ATTR_CANON = re.compile(r'tag\s+"?(appris_principal[^";\s]*|Ensembl_canonical|M
 _ATTR_INCOMPLETE = re.compile(r'tag\s+"?(cds_start_NF|cds_end_NF|mRNA_start_NF|mRNA_end_NF)')
 
 _DOMAIN_CACHE: dict[str, dict[str, dict]] = {}
+_SEQUENCE_CACHE: dict[str, str] | None = None
 
 _PROTEIN_CONSEQUENCE_COLUMNS = [
     "event_id",
@@ -117,6 +119,75 @@ def load_bundled_uniprot_domains(species: str = "auto") -> dict[str, dict]:
         ent["features"].append({"kind": str(kind), "start": int(s_aa), "end": int(e_aa), "label": str(lbl)})
     _DOMAIN_CACHE[cache_key] = index
     return index
+
+
+def load_bundled_uniprot_sequences() -> dict[str, str]:
+    """Load bundled canonical Swiss-Prot amino-acid sequences for exact residue-level domain alignment."""
+    global _SEQUENCE_CACHE
+    if _SEQUENCE_CACHE is not None:
+        return _SEQUENCE_CACHE
+    pkg_root = __name__.split(".")[0]
+    try:
+        data_ref = resources.files(f"{pkg_root}.data").joinpath("uniprot_sequences_human_mouse.tsv.gz")
+        with resources.as_file(data_ref) as gz_path:
+            if not Path(gz_path).is_file():
+                _SEQUENCE_CACHE = {}
+                return _SEQUENCE_CACHE
+            df = pd.read_csv(gz_path, sep="\t")
+        _SEQUENCE_CACHE = {
+            str(acc).strip(): str(seq).strip()
+            for acc, seq in zip(df["uniprot_acc"], df["sequence"])
+            if pd.notna(acc) and pd.notna(seq)
+        }
+    except Exception:
+        _SEQUENCE_CACHE = {}
+    return _SEQUENCE_CACHE
+
+
+def _align_isoform_to_canonical(iso_seq: str, canon_seq: str) -> dict[int, int]:
+    """Map 1-based canonical UniProt residue positions to 1-based translated isoform positions via sequence alignment."""
+    li, lc = len(iso_seq), len(canon_seq)
+    if li == 0 or lc == 0:
+        return {}
+    if iso_seq == canon_seq:
+        return {i: i for i in range(1, lc + 1)}
+
+    pre = 0
+    min_l = min(li, lc)
+    while pre < min_l and iso_seq[pre] == canon_seq[pre]:
+        pre += 1
+    suf = 0
+    while suf < (min_l - pre) and iso_seq[li - 1 - suf] == canon_seq[lc - 1 - suf]:
+        suf += 1
+
+    blocks: list[tuple[int, int, int]] = []
+    if pre > 0:
+        blocks.append((0, 0, pre))
+    mid_i = iso_seq[pre : li - suf]
+    mid_c = canon_seq[pre : lc - suf]
+    if mid_i and mid_c:
+        sm = SequenceMatcher(None, mid_i, mid_c, autojunk=False)
+        for b in sm.get_matching_blocks():
+            if b.size > 0:
+                blocks.append((pre + b.a, pre + b.b, b.size))
+    if suf > 0:
+        blocks.append((li - suf, lc - suf, suf))
+
+    anchors = [b for b in blocks if b[2] >= 6]
+    if not anchors and li < 30:
+        anchors = [b for b in blocks if b[2] >= 4]
+
+    c2i: dict[int, int] = {}
+    for a0, b0, sz in blocks:
+        keep = sz >= 6 or (
+            sz >= 4
+            and anchors
+            and any(abs((a0 - aa) - (b0 - ab)) <= 50 and abs(b0 - ab) <= 200 for aa, ab, _ in anchors)
+        )
+        if keep:
+            for off in range(sz):
+                c2i[b0 + off + 1] = a0 + off + 1
+    return c2i
 
 
 @dataclass
@@ -544,76 +615,146 @@ def _map_uniprot_domains_to_isoforms(
     if entry is not None and entry["features"]:
         uniprot_acc = entry["uniprot_acc"]
         u_len = max(entry["uniprot_len"], 1)
-        canon_is_inc = abs(len_inc - u_len) <= abs(len_exc - u_len)
-        canon_prot = prot_inc if canon_is_inc else prot_exc
-        canon_len = max(len(canon_prot), 1)
-        delta_l = canon_len - u_len
-        scale = canon_len / float(u_len)
-        # Anchor coordinates onto whichever isoform matches the canonical Swiss-Prot reference length
-        c_alt_start = pre + 1
-        c_alt_end = canon_len - suf
+        u_seq = entry.get("uniprot_seq")
+        if u_seq is None:
+            cand_seq = load_bundled_uniprot_sequences().get(uniprot_acc)
+            if cand_seq is not None and abs(len(cand_seq) - u_len) <= 2:
+                u_seq = cand_seq
 
-        if 0.40 <= scale <= 1.85:
-            for feat in entry["features"]:
-                s_map, e_map = None, None
-                if feat["kind"] == "MOTIF":
-                    m_pep = re.search(r"\b([ACDEFGHIKLMNPQRSTVWY]{4,16})\b", str(feat["label"]).replace("MOTIF:", ""))
-                    if m_pep:
-                        pep = m_pep.group(1)
-                        hits = [m.start() + 1 for m in re.finditer(re.escape(pep), canon_prot)]
-                        if hits:
-                            best_s = min(hits, key=lambda h: abs(h - feat["start"]))
-                            s_map, e_map = best_s, best_s + len(pep) - 1
-                if s_map is None:
-                    if canon_len == u_len:
-                        s_map, e_map = feat["start"], feat["end"]
-                    elif feat["end"] <= int(0.55 * u_len) and feat["end"] <= canon_len:
-                        s_map, e_map = feat["start"], feat["end"]
-                    elif feat["start"] >= int(0.65 * u_len) and 1 <= feat["start"] + delta_l <= canon_len:
-                        s_map = max(1, min(canon_len, feat["start"] + delta_l))
-                        e_map = max(s_map, min(canon_len, feat["end"] + delta_l))
-                    elif abs(delta_l) <= 25:
-                        s_map = max(1, min(canon_len, feat["start"]))
-                        e_map = max(s_map, min(canon_len, feat["end"]))
+        if u_seq is not None and len(u_seq) > 0:
+            c2i_inc = _align_isoform_to_canonical(prot_inc, u_seq)
+            c2i_exc = _align_isoform_to_canonical(prot_exc, u_seq)
+            best_aligned = max(len(c2i_inc), len(c2i_exc))
+            min_anchor_need = min(20, max(6, int(0.25 * min(ref_len, len(u_seq)))))
+            if best_aligned >= min_anchor_need:
+                canon_is_inc = len(c2i_inc) >= len(c2i_exc)
+                for feat in entry["features"]:
+                    u_s, u_e = int(feat["start"]), int(feat["end"])
+                    dom_span = max(1, u_e - u_s + 1)
+                    pos_inc = [u for u in range(u_s, u_e + 1) if u in c2i_inc]
+                    pos_exc = [u for u in range(u_s, u_e + 1) if u in c2i_exc]
+                    cov_inc = len(pos_inc)
+                    cov_exc = len(pos_exc)
+                    cov_max = max(cov_inc, cov_exc)
+                    cov_min = min(cov_inc, cov_exc)
+
+                    # Guard against isoforms that completely lack an N-terminal/alternative canonical region (e.g., F7 382-aa vs Gla [61-105])
+                    if cov_max == 0 or (cov_max < 4 and (cov_max / dom_span) < 0.15) or (cov_max / dom_span) < 0.10:
+                        continue
+
+                    if canon_is_inc and pos_inc:
+                        s_map, e_map = c2i_inc[pos_inc[0]], c2i_inc[pos_inc[-1]]
+                    elif (not canon_is_inc) and pos_exc:
+                        s_map, e_map = c2i_exc[pos_exc[0]], c2i_exc[pos_exc[-1]]
+                    elif pos_inc:
+                        s_map, e_map = c2i_inc[pos_inc[0]], c2i_inc[pos_inc[-1]]
                     else:
-                        s_map = max(1, min(canon_len, int(round(feat["start"] * scale))))
-                        e_map = max(s_map, min(canon_len, int(round(feat["end"] * scale))))
-                ov = max(0, min(e_map, c_alt_end) - max(s_map, c_alt_start) + 1) if c_alt_end >= c_alt_start else 0
-                dom_span = max(1, e_map - s_map + 1)
-                is_internal_ins = (c_alt_end < c_alt_start) and (s_map <= pre) and (e_map >= pre + 1)
-                if prot_inc != prot_exc and (ov >= 1 or is_internal_ins) and not (nmd_inc and nmd_exc):
-                    if (nmd_inc or nmd_exc) and e_map > min_l:
-                        state = "lost_by_PTC_truncation" if s_map > min_l else "truncated_by_PTC"
-                        pct = min(100, int(round(100.0 * max(1, e_map - max(s_map - 1, min_l)) / dom_span)))
-                        tag_dir = f"{pct}% PTC"
-                    elif is_internal_ins:
-                        ins_len = abs(len_inc - len_exc)
-                        state = "inserted_by_inclusion" if len_inc > len_exc else "inserted_by_exclusion"
-                        tag_dir = f"+{ins_len} aa ins"
-                    elif canon_is_inc and len_inc > len_exc and suf > 0:
-                        state = "inserted_by_inclusion"
-                        pct = min(100, int(round(100.0 * ov / dom_span)))
-                        tag_dir = f"{pct}%"
-                    elif (not canon_is_inc) and suf == 0:
-                        state = "canonical_C_tail_replaced_by_inclusion"
-                        tag_dir = "replaced_C_tail"
+                        s_map, e_map = c2i_exc[pos_exc[0]], c2i_exc[pos_exc[-1]]
+                    if s_map > e_map:
+                        s_map, e_map = e_map, s_map
+
+                    pos_both = [u for u in pos_inc if u in c2i_exc]
+                    is_internal_ins = False
+                    if len(pos_both) >= 2 and cov_inc == cov_exc and len_inc != len_exc:
+                        span_inc = abs(c2i_inc[pos_both[-1]] - c2i_inc[pos_both[0]])
+                        span_exc = abs(c2i_exc[pos_both[-1]] - c2i_exc[pos_both[0]])
+                        is_internal_ins = (span_inc != span_exc)
+
+                    changed_cov = cov_inc != cov_exc
+                    if prot_inc != prot_exc and (changed_cov or is_internal_ins) and not (nmd_inc and nmd_exc):
+                        if (nmd_inc or nmd_exc) and cov_min < cov_max:
+                            prod_cov, nmd_cov = (cov_exc, cov_inc) if nmd_inc else (cov_inc, cov_exc)
+                            if nmd_cov < prod_cov:
+                                state = "lost_by_PTC_truncation" if nmd_cov == 0 else "truncated_by_PTC"
+                                pct = min(100, max(1, int(round(100.0 * (prod_cov - nmd_cov) / prod_cov))))
+                                tag_dir = f"{pct}% PTC"
+                            else:
+                                state = "exclusive_to_NMD_isoform"
+                                tag_dir = "NMD-isoform"
+                        elif is_internal_ins and not changed_cov:
+                            ins_len = abs(len_inc - len_exc)
+                            state = "inserted_by_inclusion" if len_inc > len_exc else "inserted_by_exclusion"
+                            tag_dir = f"+{ins_len} aa ins"
+                        elif cov_inc > cov_exc and suf > 0:
+                            state = "inserted_by_inclusion"
+                            pct = min(100, max(1, int(round(100.0 * (cov_inc - cov_exc) / dom_span))))
+                            tag_dir = f"{pct}%"
+                        elif suf == 0 and cov_min < cov_max:
+                            state = (
+                                "canonical_C_tail_replaced_by_inclusion"
+                                if cov_inc < cov_exc
+                                else "canonical_C_tail_replaced_by_exclusion"
+                            )
+                            tag_dir = "replaced_C_tail"
+                        else:
+                            state = "spliced_indel_overlap"
+                            pct = min(100, max(1, int(round(100.0 * abs(cov_inc - cov_exc) / dom_span))))
+                            tag_dir = f"{pct}%"
+                        if feat["kind"] != "REGION" or "Disordered" not in feat["label"]:
+                            disrupted_labels.append(f"{feat['label']} [{s_map}-{e_map} aa, {tag_dir}]")
+                        elif len(disrupted_labels) == 0:
+                            disrupted_labels.append(f"{feat['label']} [{s_map}-{e_map} aa]")
                     else:
-                        state = "spliced_indel_overlap"
-                        pct = min(100, int(round(100.0 * ov / dom_span)))
-                        tag_dir = f"{pct}%"
-                    if feat["kind"] != "REGION" or "Disordered" not in feat["label"]:
-                        disrupted_labels.append(f"{feat['label']} [{s_map}-{e_map} aa, {tag_dir}]")
-                    elif len(disrupted_labels) == 0:
-                        disrupted_labels.append(f"{feat['label']} [{s_map}-{e_map} aa]")
-                else:
-                    state = "intact"
-                mapped_arch.append({
-                    "kind": feat["kind"],
-                    "label": feat["label"],
-                    "start": s_map,
-                    "end": e_map,
-                    "state": state,
-                })
+                        state = "intact"
+                    mapped_arch.append({
+                        "kind": feat["kind"],
+                        "label": feat["label"],
+                        "start": int(s_map),
+                        "end": int(e_map),
+                        "uniprot_start": u_s,
+                        "uniprot_end": u_e,
+                        "cov_inc_aa": cov_inc,
+                        "cov_exc_aa": cov_exc,
+                        "alignment_method": "residue_sequence_alignment",
+                        "state": state,
+                    })
+        else:
+            # Fallback only for synthetic test/mock entries or unbundled entries with exact/near-exact length agreement (no length scaling)
+            canon_is_inc = abs(len_inc - u_len) <= abs(len_exc - u_len)
+            canon_prot = prot_inc if canon_is_inc else prot_exc
+            canon_len = max(len(canon_prot), 1)
+            c_alt_start = pre + 1
+            c_alt_end = canon_len - suf
+            if abs(canon_len - u_len) <= 10:
+                for feat in entry["features"]:
+                    s_map = max(1, min(canon_len, feat["start"]))
+                    e_map = max(s_map, min(canon_len, feat["end"]))
+                    ov = max(0, min(e_map, c_alt_end) - max(s_map, c_alt_start) + 1) if c_alt_end >= c_alt_start else 0
+                    dom_span = max(1, e_map - s_map + 1)
+                    is_internal_ins = (c_alt_end < c_alt_start) and (s_map <= pre) and (e_map >= pre + 1)
+                    if prot_inc != prot_exc and (ov >= 1 or is_internal_ins) and not (nmd_inc and nmd_exc):
+                        if (nmd_inc or nmd_exc) and e_map > min_l:
+                            state = "lost_by_PTC_truncation" if s_map > min_l else "truncated_by_PTC"
+                            pct = min(100, int(round(100.0 * max(1, e_map - max(s_map - 1, min_l)) / dom_span)))
+                            tag_dir = f"{pct}% PTC"
+                        elif is_internal_ins:
+                            ins_len = abs(len_inc - len_exc)
+                            state = "inserted_by_inclusion" if len_inc > len_exc else "inserted_by_exclusion"
+                            tag_dir = f"+{ins_len} aa ins"
+                        elif canon_is_inc and len_inc > len_exc and suf > 0:
+                            state = "inserted_by_inclusion"
+                            pct = min(100, int(round(100.0 * ov / dom_span)))
+                            tag_dir = f"{pct}%"
+                        elif (not canon_is_inc) and suf == 0:
+                            state = "canonical_C_tail_replaced_by_inclusion"
+                            tag_dir = "replaced_C_tail"
+                        else:
+                            state = "spliced_indel_overlap"
+                            pct = min(100, int(round(100.0 * ov / dom_span)))
+                            tag_dir = f"{pct}%"
+                        if feat["kind"] != "REGION" or "Disordered" not in feat["label"]:
+                            disrupted_labels.append(f"{feat['label']} [{s_map}-{e_map} aa, {tag_dir}]")
+                        elif len(disrupted_labels) == 0:
+                            disrupted_labels.append(f"{feat['label']} [{s_map}-{e_map} aa]")
+                    else:
+                        state = "intact"
+                    mapped_arch.append({
+                        "kind": feat["kind"],
+                        "label": feat["label"],
+                        "start": s_map,
+                        "end": e_map,
+                        "state": state,
+                    })
 
     dedup_disrupted = list(dict.fromkeys(disrupted_labels))[:5]
     feat_str = "; ".join(dedup_disrupted) if dedup_disrupted else "none"

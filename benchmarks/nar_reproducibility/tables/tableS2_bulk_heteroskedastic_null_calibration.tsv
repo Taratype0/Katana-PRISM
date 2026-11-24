@@ -1,0 +1,5 @@
+scenario	n_genes	channels	trials	permutations_per_trial	perm_exchangeable_FWER05_calls	perm_exchangeable_FWER05_pct	perm_exchangeable_BH05_calls	rademacher_hc_FWER05_calls	rademacher_hc_FWER05_pct	rademacher_hc_BH05_calls
+Exchangeable homoskedastic null (sigma = 1)	600	13x169	400	399	17	4.25	0	17	4.25	0
+Mild leverage heteroskedasticity (5x SD tail)	600	13x169	400	399	30	7.5	3	17	4.25	0
+Moderate leverage heteroskedasticity (10x SD tail)	600	13x169	400	399	43	10.75	0	25	6.25	0
+Sparse motif-coupled heteroskedasticity (6% motif+ genes @ 10x SD)	600	13x169	400	399	99	24.75	0	19	4.75	0

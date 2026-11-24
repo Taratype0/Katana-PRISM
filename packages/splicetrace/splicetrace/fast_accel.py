@@ -225,3 +225,48 @@ def fast_gene_block_maxt_permutations(
     reg_nom_p = ((1.0 + np.sum(abs_null >= abs_Z_obs_f32[None, :] - eps, axis=0)) / (B + 1.0)).reshape(n_reg, n_rbp)
     reg_fwer_p = ((1.0 + np.sum(glob_null[:, None] >= abs_Z_obs_f32[None, :] - eps, axis=0)) / (B + 1.0)).reshape(n_reg, n_rbp)
     return Z_obs_2d, rbp_nom_p, rbp_fwer_p, reg_nom_p, reg_fwer_p
+
+
+def fast_gene_block_rademacher_maxt(
+    yc: np.ndarray,
+    F_gc: np.ndarray,
+    valid_c: np.ndarray,
+    n_reg: int,
+    n_rbp: int,
+    n_permutations: int = 1999,
+    seed: int = 20261117,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Heteroskedasticity-robust self-normalized Rademacher gene-block maxT randomization."""
+    S = yc[:, None] * F_gc
+    denom = np.sqrt(np.sum(S * S, axis=0))
+    valid_hc = np.asarray(valid_c, dtype=bool) & (denom > 1e-12)
+    Z_obs = np.divide(S.sum(axis=0), denom, out=np.zeros(n_reg * n_rbp, dtype=np.float64), where=valid_hc)
+    S_norm = np.divide(S, denom[None, :], out=np.zeros_like(S, dtype=np.float64), where=valid_hc[None, :])
+
+    B = int(n_permutations)
+    G = len(yc)
+    rng = np.random.default_rng(int(seed))
+    signs = rng.choice(np.array([-1.0, 1.0], dtype=np.float32), size=(B, G))
+    S_f32 = np.ascontiguousarray(S_norm, dtype=np.float32)
+    null_Z = signs @ S_f32
+    if not np.all(valid_hc):
+        null_Z[:, ~valid_hc] = 0.0
+
+    Z_obs_2d = Z_obs.reshape(n_reg, n_rbp)
+    abs_Z_obs_f32 = np.abs(Z_obs).astype(np.float32)
+    abs_null = np.abs(null_Z)
+    null_3d = abs_null.reshape(B, n_reg, n_rbp)
+
+    rbp_obs_max = np.max(np.abs(Z_obs_2d), axis=0).astype(np.float32)
+    rbp_null_max = np.max(null_3d, axis=1)
+    glob_null = np.max(rbp_null_max, axis=1)
+
+    eps = np.float32(1e-6)
+    rbp_nom_p = (1.0 + np.sum(rbp_null_max >= rbp_obs_max[None, :] - eps, axis=0)) / (B + 1.0)
+    rbp_fwer_p = (1.0 + np.sum(glob_null[:, None] >= rbp_obs_max[None, :] - eps, axis=0)) / (B + 1.0)
+    reg_nom_p = ((1.0 + np.sum(abs_null >= abs_Z_obs_f32[None, :] - eps, axis=0)) / (B + 1.0)).reshape(n_reg, n_rbp)
+    reg_fwer_p = ((1.0 + np.sum(glob_null[:, None] >= abs_Z_obs_f32[None, :] - eps, axis=0)) / (B + 1.0)).reshape(n_reg, n_rbp)
+    if not np.all(valid_hc):
+        reg_nom_p.ravel()[~valid_hc] = 1.0
+        reg_fwer_p.ravel()[~valid_hc] = 1.0
+    return Z_obs_2d, rbp_nom_p, rbp_fwer_p, reg_nom_p, reg_fwer_p

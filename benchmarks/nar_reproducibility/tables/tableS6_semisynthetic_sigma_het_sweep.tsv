@@ -1,7 +1,7 @@
 sigma_het_donor_slope_sd	trials	anchor_cohort	scSpliceTrace_DonorMaxT_FPR_pct	Donor_Pseudobulked_rMAPS3_Holm_FPR_pct	Donor_Stouffer_FixedNoise_Holm_FPR_pct	Cell_Pooled_rMAPS3_Holm_FPR_pct
-0.0	60	TabulaMuris_Cardiac_7mice_3294cells_552events_168mouseRBPs	8.33	0.0	3.33	0.0
-0.025	60	TabulaMuris_Cardiac_7mice_3294cells_552events_168mouseRBPs	3.33	3.33	15.0	5.0
-0.05	60	TabulaMuris_Cardiac_7mice_3294cells_552events_168mouseRBPs	3.33	3.33	33.33	35.0
-0.075	60	TabulaMuris_Cardiac_7mice_3294cells_552events_168mouseRBPs	8.33	6.67	31.67	45.0
-0.1	60	TabulaMuris_Cardiac_7mice_3294cells_552events_168mouseRBPs	5.0	3.33	36.67	56.67
-0.15	60	TabulaMuris_Cardiac_7mice_3294cells_552events_168mouseRBPs	6.67	10.0	50.0	70.0
+0.0	60	TabulaMuris_Cardiac_7mice_3294cells_552events_168mouseRBPs	5.0	0.0	1.67	0.0
+0.025	60	TabulaMuris_Cardiac_7mice_3294cells_552events_168mouseRBPs	1.67	3.33	16.67	3.33
+0.05	60	TabulaMuris_Cardiac_7mice_3294cells_552events_168mouseRBPs	3.33	6.67	35.0	33.33
+0.075	60	TabulaMuris_Cardiac_7mice_3294cells_552events_168mouseRBPs	6.67	6.67	33.33	45.0
+0.1	60	TabulaMuris_Cardiac_7mice_3294cells_552events_168mouseRBPs	3.33	3.33	33.33	58.33
+0.15	60	TabulaMuris_Cardiac_7mice_3294cells_552events_168mouseRBPs	5.0	10.0	46.67	70.0
