@@ -1,19 +1,19 @@
 case	role	knockdown_RBP	evaluated_events	independent_genes	events_per_gene_ratio	Full13ch_GeneBlock_sig	Full13ch_GeneBlock_exact_P_FWER	Full13ch_GeneBlock_exact_rank	Full13ch_GeneBlock_maxAbsZ	DropMature12ch_GeneBlock_sig	DropMature12ch_GeneBlock_exact_P_FWER	DropMature12ch_GeneBlock_exact_rank	EventLevelPerm_NoGeneBlock_sig	EventLevelPerm_NoGeneBlock_exact_P_FWER	EventLevelPerm_NoGeneBlock_exact_rank	EventLevelPerm_NoGeneBlock_maxAbsZ	FWL_continuous_max_VIF_centered	FWL_standardized_design_cond_number
-PTBP1	high_block_positive	PTBP1	10029	5947	1.69	20	0.0005	1.0	9.181	21	0.0005	1.0	58	0.0005	1.0	11.259	1.94	4.22
-GSE206660_PTBP2	high_block_positive	PTBP2	51936	12086	4.3	77	0.0005	3.0	14.027	77	0.0005	3.0	142	0.0005	3.0	22.213	2.0	4.21
-SRSF1	high_block_positive	SRSF1	11912	6528	1.82	52	0.0015	35.0	11.594	50	0.0015	30.0	98	0.0005	15.0	16.886	1.93	4.3
-HNRNPA1	high_block_positive	HNRNPA1	8123	5138	1.58	4	0.975	45.0	5.188	3	0.97	42.0	6	1.0	114.0	5.303	1.84	4.01
-HNRNPF	high_block_positive	HNRNPF	8713	5392	1.62	15	0.0015	8.0	13.823	6	1.0	89.0	18	0.0005	12.0	16.72	1.93	4.11
-GSE206660_NegA	negative_control	NONE	30432	10098	3.01	0			4.085	0			9			5.263	1.97	3.5
-U2AF2	low_block_positive	U2AF2	8199	4610	1.78	4	1.0	52.0	4.685	3	1.0	48.0	6	0.996	53.0	5.168	1.9	4.45
-PCBP2	low_block_positive	PCBP2	4078	2806	1.45	6	1.0	96.0	4.953	6	1.0	81.0	4	1.0	144.0	5.346	2.0	6.21
-SRSF3	low_block_positive	SRSF3	3077	2143	1.44	2	0.0365	1.0	4.404	2	0.035	1.0	4	0.1655	13.0	4.682	1.88	5.86
-HNRNPK	low_block_positive	HNRNPK	3243	2186	1.48	5	1.0	45.0	6.066	2	1.0	38.0	4	1.0	62.0	5.79	2.02	5.89
-TARDBP	low_block_positive	TARDBP	2895	1969	1.47	1	0.9995	28.0	4.531	1	0.9995	25.0	1	1.0	59.0	4.311	2.01	6.27
-TIAL1	low_block_positive	TIAL1	2351	1686	1.39	0	1.0	159.0	4.158	0	1.0	156.0	0	1.0	165.0	3.906	1.97	5.05
-SRSF9	low_block_positive	SRSF9	2168	1574	1.38	2	1.0	59.0	5.088	2	1.0	59.0	5	0.895	47.0	5.139	1.92	6.3
-HNRNPL	low_block_positive	HNRNPL	2149	1542	1.39	4	1.0	53.0	5.285	4	1.0	52.0	4	0.85	27.0	5.143	2.08	5.23
-KHSRP	low_block_positive	KHSRP	2157	1598	1.35	2	0.082	3.0	4.605	2	0.986	31.0	7	0.012	3.0	4.807	1.92	4.75
-ZRANB2	low_block_positive	ZRANB2	2316	1671	1.39	2	1.0	150.0	4.909	3	1.0	149.0	5	1.0	131.0	5.529	1.91	5.6
-SUPV3L1	mitochondrial_negative_control	NONE	2431	1702	1.43	0			3.994	0			0			3.72	1.96	6.32
-PNPT1	mitochondrial_negative_control	NONE	1710	1232	1.39	0			4.127	0			2			4.532	3.35	4.55
+PTBP1	high_block_positive	PTBP1	10029	5947	1.69	20	0.0005	1.0	9.181	21	0.0005	1.0	58	0.0005	1.0	11.259	1.95	2.39
+GSE206660_PTBP2	high_block_positive	PTBP2	51936	12086	4.3	75	0.0005	3	14.027	77	0.0005	3	142	0.0005	3	22.213	2.0	2.42
+SRSF1	high_block_positive	SRSF1	11912	6528	1.82	52	0.0015	35.0	11.594	50	0.0015	30.0	98	0.0005	15.0	16.886	1.93	2.37
+HNRNPA1	high_block_positive	HNRNPA1	8123	5138	1.58	4	0.975	45.0	5.188	3	0.97	42.0	6	1.0	114.0	5.303	1.85	2.31
+HNRNPF	high_block_positive	HNRNPF	8713	5392	1.62	15	0.0015	8.0	13.823	6	1.0	89.0	18	0.0005	12.0	16.72	1.94	2.39
+GSE206660_NegA	negative_control	NONE	30432	10098	3.01	0	NA	NA	4.085	0	NA	NA	9	NA	NA	5.263	1.97	2.39
+U2AF2	low_block_positive	U2AF2	8199	4610	1.78	4	1.0	52.0	4.685	3	1.0	48.0	6	0.996	53.0	5.168	1.91	2.35
+PCBP2	low_block_positive	PCBP2	4078	2806	1.45	6	1.0	96.0	4.953	6	1.0	81.0	4	1.0	144.0	5.346	2.07	2.52
+SRSF3	low_block_positive	SRSF3	3077	2143	1.44	2	0.0365	1.0	4.404	2	0.035	1.0	4	0.1655	13.0	4.682	1.89	2.42
+HNRNPK	low_block_positive	HNRNPK	3243	2186	1.48	5	1.0	45.0	6.066	2	1.0	38.0	4	1.0	62.0	5.79	2.15	2.61
+TARDBP	low_block_positive	TARDBP	2895	1969	1.47	1	0.9995	28.0	4.531	1	0.9995	25.0	1	1.0	59.0	4.311	2.08	2.58
+TIAL1	low_block_positive	TIAL1	2351	1686	1.39	0	1.0	159.0	4.158	0	1.0	156.0	0	1.0	165.0	3.906	2.02	2.61
+SRSF9	low_block_positive	SRSF9	2168	1574	1.38	2	1.0	59.0	5.088	2	1.0	59.0	5	0.895	47.0	5.139	1.96	2.46
+HNRNPL	low_block_positive	HNRNPL	2149	1542	1.39	4	1.0	53.0	5.285	4	1.0	52.0	4	0.85	27.0	5.143	2.08	2.67
+KHSRP	low_block_positive	KHSRP	2157	1598	1.35	2	0.082	3.0	4.605	2	0.986	31.0	7	0.012	3.0	4.807	1.98	2.58
+ZRANB2	low_block_positive	ZRANB2	2316	1671	1.39	2	1.0	150.0	4.909	3	1.0	149.0	5	1.0	131.0	5.529	2.0	2.43
+SUPV3L1	mitochondrial_negative_control	NONE	2431	1702	1.43	0			3.994	0			0			3.72	2.03	2.48
+PNPT1	mitochondrial_negative_control	NONE	1710	1232	1.39	0			4.127	0			2			4.532	3.35	3.54

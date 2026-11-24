@@ -1,0 +1,19 @@
+fold	heldout_donor	method	gene_equal_mse	chosen_config
+0	D1	SC_CoSplice_v2_usage_selected	0.010329903987320605	('precision_mean_only', 0.0, 0.0, False)
+0	D1	SC_CoSplice_v2_matched_family_selected	0.010329903987320605	('precision_mean_only', 0.0, 0.0, False)
+0	D1	SC_CoSplice_v2_precision_mean_only	0.010329903987320605	locked
+0	D1	unweighted_training_mean	0.010309458860108485	locked
+0	D1	unweighted_context_mean	0.010095629814887114	locked
+0	D1	SC_CoSplice_v1_N117_selected	0.010095981333271112	locked
+0	D1	Pearson_N117_selected	0.010108346502982056	locked
+0	D1	acorde_native_N117_selected	0.009895762850801546	locked
+0	D1	acorde_native_usage_only	0.010192235426832055	locked
+1	D2	SC_CoSplice_v2_usage_selected	0.009033371537010261	('precision_mean_only', 0.0, 0.0, False)
+1	D2	SC_CoSplice_v2_matched_family_selected	0.009033371537010261	('precision_mean_only', 0.0, 0.0, False)
+1	D2	SC_CoSplice_v2_precision_mean_only	0.009033371537010261	locked
+1	D2	unweighted_training_mean	0.00918065105150663	locked
+1	D2	unweighted_context_mean	0.009319951059363228	locked
+1	D2	SC_CoSplice_v1_N117_selected	0.009177819572326773	locked
+1	D2	Pearson_N117_selected	0.009170684698833602	locked
+1	D2	acorde_native_N117_selected	0.009137344538071144	locked
+1	D2	acorde_native_usage_only	0.009122535985334863	locked

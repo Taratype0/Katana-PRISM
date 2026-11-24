@@ -2,10 +2,11 @@ module_tier	parameter_grid	endpoint_1_name	endpoint_1_value	endpoint_2_name	endp
 SpliceManifold-SC Isoform Usage (GSE270928 kallisto, n=192)	prior_kappa = 5	State PERMANOVA R2	0.0539	Retained HVIs (kallisto isoforms)	1000.0
 SpliceManifold-SC Isoform Usage (GSE270928 kallisto, n=192)	prior_kappa = 10 [default]	State PERMANOVA R2	0.0464	Retained HVIs (kallisto isoforms)	1000.0
 SpliceManifold-SC Isoform Usage (GSE270928 kallisto, n=192)	prior_kappa = 20	State PERMANOVA R2	0.0352	Retained HVIs (kallisto isoforms)	1000.0
-SpliceManifold 5-Class Event Prior (ENCODE N=16: A3SS=4004, A5SS=2584, MXE=2378, RI=3381, SE=22468)	Event-type-scaled kappa_type vs uniform kappa=10 (uniform R2=0.3867)	Class-scaled PERMANOVA R2	0.3839	Pairwise distance r vs uniform	0.9992
-SpliceManifold Dual-Modality kNN (GSE270928)	k_neighbors = 10	Mean cross-modality divergence Delta_kNN	0.9839	Permutation P-value	0.005
-SpliceManifold Dual-Modality kNN (GSE270928)	k_neighbors = 15 [default]	Mean cross-modality divergence Delta_kNN	0.9618	Permutation P-value	0.005
-SpliceManifold Dual-Modality kNN (GSE270928)	k_neighbors = 25	Mean cross-modality divergence Delta_kNN	0.914	Permutation P-value	0.005
+SpliceManifold 5-Class Event Prior (K562 Single-Batch N=16 Unique Libs: A3SS=4685, A5SS=3307, MXE=3025, RI=3064, SE=19077)	Event-type-scaled kappa_type vs uniform kappa=10 (uniform R2=0.5931)	Class-scaled PERMANOVA R2	0.5995	Pairwise distance r vs uniform	0.9996
+SpliceManifold Dual-Modality kNN (GSE270928)	k_neighbors = 10	Mean cross-modality divergence Delta_kNN	0.9833	Median Donor LISI	1.471
+SpliceManifold Dual-Modality kNN (GSE270928)	k_neighbors = 12 [default]	Mean cross-modality divergence Delta_kNN	0.9748	Median Donor LISI	1.385
+SpliceManifold Dual-Modality kNN (GSE270928)	k_neighbors = 15	Mean cross-modality divergence Delta_kNN	0.9632	Median Donor LISI	1.471
+SpliceManifold Dual-Modality kNN (GSE270928)	k_neighbors = 25	Mean cross-modality divergence Delta_kNN	0.9158	Median Donor LISI	1.676
 SpliceNet Tree-Cut Grid (GSE62669, N=60)	deepSplit=1, mergeCutHeight=0.15	Partition ARI vs default	1.0	Non-grey modules	2.0
 SpliceNet Tree-Cut Grid (GSE62669, N=60)	deepSplit=1, mergeCutHeight=0.25	Partition ARI vs default	1.0	Non-grey modules	2.0
 SpliceNet Tree-Cut Grid (GSE62669, N=60)	deepSplit=1, mergeCutHeight=0.35	Partition ARI vs default	1.0	Non-grey modules	2.0

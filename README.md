@@ -23,7 +23,7 @@ Katana-PRISM cleanly separates **cluster/container workflow scheduling** from **
 | **`Katana`** | Root (`main.nf`, `workflows/`, `modules/`) | `nextflow run main.nf` | `nf-core` DSL2 end-to-end bulk (`FASTQ`/`BAM`) & single-cell (`Smart-seq3`) orchestrator |
 | **`SpliceManifold`** | `packages/splicemanifold` | `splicemanifold` | **`PS-DAS`** (*Posterior-Stability / Precision-Supported DAS*, `katana-ps-das`) qualification, Empirical-Bayes shrunk PSI Ward Clustermap, PERMANOVA PCA, and precision-weighted **Isoform/Event-PSI UMAP** ($\Delta_{\text{kNN}}$ divergence) |
 | **`SpliceNet`** | `packages/splicenet` | `splicenet` | Bulk RNA-seq `ExcessBioVar` binomial-debiased signed Topological Overlap (TOM) co-splicing network & hub discovery |
-| **`SpliceTrace`** | `packages/splicetrace` | `splicetrace` | Bulk RNA-seq 170-RBP (621 PWM) 13-channel (mature-RNA path + 12 spatial windows) FWL splicing map, gene-block FWER inference, module bridge, `50-nt EJC` NMD & UniProt domain consequences |
+| **`SpliceTrace`** | `packages/splicetrace` | `splicetrace` | Bulk RNA-seq 169-RBP (human; 168 mouse, 621 PWM) 13-channel (mature-RNA path + 12 spatial windows) FWL splicing map, gene-block FWER inference, module bridge, `50-nt EJC` NMD & UniProt domain consequences |
 | **`scSpliceNet`** | `packages/scsplicenet` | `scsplicenet` | Independent `Smart-seq2/3` single-cell donor-aware support-precision co-splicing network & module discovery |
 | **`scSpliceTrace`** | `packages/scsplicetrace` | `scsplicetrace` | Independent `Smart-seq2/3` single-cell donor-stratified cis-regulatory RBP program & isoform protein consequence engine |
 | **`Katana Studio`** | `packages/katana_studio` | `katana-report`, `katana-studio` | SHA256-verified self-contained `REPORT.html` / `REPORT.zip` synthesis and interactive local web workbench |
@@ -69,7 +69,7 @@ splicemanifold bulk --rmats-dir path/to/rmats_post --samples samples.csv --outdi
 # 2. Excess-BioVar Signed TOM co-splicing network & hub discovery
 splicenet --rmats-dir path/to/rmats_post --samples samples.csv --output-dir out_splicenet
 
-# 3. 170-RBP 13-channel (mature-RNA path + 12 spatial windows) splicing map + 50-nt EJC NMD & UniProt domain consequences
+# 3. 169-RBP (human; 168 mouse) 13-channel (mature-RNA path + 12 spatial windows) splicing map + 50-nt EJC NMD & UniProt domain consequences
 splicetrace --rmats path/to/rmats_post --fasta genome.fa --gtf annotation.gtf \
   --species mouse --splicenet-modules out_splicenet/module_assignments.tsv --output-dir out_splicetrace
 

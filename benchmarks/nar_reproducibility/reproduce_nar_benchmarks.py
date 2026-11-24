@@ -1,15 +1,18 @@
 """Portable public benchmark runner for Katana-PRISM v1.0.1 (Nucleic Acids Research).
 
-Reproduces:
-  1. 12-channel (`distal_intron_nt = 500`) FWL-orthogonalized `SpliceTrace` continuous & discrete RBP scans
-     with optional `--rbp-expression` paralog disambiguation on public ENCODE & GSE206660 cohorts.
-  2. Exact `HepG2` `eCLIP` (`ENCFF154DRN` `RBFOX2`, `ENCFF170SCU` `PTBP1`) whole-event and `+-35 nt` motif-locus
-     conditional Fisher odds ratios and Haldane-Anscombe 95% confidence intervals.
-  3. 16-library ENCODE multi-RBP `SpliceNet -> SpliceTrace` module-to-RBP regulatory bridge (`distal_intron_nt = 500`),
-     separating `module_P_FWER <= 0.05` bridged pathways from unattributed (`FWER > 0.05`) orphan modules.
-  4. `GSE270928` Smart-seq3 dual-denominator `Jutils` retention (`0/1,000` shared HVIs; `327/66,391` multi-isoform transcripts via kallisto v0.46.1 tx_TPM/gene_TPM),
-     donor-stratified Stouffer `DEG` independence across `167` protein-altering switches, `SLAMF1` (`Q13291-4` vs `Q13291-1`)
-     per-cell `83-nt` cassette-exon `PSI`, and within-`donor x state` cell-pooling sensitivity curves (`5..48` cells).
+Reproduces & verifies:
+  1. 13-channel (`distal_intron_nt = 500`, mature-RNA path + 12 spatial windows) FWL-orthogonalized `SpliceTrace`
+     continuous, unified `169`-RBP / `621`-PWM discrete, single-variable ablation, native `rMAPS3`, and `rMAPS2`-style
+     scans across all `18` untruncated bulk cohorts.
+  2. Exact `GRCh38` `HepG2` IDR `eCLIP` and neuronal `PTBP2` `CLIP` whole-event and `+-35 nt` motif-locus
+     conditional MLE Fisher odds ratios and exact 95% confidence intervals.
+  3. Real `GSE122380` (`N = 297` libraries, `19` donors x `16` days, `M1–M4`) `SpliceNet -> SpliceTrace` `12`-channel
+     module-to-RBP regulatory bridge (`676` rows), `6`-method `50`-trial matched study-wide `Holm <= 0.05` null calibration
+     (`4.0%` vs `34.0%–48.0%`), and `978` coding alluvial flows (`612` bridged + `366` `M3/M4` orphan).
+  4. `GSE270928` Smart-seq3 dual-denominator retention (`0/1,000` shared HVIs; `327/66,391` multi-isoform transcripts via
+     `kallisto v0.46.1`), `7`-mouse `Tabula Muris` `70`-split calibration & real-anchored `sigma_het` sweep, `Tasic` `71`-mouse
+     (`6.3x / 2.9x > acorde`), `GSE270928` usage (`0.00968` virtual tie vs `acorde` `0.00966` / `0.00952`), donor splicing
+     (`-16.1%/-16.3%` vs `CASREL`, tying `MRAS`), `Longcell` `N=1` stress test (`0/12` `FWER`), `SLAMF1`, and dual-background `MSigDB`.
 """
 from __future__ import annotations
 
@@ -114,8 +117,8 @@ def run_encode_bridge_benchmark(splicetools_dir: Path, hg38_fasta: Path, out_dir
     meta_df = pd.DataFrame(meta_rows)
 
     masked_u, audit_u = unit_robust_audit(usage_df, meta_df, support_df)
-    sel_u, _ = select_events(masked_u, audit_u, feature_cap=4500, ranking_metric="excess_bio_variance")
-    assign_df = fit_splicenet(sel_u, None, power=0, min_module_size=30, backend="python")
+    sel_u, _ = select_events(masked_u, audit_u, feature_cap=5000, ranking_metric="excess_bio_variance")
+    assign_df = fit_splicenet(sel_u, None, power=0, min_module_size=20, backend="python")
     scores_df, _, _, _ = score_modules(sel_u, assign_df)
 
     net_ev_df = idx_cohorts["SRSF1"].reset_index()
@@ -134,58 +137,77 @@ def run_encode_bridge_benchmark(splicetools_dir: Path, hg38_fasta: Path, out_dir
 
 
 def verify_bundled_tables(tables_path: Path) -> None:
-    """Verify key statistical invariants across bundled NAR benchmark tables."""
+    """Verify key statistical invariants across all bundled NAR benchmark tables."""
+    # 1. PS-DAS full-data qualification, pure nulls, rescued eCLIP, and downstream utility
+    f1_vs = pd.read_csv(tables_path / "fig1_ps_das_vs_competitors.tsv", sep="\t")
+    f1_pos = f1_vs[f1_vs["role"].eq("positive_RBP_KD") & f1_vs["method"].eq("Katana-PRISM (PS-DAS)")]
+    assert int(f1_pos["called_das_events"].sum()) == 10291
+    assert int(f1_pos["noncircular_asym_retained"].sum()) == 573 and int(f1_pos["noncircular_asym_total"].sum()) == 749
+    assert abs(float(f1_pos["noncircular_asym_recall_pct"].mean()) - 74.57) < 0.1
+    f1_nega = f1_vs[f1_vs["cohort"].eq("GSE206660_NegA")].set_index("method")
+    assert int(f1_nega.loc["Raw rMATS (Unfiltered)", "called_das_events"]) == 3414
+    assert int(f1_nega.loc["Katana-PRISM (PS-DAS)", "called_das_events"]) == 1041
+
+    f1_ec = pd.read_csv(tables_path / "fig1_ps_das_rescued_eclip_validation.tsv", sep="\t")
+    pt_res = f1_ec[f1_ec["knockdown_RBP"].eq("PTBP1") & f1_ec["subset"].eq("PS-DAS_rescued_only") & f1_ec["direction_filter"].eq("all_events")].iloc[0]
+    assert int(pt_res["fg_hits"]) == 5 and int(pt_res["fg_total"]) == 89 and abs(float(pt_res["odds_ratio"]) - 5.4746) < 1e-2
+
+    s1_ds = pd.read_csv(tables_path / "fig1_ps_das_downstream_splicetrace_utility.tsv", sep="\t")
+    assert (s1_ds["downstream_model"] == "Continuous 13-channel FWL + 1,999 host-gene-block maxT").all()
+    assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_PTBP2") & s1_ds["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "qualified_foreground_events"].iloc[0]) == 2700
+    assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_NegA") & s1_ds["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "qualified_foreground_events"].iloc[0]) == 1041
+    assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_NegA"), "downstream_SpliceTrace_sig_rbps_fwer05"].sum()) == 0
+
+    # 2. SpliceTrace 18-cohort calibration, ablations, native rMAPS3, and untruncated rMAPS2-style
     f2c = pd.read_csv(tables_path / "fig2c_splicetrace_exact_and_ablations.tsv", sep="\t")
     nulls = f2c[f2c["role"].isin(["negative_control", "mitochondrial_negative_control"])]
     assert len(nulls) == 3 and int(nulls["cont_sig_rbps_fwer05"].sum()) == 0 and int(nulls["disc_sig_rbps_fwer05"].sum()) == 0
-    assert list(nulls.set_index("case").loc[["GSE206660_NegA", "SUPV3L1", "PNPT1"], "NoFWL_SameMaxT_sig_fwer05"].astype(int)) == [20, 27, 3]
+    assert list(nulls.set_index("case").loc[["GSE206660_NegA", "SUPV3L1", "PNPT1"], "NoFWL_SameMaxT_sig_fwer05"].astype(int)) == [21, 27, 3]
     assert nulls["disc_exact_rbp_P_FWER"].isna().all() and nulls["cont_exact_P_FWER"].isna().all()
     hb = f2c[f2c["role"].eq("high_block_positive")]
     assert len(hb) == 5 and int((hb["disc_exact_rbp_P_FWER"] <= 0.05).sum()) == 4 and int((hb["cont_exact_P_FWER"] <= 0.05).sum()) == 4
     assert int((hb["NoFWL_SameMaxT_exact_P_FWER"] <= 0.05).sum()) == 3
     lb = f2c[f2c["role"].eq("low_block_positive")]
     assert len(lb) == 10 and lb["disc_exact_rbp_P_FWER"].notna().all() and lb["disc_exact_rank"].notna().all()
+    assert int((lb["disc_exact_rbp_P_FWER"] <= 0.05).sum()) == 0
     assert int((lb["cont_exact_P_FWER"] <= 0.05).sum()) == 1 and int((lb["NoFWL_SameMaxT_exact_P_FWER"] <= 0.05).sum()) == 5
     assert int(lb["NoFWL_SameMaxT_sig_fwer05"].min()) == 0 and int(lb["NoFWL_SameMaxT_sig_fwer05"].max()) == 153
 
-    b_df = pd.read_csv(tables_path / "fig4a_encode_module_rbp_bridge_distal500.tsv", sep="\t")
-    assert len(b_df) == 2704 and b_df["module"].nunique() == 16 and b_df["RBP"].nunique() == 169
-    sig_mods = sorted(b_df.loc[b_df["module_P_FWER"] <= 0.05, "module"].unique().tolist())
-    assert sig_mods == ["M1", "M12", "M3", "M9"], f"Unexpected FWER<=0.05 bridged modules: {sig_mods}"
-    b_idx = b_df.set_index(["module", "RBP"])
-    assert abs(float(b_idx.loc[("M1", "SRSF9"), "module_P_FWER"]) - 0.001) < 1e-6 and abs(float(b_idx.loc[("M1", "SRSF9"), "stat_Z"]) - 6.5719) < 1e-3
-    assert "study_P_FWER" in b_df.columns and float(b_idx.loc[("M1", "SRSF9"), "study_P_FWER"]) <= 0.05
-    assert float(b_idx.loc[("M1", "SRSF1"), "study_P_FWER"]) > 0.05 and float(b_idx.loc[("M3", "PTBP1"), "study_P_FWER"]) > 0.05
-    assert abs(float(b_idx.loc[("M1", "FMR1"), "module_P_FWER"]) - 0.008) < 1e-6 and abs(float(b_idx.loc[("M1", "FMR1"), "stat_Z"]) - 4.8605) < 1e-3
-    assert abs(float(b_idx.loc[("M1", "SRSF1"), "module_P_FWER"]) - 0.027) < 1e-6 and abs(float(b_idx.loc[("M1", "SRSF1"), "stat_Z"]) - 4.4653) < 1e-3
-    assert abs(float(b_idx.loc[("M3", "PTBP1"), "module_P_FWER"]) - 0.021) < 1e-6 and abs(float(b_idx.loc[("M3", "PTBP1"), "stat_Z"]) - 4.4429) < 1e-3
-    assert abs(float(b_idx.loc[("M9", "RBM42"), "module_P_FWER"]) - 0.029) < 1e-6 and abs(float(b_idx.loc[("M9", "RBM42"), "stat_Z"]) - 5.6286) < 1e-3
-    assert abs(float(b_idx.loc[("M12", "IGF2BP1"), "module_P_FWER"]) - 0.035) < 1e-6 and abs(float(b_idx.loc[("M12", "IGF2BP1"), "stat_Z"]) - 5.9014) < 1e-3
+    rm3 = pd.read_csv(tables_path / "tableS2a_native_rmaps3_all18_cohorts.tsv", sep="\t").set_index("case")
+    assert len(rm3) == 18 and list(rm3.loc[["GSE206660_NegA", "SUPV3L1", "PNPT1"], "rmaps3_sig_rbps_bonf_full"].astype(int)) == [10, 26, 29]
+    rm2 = pd.read_csv(tables_path / "tableS2a_untruncated_rmaps2_169rbp_all18.tsv", sep="\t").set_index("case")
+    assert len(rm2) == 18 and list(rm2.loc[["GSE206660_NegA", "SUPV3L1", "PNPT1"], "rMAPS2_sig_rbps_bonf"].astype(int)) == [4, 1, 0]
 
-    flows = pd.read_csv(tables_path / "fig4c_bridged_vs_orphan_coding_flows.tsv", sep="\t")
-    assert len(flows) == 610 and "event_id" in flows.columns and flows["event_id"].nunique() == 610
-    assert int((flows["bridge_tier"] == "PerModule_FWER<=0.05_Bridged").sum()) == 286
-    assert int((flows["bridge_tier"] == "Exploratory_Orphan_Module").sum()) == 324
-    assert "GFFKR" not in " ".join(flows.loc[flows["gene_symbol"].eq("ITGA6"), "disrupted_domain"].astype(str))
-    rbm_m1 = flows[flows["gene_symbol"].eq("RBM39") & flows["module"].eq("M1")]
-    assert len(rbm_m1) == 3 and set(rbm_m1["top_tested_rbp"]) == {"SRSF9"} and set(rbm_m1["dominant_knockdown"]) == {"SRSF1"}
-    assert abs(float(rbm_m1["top_rbp_study_P_FWER"].iloc[0]) - 0.0034) < 1e-4 and abs(float(rbm_m1["dominant_kd_rbp_study_P_FWER"].iloc[0]) - 0.2204) < 1e-4
-    fn1_m1 = flows[flows["gene_symbol"].eq("FN1") & flows["module"].eq("M1")].iloc[0]
-    assert abs(float(fn1_m1["pooled_4kd_dpsi"]) - (-0.0478)) < 1e-3 and abs(float(fn1_m1["srsf1_kd_dpsi"]) - (-0.282)) < 1e-3
-    rbm_73 = flows[flows["event_id"].eq("SE:chr20:-:35740524:35740597:35738967:35739017:35740823:35740887")].iloc[0]
-    assert abs(float(rbm_73["srsf1_kd_dpsi"]) - (-0.197)) < 1e-3
+    # 3. Multi-donor GSE122380 SpliceNet, bulk manifold, GEUVADIS, GSE62669, Regulatory Bridge & 50-trial null benchmark
+    f3d = pd.read_csv(tables_path / "fig3d_gse122380_fair_wgcna_and_djexpress.tsv", sep="\t")
+    assert len(f3d) == 12
+    w5k = f3d[(f3d["budget"] == 5000) & f3d["method"].eq("Standard_WGCNA_SameUsageRatio")].iloc[0]
+    assert abs(float(w5k["median_coherence_gap"]) - 0.0209) < 1e-3
+    assert len(pd.read_csv(tables_path / "fig3e_gse122380_crossfold_stability.tsv", sep="\t")) == 6
+    f2m = pd.read_csv(tables_path / "fig2_bulk_manifold_vs_jutils_marvel.tsv", sep="\t")
+    assert len(f2m) == 16 and abs(float(f2m.loc[f2m["dropout_rate"].eq(0.45) & f2m["method"].str.contains("SpliceManifold"), "permanova_r2"].iloc[0]) - 0.1992) < 1e-4
 
-    s1_ds = pd.read_csv(tables_path / "fig1_ps_das_downstream_splicetrace_utility.tsv", sep="\t")
-    assert (s1_ds["downstream_model"] == "Continuous 13-channel FWL + 1,999 host-gene-block maxT").all()
-    assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_PTBP2") & s1_ds["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "qualified_foreground_events"].iloc[0]) == 2537
-    assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_NegA") & s1_ds["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "qualified_foreground_events"].iloc[0]) == 923
+    b_df = pd.read_csv(tables_path / "fig4a_gse122380_module_rbp_bridge_distal500.tsv", sep="\t")
+    assert len(b_df) == 676 and b_df["module"].nunique() == 4 and b_df["RBP"].nunique() == 169
+    sig_study = b_df[b_df["study_P_FWER"] <= 0.05]
+    assert len(sig_study) == 9 and set(sig_study["module"].unique()) == {"M1", "M2"}
+    assert float(b_df.loc[b_df["module"].isin(["M3", "M4"]), "study_P_FWER"].min()) > 0.05
+
+    flows = pd.read_csv(tables_path / "fig4_causal_alluvial_flows.tsv", sep="\t")
+    assert len(flows) == 978 and flows["event_id"].nunique() == 978
+    assert int((flows["bridge_tier"] == "Study_FWER<=0.05_Bridged").sum()) == 612
+    assert int((flows["bridge_tier"] == "Orphan_DonorBackground_FWER>0.05").sum()) == 366
 
     f4d = pd.read_csv(tables_path / "fig4d_deconvolution_vs_competitors.tsv", sep="\t").set_index("method")
-    prism_4d = f4d.loc["Katana-PRISM (SpliceNet -> SpliceTrace Bridge)"]
-    assert abs(float(prism_4d["exact_all_called_f1_score"]) - 0.4000) < 1e-4
-    assert abs(float(prism_4d["paralog_adj_f1_score"]) - 0.4444) < 1e-4
+    prism_4d = f4d.loc["Katana-PRISM Bridge"]
+    assert int(prism_4d["fwer05_developmental_rbps_called"]) == 8 and int(prism_4d["fwer05_canonical_cardiac_families"]) == 3
+    assert int(prism_4d["fwer05_donor_null_M3_M4_fp_rbps"]) == 0 and abs(float(prism_4d["fwer05_null_50trial_familywise_FPR_pct"]) - 4.0) < 1e-4
+    assert abs(float(f4d.loc["SpliceNet + Unadjusted MWU", "fwer05_null_50trial_familywise_FPR_pct"]) - 34.0) < 1e-4
+    assert abs(float(f4d.loc["Raw-Variance WGCNA + Unadjusted MWU", "fwer05_null_50trial_familywise_FPR_pct"]) - 48.0) < 1e-4
 
+    # 4. Single-cell Smart-seq2/3 benchmarks (GSE270928, Tabula Muris, Tasic, Longcell)
     f5a = pd.read_csv(tables_path / "fig5a_sc_manifold_vs_marvel_jutils.tsv", sep="\t").set_index("method")
+    assert abs(float(f5a.loc["Katana-PRISM (SpliceManifold-SC)", "permanova_r2"]) - 0.0464) < 1e-4
     assert abs(float(f5a.loc["MARVEL (Mean-Imputed, Same 1,000 HVEs)", "permanova_r2"]) - 0.0119) < 1e-3
     assert "input_representation" in f5a.columns and "kallisto" in str(f5a["input_representation"].iloc[0])
 
@@ -195,14 +217,14 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert int(f5b_cod["contributing_donors"].eq(1).sum()) == 89 and int(f5b_cod["contributing_donors"].ge(2).sum()) == 78
     slam_b = f5b_cod[f5b_cod["gene_symbol"].eq("SLAMF1")].iloc[0]
     assert abs(float(slam_b["raw_dpsi"]) - 0.095456) < 1e-4 and abs(float(slam_b["eb_shrunk_dpsi"]) - 0.077136) < 1e-4
+    ptprc_b = f5b_cod[f5b_cod["gene_symbol"].eq("PTPRC")].iloc[0]
+    assert float(ptprc_b["host_log2fc"]) < -1.0  # repressed host gene (-1.025)
 
     slam = pd.read_csv(tables_path / "fig5c_gse270928_slamf1_per_cell_event_psi.tsv", sep="\t")
     assert int(slam["event_psi"].notna().sum()) == 76
     slam_any = (slam["inclusion_reads"] + slam["exclusion_reads"]) > 0
-    assert int(slam_any[slam["condition"].eq("Ctrl")].sum()) == 18
-    assert int(slam_any[~slam["condition"].eq("Ctrl")].sum()) == 90
-    assert int(slam.loc[slam["condition"].eq("Ctrl"), "event_psi"].notna().sum()) == 7
-    assert int(slam.loc[~slam["condition"].eq("Ctrl"), "event_psi"].notna().sum()) == 69
+    assert int(slam_any[slam["condition"].eq("Ctrl")].sum()) == 18 and int(slam_any[~slam["condition"].eq("Ctrl")].sum()) == 90
+    assert int(slam.loc[slam["condition"].eq("Ctrl"), "event_psi"].notna().sum()) == 7 and int(slam.loc[~slam["condition"].eq("Ctrl"), "event_psi"].notna().sum()) == 69
 
     tas = pd.read_csv(tables_path / "fig5e_tasic_71mice_scsplicenet_vs_pooled_acorde.tsv", sep="\t")
     tas_w = tas[tas["scope"].eq("within_animal_cell_type") & tas["endpoint"].eq("observed_usage")].groupby("method")["heldout_correlation"].mean()
@@ -213,7 +235,7 @@ def verify_bundled_tables(tables_path: Path) -> None:
     sc_mod = pd.read_csv(tables_path / "fig5e_gse270928_scsplicenet_modules.tsv", sep="\t").set_index("event_id")["module"].to_dict()
     sc_br = pd.read_csv(tables_path / "fig5e_gse270928_sc_module_rbp_bridge.tsv", sep="\t")
     sig_sc_br = sc_br[sc_br["module_P_FWER"] <= 0.05].set_index("RBP")["module"].to_dict()
-    assert sig_sc_br.get("RBM10") == "M3" and sig_sc_br.get("HNRNPAB") == "M3" and sig_sc_br.get("SF1") == "M2"
+    assert sig_sc_br.get("RBM10") == "M3" and sig_sc_br.get("HNRNPAB") == "M3" and sig_sc_br.get("SF1") == "M2" and sig_sc_br.get("FMR1") == "M4"
     assert sc_mod.get("SS3SE:chr1:160619849:160623502:160623585:160624095:-:ENSG00000117090") == "M3"  # SLAMF1
     assert sc_mod.get("SS3SE:chr1:70228555:70231858:70231975:70232267:+:ENSG00000116754") == "M3"      # SRSF11
     assert sc_mod.get("SS3SE:chr1:198699704:198702386:198702530:198703297:+:ENSG00000081237") == "M2"  # PTPRC
@@ -223,49 +245,52 @@ def verify_bundled_tables(tables_path: Path) -> None:
     pw = pd.read_csv(tables_path / "fig5f_gse270928_pathway_partitioning_151genes.tsv", sep="\t").set_index("term_id")
     assert len(pw) == 5108 and "GOBP_LEUKOCYTE_PROLIFERATION" in pw.index
     assert int(pw.loc["GOBP_LEUKOCYTE_PROLIFERATION", "deg_overlap"]) == 16
-    assert int(pw.loc["GOBP_RNA_SPLICING", "das_151_total"]) == 151
-    assert int(pw.loc["GOBP_RNA_SPLICING", "das_overlap"]) == 18
+    assert int(pw.loc["GOBP_RNA_SPLICING", "das_151_total"]) == 151 and int(pw.loc["GOBP_RNA_SPLICING", "das_overlap"]) == 18
     assert int(pw.loc["GOBP_RNA_SPLICING", "concordant2d_overlap"]) == 11
     assert int(pw.loc["GOBP_RNA_SPLICING", "measurable_se_bg_total"]) == 1293 and int(pw.loc["GOBP_RNA_SPLICING", "pathway_genes_in_se_bg"]) == 121
     assert float(pw.loc["GOBP_RNA_SPLICING", "das_bh_q_se_bg"]) == 1.0 and abs(float(pw.loc["GOBP_RNA_SPLICING", "concordant2d_bh_q_se_bg"]) - 0.6346) < 1e-3
-    assert int(pw.loc["REACTOME_PROCESSING_OF_CAPPED_INTRON_CONTAINING_PRE_MRNA", "das_overlap"]) == 12
-    assert int(pw.loc["REACTOME_PROCESSING_OF_CAPPED_INTRON_CONTAINING_PRE_MRNA", "concordant2d_overlap"]) == 8
-    assert float(pw.loc["REACTOME_PROCESSING_OF_CAPPED_INTRON_CONTAINING_PRE_MRNA", "das_bh_q_se_bg"]) == 1.0 and abs(float(pw.loc["REACTOME_PROCESSING_OF_CAPPED_INTRON_CONTAINING_PRE_MRNA", "concordant2d_bh_q_se_bg"]) - 0.9606) < 1e-3
+
+    # 5. Longcell N=1 stress test, usage prediction, bootstrap CIs, and Tabula Muris / S7 ablations
+    lc = pd.read_csv(tables_path / "suite3_longcell_task1_blind_rbp_recovery.tsv", sep="\t")
+    assert len(lc) == 12 and int((lc["SC_MotifTrace_v2_FWER_P"] <= 0.05).sum()) == 0
+    up = pd.read_csv(tables_path / "gse270928_smartseq3_usage_prediction.tsv", sep="\t")
+    up_m = up.groupby("method")["gene_equal_mse"].mean()
+    assert abs(float(up_m["SC_CoSplice_v2_usage_selected"]) - 0.009682) < 2e-5
+    assert abs(float(up_m["acorde_native_usage_only"]) - 0.009657) < 2e-5
+    assert abs(float(up_m["acorde_native_N117_selected"]) - 0.009517) < 2e-5
+
+    assert len(pd.read_csv(tables_path / "suite4_gse270928_task3_paired_bootstrap_ci.tsv", sep="\t")) == 6
+    assert len(pd.read_csv(tables_path / "upgrade3_sc_cosplice_v21_tasic_gaba_glut.tsv", sep="\t")) == 12
+    assert len(pd.read_csv(tables_path / "fig5d_real_multidonor_sc_vs_rmaps3_and_stouffer.tsv", sep="\t")) == 12
 
     s4c = pd.read_csv(tables_path / "figS4c_gse270928_qr_fwl_projection_check.tsv", sep="\t")
-    assert s4c["covariate"].tolist() == [
-        "GC fraction", "CpG density", "log(Exon length)", "Proxy PSI0 (0.5−0.5·ΔΨ)", "log2(Host-gene frags+1)"
-    ]
     assert float(s4c["max_abs_r_after_fwl"].max()) == 0.0
+    assert int(pd.read_csv(tables_path / "figS4a_within_donor_state_pooling.tsv", sep="\t")["cells_per_donor_state"].max()) == 48
 
-    pool = pd.read_csv(tables_path / "figS4a_within_donor_state_pooling.tsv", sep="\t")
-    assert int(pool["cells_per_donor_state"].max()) == 48
-
-    # v13 newly added fairness, real multi-donor single-cell, pure-null, and hyperparameter sensitivity tables
-    f3d_fair = pd.read_csv(tables_path / "fig3d_gse122380_fair_wgcna_and_djexpress.tsv", sep="\t")
-    w5k = f3d_fair[(f3d_fair["budget"] == 5000) & f3d_fair["method"].eq("Standard_WGCNA_SameUsageRatio")].iloc[0]
-    assert abs(float(w5k["median_coherence_gap"]) - 0.0209) < 1e-3
-    cf_st = pd.read_csv(tables_path / "fig3e_gse122380_crossfold_stability.tsv", sep="\t")
-    assert len(cf_st) == 6
     s7a = pd.read_csv(tables_path / "tableS7a_ps_das_tau_sensitivity.tsv", sep="\t")
-    assert int(s7a.loc[s7a["is_default"].eq(True), "NegA_called_events"].iloc[0]) == 923
-    s7b = pd.read_csv(tables_path / "tableS7b_splicetrace_exon_gc_ablation.tsv", sep="\t")
-    assert len(s7b) == 18
+    assert int(s7a.loc[s7a["is_default"].eq(True), "NegA_called_events"].iloc[0]) == 1041
+    assert len(pd.read_csv(tables_path / "tableS7b_splicetrace_exon_gc_ablation.tsv", sep="\t")) == 18
     s7b2 = pd.read_csv(tables_path / "tableS7b2_splicetrace_component_and_vif_ablations.tsv", sep="\t")
-    assert len(s7b2) == 18 and "FWL_continuous_cond_number_centered" not in s7b2.columns and float(s7b2["FWL_standardized_design_cond_number"].max()) < 10.0
+    assert len(s7b2) == 18 and float(s7b2["FWL_standardized_design_cond_number"].max()) < 10.0
     s7c = pd.read_csv(tables_path / "tableS7c_splicenet_biweight_tail_sensitivity.tsv", sep="\t")
-    assert float(s7c["GSE62669_N60_partition_ARI_vs_default"].min()) > 0.85
+    s7c_bicor = s7c[~s7c["configuration"].str.contains("Pearson")]
+    assert float(s7c_bicor["GSE62669_N60_partition_ARI_vs_default"].min()) > 0.92
+    assert float(s7c_bicor["GSE122380_N297_partition_ARI_vs_default"].min()) > 0.92
+    assert abs(float(s7c.loc[s7c["configuration"].str.contains("Pearson"), "GSE62669_N60_partition_ARI_vs_default"].iloc[0]) - 0.6564) < 1e-3
+    assert "K562_SingleBatch_N16_partition_ARI_vs_default" in s7c.columns
+
     s7d = pd.read_csv(tables_path / "tableS7d_manifold_and_treecut_sensitivity.tsv", sep="\t")
-    assert len(s7d) >= 15 and s7d["module_tier"].str.contains("ENCODE N=16").any()
-    tm_sc = pd.read_csv(tables_path / "fig5d_real_multidonor_sc_vs_rmaps3_and_stouffer.tsv", sep="\t")
-    assert len(tm_sc) == 12
+    assert len(s7d) >= 17 and s7d["module_tier"].str.contains("K562 Single-Batch N=16").any()
+    k12 = s7d[s7d["parameter_grid"].eq("k_neighbors = 12 [default]")].iloc[0]
+    assert abs(float(k12["endpoint_1_value"]) - 0.9748) < 1e-4 and abs(float(k12["endpoint_2_value"]) - 1.385) < 1e-3
+
     het_sw = pd.read_csv(tables_path / "tableS6_semisynthetic_sigma_het_sweep.tsv", sep="\t")
     assert len(het_sw) == 6 and float(het_sw.iloc[0]["Cell_Pooled_rMAPS3_Holm_FPR_pct"]) == 0.0
     s1_bam = pd.read_csv(tables_path / "tableS1_zero_resort_bam_concordance.tsv", sep="\t")
     assert len(s1_bam) == 11 and float(s1_bam["exact_coordinate_overlap_pct"].min()) == 100.0 and float(s1_bam["max_abs_delta_dpsi"].max()) == 0.0
     s6_map = pd.read_csv(tables_path / "tableS6_event_coordinate_mapping_audit.tsv", sep="\t")
     assert len(s6_map) == 3 and int(s6_map.iloc[0]["final_evaluated_binary_events"]) == 563 and int(s6_map.iloc[1]["initial_annotated_or_cluster_denominator"]) == 53663 and int(s6_map.iloc[1]["final_evaluated_binary_events"]) == 2169 and int(s6_map.iloc[2]["initial_annotated_or_cluster_denominator"]) == 66391 and int(s6_map.iloc[2]["final_evaluated_binary_events"]) == 1000
-    print("[OK] All bundled NAR benchmark table invariants (including v13 ablations) verified.")
+    print("[OK] All bundled NAR benchmark table invariants (including untruncated peer suites and ablations) verified.")
 
 
 def main() -> int:

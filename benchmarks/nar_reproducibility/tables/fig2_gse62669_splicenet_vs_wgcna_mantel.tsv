@@ -1,0 +1,5 @@
+method	selected_exons	median_read_depth	binomial_noise_share_pct	non_grey_modules	assigned_exons	fixed_feature_subsample_ARI_median	fixed_feature_subsample_ARI_iqr25	fixed_feature_subsample_ARI_iqr75	end_to_end_reselect_ARI_median	median_coassignment_support	biological_unit	grey_fraction	go_kegg_sig_terms	comparator_status
+Historical_CoSplice_v1	500			15		0.272					event_level_500_exons	0.486	3	internal_event_level
+Peer_Mantel_CoSplicEx	500			3		0.813					gene_level_500_genes	0.0	29	native_external_gene_level
+Raw_Variance_Legacy_WGCNA	500	59.0	35.4	2	278.0	0.8713	0.8574	0.8926	0.8408	0.9371	event_level_500_exons	0.444		internal_event_level
+CoSplice_v2_ExcessBioVar	500	422.8	7.54	2	403.0	0.9495	0.9372	0.9594	0.9389	0.9863	event_level_500_exons	0.194		internal_event_level
