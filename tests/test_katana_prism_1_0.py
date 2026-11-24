@@ -1586,12 +1586,17 @@ def test_cross_paradigm_dexseq_sign_fix_and_fused_bulk_report(tmp_path: Path) ->
     (bundle / "dexseq_exon/annotation/DEXSeq.gff").write_text("\n".join(gff_rows) + "\n", encoding="utf-8")
     pd.DataFrame(dex_rows).to_csv(bundle / "dexseq_exon/DEXSeqResults.KO_vs_WT.csv", index=False)
 
-    # SUPPA2 local events including rMATS-blind AF and AL boundary events
-    pd.DataFrame([
-        {"event_id": "ENSMUSG00000000011;AF:chr1:7900-7990:8100-8190:+", "KO-WT_dPSI": 0.48, "KO-WT_p-val": 0.0001},
-        {"event_id": "ENSMUSG00000000013;AL:chr1:9600-9680:9720-9840:+", "KO-WT_dPSI": -0.44, "KO-WT_p-val": 0.0002},
+    # SUPPA2 local events: 2 BH-FDR-significant AF/AL on novel genes, 1 SE, 1 nominal-only AF, plus background SE events
+    suppa_rows = [
+        {"event_id": "ENSMUSG00000000021;AF:chr1:7900-7990:8100-8190:+", "KO-WT_dPSI": 0.48, "KO-WT_p-val": 0.0001},
+        {"event_id": "ENSMUSG00000000022;AL:chr1:9600-9680:9720-9840:+", "KO-WT_dPSI": -0.44, "KO-WT_p-val": 0.0002},
         {"event_id": "ENSMUSG00000000001;SE:chr1:990-1100:1190-1320:+", "KO-WT_dPSI": 0.35, "KO-WT_p-val": 0.0010},
-    ]).to_csv(bundle / "suppa/KO_vs_WT/diffsplice/per_local_event/local_events.dpsi", sep="\t", index=False)
+        {"event_id": "ENSMUSG00000000023;AF:chr1:10200-10290:10400-10490:+", "KO-WT_dPSI": 0.32, "KO-WT_p-val": 0.0400},
+    ] + [
+        {"event_id": f"ENSMUSG{bg_i:011d};SE:chr1:{200 + bg_i * 700}-{290 + bg_i * 700}:{400 + bg_i * 700}-{490 + bg_i * 700}:+", "KO-WT_dPSI": 0.02, "KO-WT_p-val": 0.80}
+        for bg_i in range(2, 12)
+    ]
+    pd.DataFrame(suppa_rows).to_csv(bundle / "suppa/KO_vs_WT/diffsplice/per_local_event/local_events.dpsi", sep="\t", index=False)
 
     # stageR DTU + Salmon transcript TPM for Gene10 (Coding -> NMD, hidden from DEG)
     pd.DataFrame([
@@ -1619,12 +1624,19 @@ def test_cross_paradigm_dexseq_sign_fix_and_fused_bulk_report(tmp_path: Path) ->
     cnt = cp_sum["contrasts"]["KO_vs_WT"]["counts"]
     assert cp_sum["contrasts"]["KO_vs_WT"]["dexseq_sign_inverted"] is True
     assert cnt["class1_events"] >= 1 and cnt["class1_concordant_pct"] == 100.0
-    assert cnt["suppa_af_al_nom"] == 2
+    assert cnt["suppa_af_al_fdr"] == 2
+    assert cnt["suppa_af_al_nom"] == 3
+    assert cnt["suppa_af_al_genes"] == 2
+    assert cnt["suppa_af_al_novel_genes"] == 2
+    assert cnt["suppa_af_al_nom_genes"] == 3
+    assert cnt["suppa_af_al_nom_novel_genes"] == 3
+    assert cp_sum["bench_multi_contrast"][0]["unlocked_afal"] == 2
     assert cnt["dtu_switch_resolved"] == 1 and cnt["dtu_hidden_from_deg"] == 1
     assert cp_sum["contrasts"]["KO_vs_WT"]["tables_preview"]["class3_switches"][0]["fate"] == "Coding -> NMD (Loss of ORF)"
     assert "gene_lists" in cp_sum["contrasts"]["KO_vs_WT"]
     assert len(cp_sum["contrasts"]["KO_vs_WT"]["gene_lists"]["class3_switches"]) == 1
-    assert len(cp_sum["contrasts"]["KO_vs_WT"]["gene_lists"]["class2_af_al"]) == 2
+    assert len(cp_sum["contrasts"]["KO_vs_WT"]["gene_lists"]["class2_af_al_fdr"]) == 2
+    assert len(cp_sum["contrasts"]["KO_vs_WT"]["gene_lists"]["class2_af_al"]) == 3
 
     # Step 2: Run full katana-report bulk CLI reusing --cross-paradigm-dir and fuse into existing 8 chapters
     rep_dir = tmp_path / "fused_report"

@@ -768,6 +768,7 @@ def run_cross_paradigm_analysis(
         af_al_nom = pd.DataFrame()
         af_al_fdr = pd.DataFrame()
         af_al_genes: set[str] = set()
+        af_al_nom_genes: set[str] = set()
         sup_fdr_total = 0
         if sup_local_f is not None:
             raw_s = _read_tabular_safe(sup_local_f, sep="\t")
@@ -801,9 +802,12 @@ def run_cross_paradigm_analysis(
                     df_sup_sum = pd.DataFrame(sum_rows)
                     af_al_nom = sup_df[sup_df["sig_nom"] & sup_df["etype"].isin(["AF", "AL"])].copy()
                     af_al_fdr = sup_df[sup_df["sig_fdr"] & sup_df["etype"].isin(["AF", "AL"])].copy()
-                    af_al_genes = set(af_al_nom["gene_base"])
                     af_al_nom["in_ps_das"] = af_al_nom["gene_base"].isin(das_sig_genes)
                     af_al_nom["in_deg"] = af_al_nom["gene_base"].isin(deg_sig_genes)
+                    af_al_fdr["in_ps_das"] = af_al_fdr["gene_base"].isin(das_sig_genes)
+                    af_al_fdr["in_deg"] = af_al_fdr["gene_base"].isin(deg_sig_genes)
+                    af_al_genes = set(af_al_fdr["gene_base"])
+                    af_al_nom_genes = set(af_al_nom["gene_base"])
 
         # Class III: Full-Length Isoform Switching (stageR DTU + SUPPA IOI + Salmon TPM + GTF + SpliceTrace)
         dtu_pair = f"{treat_lbl}-{ctrl_lbl}" if (treat_lbl and ctrl_lbl) else cid
@@ -1041,7 +1045,7 @@ def run_cross_paradigm_analysis(
             df_c1_best.to_csv(out / f"{slug}_class1_coord_verified.tsv", sep="\t", index=False)
         df_sup_sum.to_csv(out / f"{slug}_class2_suppa_7class.tsv", sep="\t", index=False)
         if not af_al_nom.empty:
-            af_al_nom.to_csv(out / f"{slug}_class2_af_al_events.tsv", sep="\t", index=False)
+            af_al_nom.sort_values(["bh_fdr", "pvalue"]).to_csv(out / f"{slug}_class2_af_al_events.tsv", sep="\t", index=False)
         pd.DataFrame({
             "decile": pos_stats["deciles"],
             "up_obs_over_exp": pos_stats["up_oe"],
@@ -1140,6 +1144,8 @@ def run_cross_paradigm_analysis(
                 "suppa_fdr_total": sup_fdr_total,
                 "suppa_af_al_genes": len(af_al_genes),
                 "suppa_af_al_novel_genes": len(af_al_genes - baseline_g),
+                "suppa_af_al_nom_genes": len(af_al_nom_genes),
+                "suppa_af_al_nom_novel_genes": len(af_al_nom_genes - baseline_g),
                 "dtu_gene_q05": len(dtu_gene_q05_set),
                 "dtu_tx_q05": dtu_tx_q05_cnt,
                 "dtu_switch_resolved": len(df_sw),
@@ -1206,7 +1212,7 @@ def _render_cp_figs_for_contrast(
         ("DESeq2 DEG\n(FDR < 0.05)", cnt["deg_genes"], 0, ED_SLATE),
         ("rMATS PS-DAS\n(FDR < 0.05, stable)", cnt["rmats_ps_genes"], 0, ED_NAVY),
         ("Class I: Coord-Verified\n(rMATS∩DEXSeq padj<.05)", cnt["class1_genes"], 0, ED_CERULEAN),
-        ("Class II: SUPPA2 AF/AL\n(p<.05 / BH-FDR<.05)", cnt["suppa_af_al_genes"], cnt["suppa_af_al_novel_genes"], ED_AMBER),
+        ("Class II: SUPPA2 AF/AL\n(BH-FDR < 0.05)", cnt["suppa_af_al_genes"], cnt["suppa_af_al_novel_genes"], ED_AMBER),
         ("Class III: stageR DTU\n(stageR gene_q < 0.05)", cnt["dtu_switch_resolved"], cnt["dtu_switch_novel_genes"], ED_TEAL),
         ("Class IV: DEXSeq-Only\n(padj < 0.05, |lfc|≥0.5)", cnt["class4_genes"], cnt["class4_novel_genes"], ED_VIOLET),
     ]
@@ -1302,7 +1308,7 @@ def _render_cp_figs_for_contrast(
             ax1.text(bar.get_x() + bar.get_width() / 2, h + max_s_h * 0.015, f"{int(h)}", ha="center", va="bottom", fontsize=8.3, fontweight="bold", color=ED_CORAL)
     ax1.axvspan(4.5, 6.5, color="#FEF3C7", alpha=0.45, zorder=0)
     fdr_pct = (cnt["suppa_af_al_fdr"] / max(1, cnt["suppa_fdr_total"]) * 100.0) if cnt["suppa_fdr_total"] > 0 else 0.0
-    ax1.text(2.65, max_s_h * 0.97, f"rMATS-Blind Boundary Zone\nAF+AL = {cnt['suppa_af_al_nom']} nom ({cnt['suppa_af_al_genes']} genes)\n{cnt['suppa_af_al_fdr']}/{cnt['suppa_fdr_total']} ({fdr_pct:.0f}%) of ALL FDR<0.05\n+{cnt['suppa_af_al_novel_genes']} net new genes", ha="center", va="top", fontsize=8.0, fontweight="bold", color="#92400E", bbox=dict(boxstyle="round,pad=0.35", facecolor="white", edgecolor="#F59E0B", alpha=0.95))
+    ax1.text(2.65, max_s_h * 0.97, f"rMATS-Blind Boundary Zone\nAF+AL BH-FDR<0.05: {cnt['suppa_af_al_fdr']} ({cnt['suppa_af_al_genes']} genes)\n{cnt['suppa_af_al_fdr']}/{cnt['suppa_fdr_total']} ({fdr_pct:.0f}%) of ALL FDR<0.05 · +{cnt['suppa_af_al_novel_genes']} new\n(Nominal p<0.05: {cnt['suppa_af_al_nom']} events)", ha="center", va="top", fontsize=8.0, fontweight="bold", color="#92400E", bbox=dict(boxstyle="round,pad=0.35", facecolor="white", edgecolor="#F59E0B", alpha=0.95))
     ax1.set_xticks(x)
     ax1.set_xticklabels(["SE", "A3", "A5", "MX", "RI", "AF ★\n(Alt First)", "AL ★\n(Alt Last)"], fontsize=8.9)
     ax1.set_ylim(0, max_s_h * 1.38)
@@ -1706,7 +1712,7 @@ def _render_ch8_cross_paradigm_explorer(
     const defs = [
       ['class3_switches', '1. Isoform Switches', `${cnt.dtu_switch_resolved} switches · ${cnt.dtu_hidden_from_deg} missed DEG`, 'Gate: stageR gene_q < 0.05'],
       ['class1', '2. Dual-Verified Exons', `${cnt.class1_concordant}/${cnt.class1_events} concordant (${cnt.class1_concordant_pct}%)`, 'Gate: rMATS FDR<.05 ∩ DEXSeq padj<.05'],
-      ['class2_af_al', '3. 5′ / 3′ Boundaries', `${cnt.suppa_af_al_fdr} BH-FDR / ${cnt.suppa_af_al_nom} nom`, 'Gate: SUPPA2 AF/AL (rMATS-blind)'],
+      ['class2_af_al', '3. 5′ / 3′ Boundaries', `${cnt.suppa_af_al_fdr} BH-FDR (+${cnt.suppa_af_al_novel_genes} new)`, `Gate: BH-FDR < 0.05 · ${cnt.suppa_af_al_nom} nom shown`],
       ['class4_dexseq', '4. DEXSeq-Only Exons', `${cnt.class4_exons} exons (+${cnt.class4_novel_genes} genes)`, 'Gate: padj < 0.05 & |log2FC| ≥ 0.5'],
     ];
     document.getElementById('kcp-cards').innerHTML = defs.map(([id, name, val, gate]) =>
@@ -2205,7 +2211,7 @@ def _render_ch8_cross_paradigm_explorer(
   const tabGuides = {
     class3_switches: '<strong>How to read:</strong> Left compares flat Total Gene mRNA (missed by DESeq2) vs shifted Protein-Coding / NMD / Retained Intron share (○ Control → ● Treated); Right aligns rising (▲) vs falling (▼) exons/CDS with DEXSeq bins.',
     class1: '<strong>How to read:</strong> Green quadrants = rMATS and DEXSeq agree in direction on the exact same DNA exon (best RT-PCR candidates). Click any dot or table row to inspect its genomic overlap on the right.',
-    class2_af_al: '<strong>How to read:</strong> Alternative 5′ promoters (AF) and 3′ polyA ends (AL) are invisible to rMATS. Solid colored dots above the red dashed line pass strict BH-FDR &lt; 0.05; hollow circles are nominal p &lt; 0.05 only.',
+    class2_af_al: '<strong>How to read:</strong> Alternative 5′ promoters (AF) and 3′ polyA ends (AL) are invisible to rMATS. Solid colored dots above the red dashed line pass strict BH-FDR &lt; 0.05 (used for uplift counts); hollow circles are exploratory nominal p &lt; 0.05.',
     class4_dexseq: '<strong>How to read:</strong> Significant DEXSeq exons missed or never tested by rMATS, colored by position (5′ TSS / Internal / 3′ PAS). Click any dot or row to inspect the whole-gene 5′→3′ profile on the right.',
   };
   const tabLabels = {
@@ -2631,7 +2637,7 @@ def integrate_cross_paradigm_into_report(
         fig.patch.set_facecolor("white")
         cx = np.arange(len(df_bench))
         ax.bar(cx, df_bench["baseline_genes"], width=0.52, color=ED_NAVY, label="Baseline: DESeq2 DEG ∪ rMATS PS-DAS")
-        ax.bar(cx, df_bench["unlocked_afal"], width=0.52, bottom=df_bench["baseline_genes"], color=ED_AMBER, label="+ SUPPA2 AF/AL (Promoter/PolyA)")
+        ax.bar(cx, df_bench["unlocked_afal"], width=0.52, bottom=df_bench["baseline_genes"], color=ED_AMBER, label="+ SUPPA2 AF/AL (BH-FDR < 0.05)")
         b_dtu = df_bench["baseline_genes"] + df_bench["unlocked_afal"]
         ax.bar(cx, df_bench["unlocked_dtu"], width=0.52, bottom=b_dtu, color=ED_TEAL, label="+ stageR DTU (Isoform Switch)")
         b_dex = b_dtu + df_bench["unlocked_dtu"]
@@ -2652,7 +2658,7 @@ def integrate_cross_paradigm_into_report(
         panels.append({
             "id": "cp-multi-contrast-uplift", "chapter": 4, "contrast_id": "all",
             "title": "Cross-paradigm multi-contrast discovery uplift beyond DEG + PS-DAS baseline",
-            "caption": "Net new statistically significant genes unlocked per contrast by SUPPA2 AF/AL, stageR full-length DTU switches, and rMATS-blind DEXSeq exons.",
+            "caption": "Net new FDR-controlled (FDR < 0.05) genes unlocked per contrast by SUPPA2 AF/AL (BH-FDR < 0.05), stageR full-length DTU switches, and rMATS-blind DEXSeq exons.",
             "image": png_b.relative_to(outdir).as_posix(), "svg": svg_b.relative_to(outdir).as_posix(),
             "data_links": [{"role": "plot_data", "label": "Multi-contrast uplift (TSV)", "path": tsv_b.relative_to(outdir).as_posix(), "unit": "contrast", "contrast_id": "all", "policy": None}],
         })
