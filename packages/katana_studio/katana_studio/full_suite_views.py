@@ -139,6 +139,7 @@ def render_biological_design_panel(
     outdir: Path,
     panels: list[dict[str, Any]],
     is_single_cell: bool = False,
+    contrasts_list: list[dict[str, Any]] | None = None,
 ) -> None:
     if not samples_list:
         return
@@ -149,26 +150,98 @@ def render_biological_design_panel(
     tsv_p.parent.mkdir(parents=True, exist_ok=True)
     png_p = outdir / "figures/qc/biological-design.png"
 
+    paired_subjects_set: set[str] = set()
+    total_unique_subjects = int(df["biological_sample_id"].nunique())
     if not is_single_cell:
+        subj_cond_cnt = df.groupby("biological_sample_id")["condition"].nunique()
+        paired_subjects_set = {
+            str(b) for b, cnt in subj_cond_cnt.items()
+            if int(cnt) >= 2
+            and (df["biological_sample_id"] == b).sum() >= 2
+            and (df.loc[df["biological_sample_id"] == b, "sample_id"] != b).any()
+        }
         grp = df.groupby("condition", sort=False).agg(
             n_samples=("sample_id", "count"),
             independent_biological_units=("biological_sample_id", "nunique"),
         ).reset_index()
+        grp["paired_subjects_in_arm"] = [
+            int(df.loc[(df["condition"] == c) & (df["biological_sample_id"].isin(paired_subjects_set)), "biological_sample_id"].nunique())
+            for c in grp["condition"]
+        ]
+        grp["cohort_paired_subjects"] = len(paired_subjects_set)
         grp.to_csv(tsv_p, sep="\t", index=False)
-        fig, ax = plt.subplots(figsize=(9.8, 4.0), dpi=200)
-        fig.patch.set_facecolor("white")
-        x = np.arange(len(grp))
-        ax.bar(x - 0.18, grp["n_samples"], width=0.34, color=K_BLUE, label="RNA-seq libraries")
-        ax.bar(x + 0.18, grp["independent_biological_units"], width=0.34, color=K_TEAL, label="Independent biological units")
-        for xi, ns, nu in zip(x, grp["n_samples"], grp["independent_biological_units"]):
-            ax.text(xi - 0.18, ns + 0.05, str(int(ns)), ha="center", va="bottom", fontsize=8.5, fontweight="bold", color=K_NAVY)
-            ax.text(xi + 0.18, nu + 0.05, str(int(nu)), ha="center", va="bottom", fontsize=8.5, fontweight="bold", color=K_NAVY)
-        ax.set_xticks(x, grp["condition"].tolist(), rotation=20, ha="right", fontweight="bold")
-        ax.set_ylim(0, float(max(grp["n_samples"].max(), 1)) * 1.25)
-        ax.set_ylabel("Count", fontweight="bold", color=K_NAVY)
-        ax.set_title("Biological Samples and Experimental Conditions", loc="left", fontsize=10.6, fontweight="bold", color=K_NAVY)
-        ax.legend(frameon=False, fontsize=8.4)
-        _save_fig(fig, png_p)
+
+        if len(paired_subjects_set) >= 2 and contrasts_list:
+            from matplotlib.patches import FancyBboxPatch
+
+            n_c_rows = len(contrasts_list)
+            fig, (ax, ax_tbl) = plt.subplots(
+                1, 2,
+                figsize=(12.8, max(4.1, 0.44 * n_c_rows + 2.4)),
+                gridspec_kw={"width_ratios": [1.1, 1.15], "wspace": 0.22},
+                dpi=200,
+            )
+            fig.patch.set_facecolor("white")
+            x = np.arange(len(grp))
+            ax.bar(x - 0.18, grp["n_samples"], width=0.34, color=K_BLUE, label="RNA-seq libraries")
+            ax.bar(x + 0.18, grp["independent_biological_units"], width=0.34, color=K_TEAL, label="Biological subjects")
+            for xi, ns, nu in zip(x, grp["n_samples"], grp["independent_biological_units"]):
+                ax.text(xi - 0.18, ns + 0.05, str(int(ns)), ha="center", va="bottom", fontsize=8.4, fontweight="bold", color=K_NAVY)
+                ax.text(xi + 0.18, nu + 0.05, str(int(nu)), ha="center", va="bottom", fontsize=8.4, fontweight="bold", color=K_NAVY)
+            ax.set_xticks(x, grp["condition"].tolist(), rotation=20, ha="right", fontweight="bold")
+            ax.set_ylim(0, float(max(grp["n_samples"].max(), 1)) * 1.28)
+            ax.set_ylabel("Count", fontweight="bold", color=K_NAVY)
+            ax.set_title(
+                f"Biological Arms ({len(df)} libraries · {total_unique_subjects} subjects · {len(paired_subjects_set)} paired)",
+                loc="left", fontsize=10.0, fontweight="bold", color=K_NAVY,
+            )
+            ax.legend(frameon=False, fontsize=8.2)
+
+            ax_tbl.axis("off")
+            ax_tbl.set_xlim(0.0, 1.0)
+            ax_tbl.set_ylim(0.0, 1.0)
+            ax_tbl.set_title("Declared Contrast Statistical Design", loc="left", fontsize=10.0, fontweight="bold", color=K_NAVY)
+
+            n_tot_rows = n_c_rows + 1
+            row_h = min(0.16, 0.88 / max(2, n_tot_rows))
+            top_y = 0.94
+            hdr_patch = FancyBboxPatch((0.0, top_y - row_h), 1.0, row_h, boxstyle="round,pad=0.01", facecolor=K_NAVY, edgecolor="none")
+            ax_tbl.add_patch(hdr_patch)
+            ym = top_y - 0.5 * row_h
+            ax_tbl.text(0.02, ym, "Contrast ID", va="center", ha="left", fontsize=8.3, fontweight="bold", color="white")
+            ax_tbl.text(0.51, ym, "Pairing", va="center", ha="left", fontsize=8.3, fontweight="bold", color="white")
+            ax_tbl.text(0.73, ym, "Model Design", va="center", ha="left", fontsize=8.3, fontweight="bold", color="white")
+
+            for ri, c_sp in enumerate(contrasts_list):
+                ry = top_y - (ri + 2) * row_h
+                bg = "#F8FAFC" if ri % 2 == 0 else "white"
+                ax_tbl.add_patch(FancyBboxPatch((0.0, ry), 1.0, row_h, boxstyle="round,pad=0.004", facecolor=bg, edgecolor="#E2E8F0", linewidth=0.6))
+                ym_r = ry + 0.5 * row_h
+                cid_s = str(c_sp.get("contrast_id", ""))
+                cid_disp = cid_s[:26] + "…" if len(cid_s) > 27 else cid_s
+                is_p = bool(c_sp.get("paired"))
+                n_ps_c = int(c_sp.get("paired_subjects") or 0)
+                pair_lbl = f"Paired (n={n_ps_c})" if (is_p and n_ps_c > 0) else ("Paired" if is_p else "Unpaired")
+                des_lbl = str(c_sp.get("design") or ("~ subject + condition" if is_p else "~ condition"))
+                ax_tbl.text(0.02, ym_r, cid_disp, va="center", ha="left", fontsize=7.9, fontweight="bold", color=K_NAVY)
+                ax_tbl.text(0.51, ym_r, pair_lbl, va="center", ha="left", fontsize=7.9, fontweight="bold", color=K_TEAL if is_p else K_SLATE)
+                ax_tbl.text(0.73, ym_r, des_lbl, va="center", ha="left", fontsize=7.6, family="monospace", color=K_NAVY if is_p else K_SLATE)
+            _save_fig(fig, png_p)
+        else:
+            fig, ax = plt.subplots(figsize=(9.8, 4.0), dpi=200)
+            fig.patch.set_facecolor("white")
+            x = np.arange(len(grp))
+            ax.bar(x - 0.18, grp["n_samples"], width=0.34, color=K_BLUE, label="RNA-seq libraries")
+            ax.bar(x + 0.18, grp["independent_biological_units"], width=0.34, color=K_TEAL, label="Independent biological units")
+            for xi, ns, nu in zip(x, grp["n_samples"], grp["independent_biological_units"]):
+                ax.text(xi - 0.18, ns + 0.05, str(int(ns)), ha="center", va="bottom", fontsize=8.5, fontweight="bold", color=K_NAVY)
+                ax.text(xi + 0.18, nu + 0.05, str(int(nu)), ha="center", va="bottom", fontsize=8.5, fontweight="bold", color=K_NAVY)
+            ax.set_xticks(x, grp["condition"].tolist(), rotation=20, ha="right", fontweight="bold")
+            ax.set_ylim(0, float(max(grp["n_samples"].max(), 1)) * 1.25)
+            ax.set_ylabel("Count", fontweight="bold", color=K_NAVY)
+            ax.set_title("Biological Samples and Experimental Conditions", loc="left", fontsize=10.6, fontweight="bold", color=K_NAVY)
+            ax.legend(frameon=False, fontsize=8.4)
+            _save_fig(fig, png_p)
     else:
         grp = df.groupby(["condition", "biological_sample_id"], dropna=False).size().reset_index(name="n_cells")
         grp.to_csv(tsv_p, sep="\t", index=False)
@@ -197,12 +270,21 @@ def render_biological_design_panel(
         fig.subplots_adjust(wspace=0.48)
         _save_fig(fig, png_p)
 
+    if (not is_single_cell) and len(paired_subjects_set) >= 2:
+        paired_n_c = sum(1 for c in (contrasts_list or []) if c.get("paired"))
+        cap_bd = (
+            f"Study manifest structure: {len(df)} RNA-seq libraries across {total_unique_subjects} biological subjects "
+            f"({len(paired_subjects_set)} paired across conditions; {paired_n_c}/{len(contrasts_list or [])} contrasts modeled as paired)."
+        )
+    else:
+        cap_bd = "Sample identities, experimental arms, and independent biological replicate structure from the study manifest."
+
     panels.append({
         "id": "biological-design",
         "chapter": 1,
         "contrast_id": "all",
         "title": "Biological samples and experimental conditions",
-        "caption": "Sample identities, experimental arms, and independent biological replicate structure from the study manifest.",
+        "caption": cap_bd,
         "image": png_p.relative_to(outdir).as_posix(),
         "svg": png_p.with_suffix(".svg").relative_to(outdir).as_posix(),
         "data_links": [{"role": "plot_data", "label": "Plot data (TSV)", "path": tsv_p.relative_to(outdir).as_posix(), "unit": "condition_count", "contrast_id": "all", "policy": None}],
@@ -221,6 +303,14 @@ def render_replicate_consistency_panels(
     if len(s_ids) < 3:
         return
     cond_map = {s["sample_id"]: str(s["condition"]) for s in samples_list}
+    bio_map = {s["sample_id"]: str(s.get("biological_sample_id") or s["sample_id"]).strip() for s in samples_list}
+    has_paired_cross = any(
+        cond_map[sa] != cond_map[sb]
+        and bio_map[sa] == bio_map[sb]
+        and bio_map[sa] != sa
+        and bio_map[sb] != sb
+        for sa in s_ids for sb in s_ids if sa != sb
+    )
     sub = psi_events_by_samples[s_ids].apply(pd.to_numeric, errors="coerce")
     corr = sub.corr(method="spearman", min_periods=max(5, min(30, len(sub) // 4)))
 
@@ -231,10 +321,16 @@ def render_replicate_consistency_panels(
                 continue
             rv = corr.loc[sa, sb]
             if pd.notna(rv):
+                if cond_map[sa] == cond_map[sb]:
+                    pt = "Within condition"
+                elif has_paired_cross and bio_map[sa] == bio_map[sb]:
+                    pt = "Same subject (paired)"
+                else:
+                    pt = "Between conditions (unpaired)" if has_paired_cross else "Between conditions"
                 pair_rows.append({
                     "sample_a": sa,
                     "sample_b": sb,
-                    "pair_type": "Within condition" if cond_map[sa] == cond_map[sb] else "Between conditions",
+                    "pair_type": pt,
                     "spearman_r": round(float(rv), 5),
                 })
     if not pair_rows:
@@ -250,26 +346,46 @@ def render_replicate_consistency_panels(
     rep_png = fig_dir / "replicate-consistency.png"
 
     plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 9.0, "axes.spines.top": False, "axes.spines.right": False})
-    fig, ax = plt.subplots(figsize=(7.8, 4.0), dpi=200)
-    fig.patch.set_facecolor("white")
-    groups = [
-        pair_df.loc[pair_df["pair_type"].eq("Within condition"), "spearman_r"].dropna().to_numpy(),
-        pair_df.loc[pair_df["pair_type"].eq("Between conditions"), "spearman_r"].dropna().to_numpy(),
-    ]
-    groups = [g if len(g) else np.array([np.nan]) for g in groups]
-    bp = ax.boxplot(groups, patch_artist=True, showfliers=True)
-    for patch, cc in zip(bp["boxes"], [K_BLUE, K_GRAY]):
-        patch.set_facecolor(cc)
-    ax.set_xticks([1, 2], ["Within condition", "Between conditions"], fontweight="bold")
-    ax.set_ylabel("Pairwise Spearman correlation (PSI)", fontweight="bold", color=K_NAVY)
-    ax.set_title("Within-Condition Replicate Consistency", loc="left", fontsize=10.5, fontweight="bold", color=K_NAVY)
+    if has_paired_cross:
+        fig, ax = plt.subplots(figsize=(8.8, 4.1), dpi=200)
+        fig.patch.set_facecolor("white")
+        groups = [
+            pair_df.loc[pair_df["pair_type"].eq("Within condition"), "spearman_r"].dropna().to_numpy(),
+            pair_df.loc[pair_df["pair_type"].eq("Same subject (paired)"), "spearman_r"].dropna().to_numpy(),
+            pair_df.loc[pair_df["pair_type"].eq("Between conditions (unpaired)"), "spearman_r"].dropna().to_numpy(),
+        ]
+        groups = [g if len(g) else np.array([np.nan]) for g in groups]
+        bp = ax.boxplot(groups, patch_artist=True, showfliers=True)
+        for patch, cc in zip(bp["boxes"], [K_BLUE, K_TEAL, K_GRAY]):
+            patch.set_facecolor(cc)
+        ax.set_xticks([1, 2, 3], ["Within condition", "Same subject\n(paired)", "Between conditions\n(unpaired)"], fontweight="bold")
+        ax.set_ylabel("Pairwise Spearman correlation (PSI)", fontweight="bold", color=K_NAVY)
+        ax.set_title("Replicate & Within-Subject Paired Consistency", loc="left", fontsize=10.5, fontweight="bold", color=K_NAVY)
+        rep_title = "Within-condition and within-subject paired consistency"
+        rep_caption = "Pairwise Spearman correlation of saved PSI profiles within condition, across perturbations within the same paired subject, and between unrelated subjects."
+    else:
+        fig, ax = plt.subplots(figsize=(7.8, 4.0), dpi=200)
+        fig.patch.set_facecolor("white")
+        groups = [
+            pair_df.loc[pair_df["pair_type"].eq("Within condition"), "spearman_r"].dropna().to_numpy(),
+            pair_df.loc[pair_df["pair_type"].eq("Between conditions"), "spearman_r"].dropna().to_numpy(),
+        ]
+        groups = [g if len(g) else np.array([np.nan]) for g in groups]
+        bp = ax.boxplot(groups, patch_artist=True, showfliers=True)
+        for patch, cc in zip(bp["boxes"], [K_BLUE, K_GRAY]):
+            patch.set_facecolor(cc)
+        ax.set_xticks([1, 2], ["Within condition", "Between conditions"], fontweight="bold")
+        ax.set_ylabel("Pairwise Spearman correlation (PSI)", fontweight="bold", color=K_NAVY)
+        ax.set_title("Within-Condition Replicate Consistency", loc="left", fontsize=10.5, fontweight="bold", color=K_NAVY)
+        rep_title = "Within-condition consistency"
+        rep_caption = "Pairwise Spearman correlation of saved PSI profiles within versus between declared experimental conditions."
     _save_fig(fig, rep_png)
     panels.append({
         "id": "replicate-consistency",
         "chapter": 2,
         "contrast_id": "all",
-        "title": "Within-condition consistency",
-        "caption": "Pairwise Spearman correlation of saved PSI profiles within versus between declared experimental conditions.",
+        "title": rep_title,
+        "caption": rep_caption,
         "image": rep_png.relative_to(outdir).as_posix(),
         "svg": rep_png.with_suffix(".svg").relative_to(outdir).as_posix(),
         "data_links": [{"role": "plot_data", "label": "Pairwise Spearman data (TSV)", "path": rep_tsv.relative_to(outdir).as_posix(), "unit": "sample_pair_spearman", "contrast_id": "all", "policy": None}],
@@ -278,7 +394,7 @@ def render_replicate_consistency_panels(
     diag_rows = []
     for sa in s_ids:
         w = pair_df.loc[pair_df["sample_a"].eq(sa) & pair_df["pair_type"].eq("Within condition"), "spearman_r"]
-        b = pair_df.loc[pair_df["sample_a"].eq(sa) & pair_df["pair_type"].eq("Between conditions"), "spearman_r"]
+        b = pair_df.loc[pair_df["sample_a"].eq(sa) & pair_df["pair_type"].ne("Within condition"), "spearman_r"]
         val = float(w.median()) if len(w) else (float(b.median()) if len(b) else np.nan)
         diag_rows.append({"sample_id": sa, "condition": cond_map[sa], "median_within_condition_similarity": round(val, 5) if np.isfinite(val) else np.nan, "removed": False})
     diag_df = pd.DataFrame(diag_rows)

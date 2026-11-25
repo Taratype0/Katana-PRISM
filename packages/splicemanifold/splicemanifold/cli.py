@@ -15,7 +15,7 @@ from splicemanifold.manifold import (
     render_psi_clustermap,
     render_psi_pca,
 )
-from splicemanifold.ps_das import PS_DAS_POLICY_ID, load_rmats_study, qualify_ps_das_events
+from splicemanifold.ps_das import PS_DAS_POLICY_ID, _extract_donor_id, load_rmats_study, qualify_ps_das_events
 
 __version__ = "1.0.4"
 
@@ -50,14 +50,14 @@ def _run_bulk(args: argparse.Namespace) -> int:
             dtype=str,
             keep_default_na=False,
         )
-        sample_meta = [
-            {
-                "sample_id": str(r.get("sample_id") or r.get("sample")).strip(),
-                "biological_sample_id": str(r.get("biological_sample_id") or r.get("sample_id") or r.get("sample")).strip(),
+        sample_meta = []
+        for _, r in s_df.iterrows():
+            sid = str(r.get("sample_id") or r.get("sample") or "").strip()
+            sample_meta.append({
+                "sample_id": sid,
+                "biological_sample_id": _extract_donor_id(r, sid),
                 "condition": str(r.get("condition") or r.get("group") or "Group").strip(),
-            }
-            for _, r in s_df.iterrows()
-        ]
+            })
         event_meta = {}
         qualified = pd.DataFrame()
     else:
@@ -113,6 +113,12 @@ def _run_bulk(args: argparse.Namespace) -> int:
         "manifold_available": bool(landscape.get("available", False)),
         "permanova_r2": landscape.get("permanova_r2"),
         "permanova_p": landscape.get("permanova_p"),
+        "paired_subjects": landscape.get("paired_subjects"),
+        "permanova_strata": landscape.get("permanova_strata"),
+        "permanova_subject_r2": landscape.get("permanova_subject_r2"),
+        "permanova_within_subject_r2": landscape.get("permanova_within_subject_r2"),
+        "permanova_p_within_subject": landscape.get("permanova_p_within_subject"),
+        "permanova_exact_perms": landscape.get("permanova_exact_perms"),
         "elapsed_seconds": round(time.monotonic() - t0, 2),
     }
     (out / "run_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")

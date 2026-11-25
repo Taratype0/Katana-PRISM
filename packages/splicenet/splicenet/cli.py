@@ -69,9 +69,16 @@ def main(argv: list[str] | None = None) -> int:
             bundle_dir=args.bundle, rmats_dir=args.rmats_dir, samples_path=args.samples, rmats_mode=args.rmats_mode
         )
     else:
+        from splicenet.rmats_loader import _extract_donor_id
+
         usage = pd.read_csv(args.usage, sep="\t", index_col=0)
         _s_sep = "," if str(args.samples).lower().endswith((".csv", ".csv.gz")) else "\t"
-        meta = pd.read_csv(args.samples, sep=_s_sep, dtype={"sample_id": str, "biological_sample_id": str})
+        meta = pd.read_csv(args.samples, sep=_s_sep, dtype={"sample_id": str, "biological_sample_id": str, "subject": str, "donor_id": str})
+        sid_c = next((c for c in ("sample_id", "sample", "id") if c in meta.columns), meta.columns[0])
+        meta["sample_id"] = meta[sid_c].astype(str).str.strip()
+        meta["biological_sample_id"] = [
+            _extract_donor_id(r, str(r["sample_id"]).strip()) for _, r in meta.iterrows()
+        ]
         support = pd.read_csv(args.support, sep="\t", index_col=0) if args.support is not None else None
 
     masked, audit = unit_robust_audit(usage, meta, support)

@@ -21,6 +21,7 @@
 """
 from __future__ import annotations
 
+import itertools
 import math
 from pathlib import Path
 import re
@@ -102,6 +103,190 @@ def permanova_r2(dist_mat: np.ndarray, groups: list[str], n_perm: int = 499, see
         if ss_b_p >= ss_b_obs - 1e-12:
             ge_count += 1
     return round(r2_obs, 4), round(ge_count / (n_perm + 1), 4)
+
+
+_BLANK_DONOR_TOKENS = {"", "nan", "none", "na", "null", "n/a"}
+
+
+def _resolve_unit_donor(m: dict[str, Any]) -> str:
+    sid = str(m.get("sample_id", "")).strip()
+    for k in ("donor_id", "biological_sample_id", "subject"):
+        raw = m.get(k)
+        if raw is None:
+            continue
+        s_val = str(raw).strip()
+        if s_val and s_val.lower() not in _BLANK_DONOR_TOKENS:
+            return s_val
+    return sid
+
+
+def _detect_paired_strata(sample_meta_ordered: list[dict[str, Any]]) -> tuple[list[str], int, bool]:
+    """Detect repeated-subject bulk pairing (`donor_id` spanning >=2 conditions with <=1 replicate per arm-donor)."""
+    strata: list[str] = []
+    donor_conds: dict[str, list[str]] = {}
+    donor_sids: dict[str, list[str]] = {}
+    cell_counts: dict[tuple[str, str], int] = {}
+    for m in sample_meta_ordered:
+        sid = str(m.get("sample_id", "")).strip()
+        did = _resolve_unit_donor(m)
+        cond = str(m.get("condition", "Unknown")).strip()
+        strata.append(did)
+        donor_conds.setdefault(did, []).append(cond)
+        donor_sids.setdefault(did, []).append(sid)
+        cell_counts[(did, cond)] = cell_counts.get((did, cond), 0) + 1
+
+    paired_donors = [
+        d for d, cs in donor_conds.items()
+        if len(set(cs)) >= 2 and any(sd != d for sd in donor_sids[d])
+    ]
+    max_per_cell = max(cell_counts.values()) if cell_counts else 1
+    if len(paired_donors) < 2 or max_per_cell > 1:
+        return strata, 0, False
+
+    paired_set = set(paired_donors)
+    cond_sets = {frozenset(donor_conds[d]) for d in paired_donors}
+    all_paired = all(d in paired_set for d in strata)
+    is_fully_crossed = all_paired and len(cond_sets) == 1 and len(next(iter(cond_sets))) >= 2
+    return strata, len(paired_donors), is_fully_crossed
+
+
+def permanova_subject_blocked(
+    dist_mat: np.ndarray,
+    groups: list[str],
+    strata: list[str],
+    n_perm: int = 999,
+    seed: int = 42,
+) -> dict[str, Any]:
+    """Blocked PERMANOVA controlling for subject baseline via within-subject restricted permutations."""
+    n = len(groups)
+    default_res: dict[str, Any] = {
+        "subject_r2": 0.0,
+        "within_subject_r2": 0.0,
+        "p_within_subject": 1.0,
+        "n_perms": 0,
+        "exact": False,
+    }
+    if n < 4 or len(strata) != n or len(set(groups)) < 2:
+        return default_res
+    D2 = np.asarray(dist_mat, dtype=float) ** 2
+    if D2.shape != (n, n) or not np.all(np.isfinite(D2)):
+        return default_res
+    np.fill_diagonal(D2, 0.0)
+    H = np.eye(n) - np.ones((n, n)) / n
+    G = -0.5 * (H @ D2 @ H)
+    ss_total = float(np.trace(G))
+    if ss_total <= 1e-12:
+        return default_res
+
+    uniq_strata = list(dict.fromkeys(str(s) for s in strata))
+    s_to_i = {s: i for i, s in enumerate(uniq_strata)}
+    Z_s = np.zeros((n, len(uniq_strata)), dtype=float)
+    for r_i, s_v in enumerate(strata):
+        Z_s[r_i, s_to_i[str(s_v)]] = 1.0
+    X_s = H @ Z_s
+    u_s, sv_s, _ = np.linalg.svd(X_s, full_matrices=False)
+    Q_s = u_s[:, sv_s > 1e-10]
+    df_s = int(Q_s.shape[1])
+    ss_subject = max(0.0, float(np.sum(Q_s * (G @ Q_s)))) if df_s > 0 else 0.0
+    ss_resid_after_subj = max(0.0, ss_total - ss_subject)
+    subj_r2 = min(1.0, max(0.0, ss_subject / max(1e-12, ss_total)))
+    if ss_resid_after_subj <= 1e-12:
+        return {
+            "subject_r2": round(subj_r2, 4),
+            "within_subject_r2": 0.0,
+            "p_within_subject": 1.0,
+            "n_perms": 0,
+            "exact": False,
+        }
+
+    uniq_g = list(dict.fromkeys(str(g) for g in groups))
+    g_to_i = {g: i for i, g in enumerate(uniq_g)}
+    k_g = len(uniq_g)
+    obs_labels = [str(g) for g in groups]
+
+    def _within_stat(labels: list[str]) -> tuple[float, float]:
+        Z_c = np.zeros((n, k_g), dtype=float)
+        for r_i, lb in enumerate(labels):
+            Z_c[r_i, g_to_i[lb]] = 1.0
+        X_c = H @ Z_c
+        X_cs = X_c - Q_s @ (Q_s.T @ X_c) if df_s > 0 else X_c
+        u_c, sv_c, _ = np.linalg.svd(X_cs, full_matrices=False)
+        Q_cs = u_c[:, sv_c > 1e-10]
+        df_c = int(Q_cs.shape[1])
+        if df_c == 0:
+            return 0.0, 0.0
+        ss_cs = max(0.0, float(np.sum(Q_cs * (G @ Q_cs))))
+        ws_r2 = min(1.0, ss_cs / max(1e-12, ss_resid_after_subj))
+        df_resid = n - 1 - df_s - df_c
+        if df_resid <= 0:
+            return ws_r2, ss_cs
+        ss_err = max(1e-12, ss_resid_after_subj - ss_cs)
+        pseudo_f = (ss_cs / df_c) / (ss_err / df_resid)
+        return ws_r2, pseudo_f
+
+    ws_r2_obs, f_obs = _within_stat(obs_labels)
+
+    block_indices: list[list[int]] = []
+    block_perm_choices: list[list[tuple[str, ...]]] = []
+    total_perms = 1
+    exact_feasible = True
+    for st in uniq_strata:
+        idxs = [i for i, sv in enumerate(strata) if str(sv) == st]
+        block_indices.append(idxs)
+        if not exact_feasible:
+            continue
+        blk_lbls = [obs_labels[i] for i in idxs]
+        if len(set(blk_lbls)) <= 1:
+            block_perm_choices.append([tuple(blk_lbls)])
+            continue
+        if len(idxs) > 6 or total_perms * math.factorial(len(idxs)) > 16384:
+            exact_feasible = False
+            continue
+        uniq_p = sorted(set(itertools.permutations(blk_lbls)))
+        total_perms *= len(uniq_p)
+        if total_perms > 2048:
+            exact_feasible = False
+        else:
+            block_perm_choices.append(uniq_p)
+
+    if exact_feasible and total_perms >= 2:
+        ge_count = 0
+        for combo in itertools.product(*block_perm_choices):
+            perm_lbls = list(obs_labels)
+            for idxs, p_tup in zip(block_indices, combo):
+                for pos, lb in zip(idxs, p_tup):
+                    perm_lbls[pos] = lb
+            _, f_p = _within_stat(perm_lbls)
+            if f_p >= f_obs - 1e-12:
+                ge_count += 1
+        return {
+            "subject_r2": round(subj_r2, 4),
+            "within_subject_r2": round(ws_r2_obs, 4),
+            "p_within_subject": round(ge_count / total_perms, 4),
+            "n_perms": int(total_perms),
+            "exact": True,
+        }
+
+    rng = np.random.default_rng(seed)
+    ge_count = 1
+    for _ in range(n_perm):
+        perm_lbls = list(obs_labels)
+        for idxs in block_indices:
+            if len(idxs) > 1:
+                shuf = [obs_labels[i] for i in idxs]
+                rng.shuffle(shuf)
+                for pos, lb in zip(idxs, shuf):
+                    perm_lbls[pos] = lb
+        _, f_p = _within_stat(perm_lbls)
+        if f_p >= f_obs - 1e-12:
+            ge_count += 1
+    return {
+        "subject_r2": round(subj_r2, 4),
+        "within_subject_r2": round(ws_r2_obs, 4),
+        "p_within_subject": round(ge_count / (n_perm + 1), 4),
+        "n_perms": int(n_perm + 1),
+        "exact": False,
+    }
 
 
 def compute_beyond_jutils_landscape(
@@ -264,6 +449,24 @@ def compute_beyond_jutils_landscape(
 
     conditions = [str(meta_by_id[sid].get("condition", "Unknown")) for sid in s_ids]
     perm_r2, perm_p = permanova_r2(D_prec, conditions)
+    strata, n_paired_subjects, is_fully_crossed_paired = _detect_paired_strata([meta_by_id[sid] for sid in s_ids])
+    perm_p_unpaired = perm_p
+    permanova_strata = "free"
+    permanova_subject_r2: float | None = None
+    permanova_within_subject_r2: float | None = None
+    permanova_p_within_subject: float | None = None
+    permanova_exact_perms: int | None = None
+    if n_paired_subjects >= 2:
+        blk = permanova_subject_blocked(D_prec, conditions, strata)
+        permanova_subject_r2 = blk["subject_r2"]
+        permanova_within_subject_r2 = blk["within_subject_r2"]
+        permanova_p_within_subject = blk["p_within_subject"]
+        permanova_exact_perms = blk["n_perms"]
+        if is_fully_crossed_paired:
+            permanova_strata = "subject_paired"
+            perm_p = float(blk["p_within_subject"])
+        else:
+            permanova_strata = "split_plot_paired"
 
     # Precision-Kernel UMAP (if requested and n_samples >= 6)
     umap_coords = np.zeros((n_s, 2), dtype=float)
@@ -330,6 +533,13 @@ def compute_beyond_jutils_landscape(
         "heatmap_events": int(len(sel_eids)),
         "permanova_r2": perm_r2,
         "permanova_p": perm_p,
+        "permanova_p_unpaired": perm_p_unpaired,
+        "paired_subjects": int(n_paired_subjects),
+        "permanova_strata": permanova_strata,
+        "permanova_subject_r2": permanova_subject_r2,
+        "permanova_within_subject_r2": permanova_within_subject_r2,
+        "permanova_p_within_subject": permanova_p_within_subject,
+        "permanova_exact_perms": permanova_exact_perms,
         "pca_variance_pct": var_exp,
         "samples": sample_out,
         "ordered_samples": ordered_samples,
@@ -732,6 +942,31 @@ def render_editorial_psi_pca(
         ax_pca.scatter(xs, ys, s=78, color=col, marker=mk, edgecolors="white", linewidths=0.9, label=f"{c} (n={len(pts)})", zorder=3)
 
     if len(samples) <= 24:
+        cond_rank = {c: idx for idx, c in enumerate(conds)}
+        donor_pts: dict[str, list[dict[str, Any]]] = {}
+        for s in samples:
+            did = str(s.get("donor_id") or "").strip()
+            if did and did.lower() not in _BLANK_DONOR_TOKENS:
+                donor_pts.setdefault(did, []).append(s)
+        paired_trajs = [
+            pts for did, pts in donor_pts.items()
+            if len({p["condition"] for p in pts}) >= 2 and any(str(p.get("sample_id", "")).strip() != did for p in pts)
+        ]
+        if len(paired_trajs) >= 2:
+            for ti, pts in enumerate(paired_trajs):
+                pts_ord = sorted(pts, key=lambda item: cond_rank.get(item["condition"], 999))
+                ax_pca.plot(
+                    [float(p["PC1"]) for p in pts_ord],
+                    [float(p["PC2"]) for p in pts_ord],
+                    color="#64748B",
+                    linestyle="--",
+                    linewidth=1.15,
+                    alpha=0.58,
+                    label=f"Paired subject (n={len(paired_trajs)})" if ti == 0 else None,
+                    zorder=2,
+                )
+
+    if len(samples) <= 24:
         x_mid = 0.5 * (x_min + x_max)
         min_dy = 0.078 * (y_span * 1.46)
         for is_right in (False, True):
@@ -777,9 +1012,22 @@ def render_editorial_psi_pca(
     vexp = landscape["pca_variance_pct"]
     ax_pca.set_xlabel(f"PC1 ({vexp[0]:.1f}% splicing variance)", fontweight="bold", color=EDITORIAL_NAVY)
     ax_pca.set_ylabel(f"PC2 ({vexp[1]:.1f}% splicing variance)", fontweight="bold", color=EDITORIAL_NAVY)
+    strata_mode = str(landscape.get("permanova_strata") or "free")
+    if strata_mode == "subject_paired" and landscape.get("permanova_within_subject_r2") is not None:
+        pca_title = (
+            f"A. Sample splicing manifold (Within-subject R² = {float(landscape['permanova_within_subject_r2'])*100:.1f}%, "
+            f"Paired P = {float(landscape['permanova_p_within_subject']):.3g}; Global R² = {float(landscape['permanova_r2'])*100:.1f}%)"
+        )
+    elif strata_mode == "split_plot_paired" and landscape.get("permanova_within_subject_r2") is not None:
+        pca_title = (
+            f"A. Sample splicing manifold (Global R² = {float(landscape['permanova_r2'])*100:.1f}%, "
+            f"P = {float(landscape['permanova_p']):.3g}; Within-subject R² = {float(landscape['permanova_within_subject_r2'])*100:.1f}%)"
+        )
+    else:
+        pca_title = f"A. Sample splicing manifold (PERMANOVA R² = {landscape['permanova_r2']*100:.1f}%, P = {landscape['permanova_p']:.3g})"
     ax_pca.set_title(
-        f"A. Sample splicing manifold (PERMANOVA R² = {landscape['permanova_r2']*100:.1f}%, P = {landscape['permanova_p']:.3g})",
-        loc="left", fontsize=10.2, fontweight="bold", color=EDITORIAL_NAVY,
+        pca_title,
+        loc="left", fontsize=9.6 if strata_mode != "free" else 10.2, fontweight="bold", color=EDITORIAL_NAVY,
     )
     ax_pca.legend(frameon=True, facecolor="#FFFFFF", framealpha=0.88, edgecolor="#E2E8F0", fontsize=8.0, loc="upper left")
 

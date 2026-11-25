@@ -423,6 +423,44 @@ def _discover_rmats_contrasts(rmats_arg: str | Path | dict[str, Path], declared_
     return out
 
 
+def _parse_bool_flag(val: Any) -> bool | None:
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(val, bool):
+        return val
+    tok = str(val).strip().strip('"').strip("'").lower()
+    if tok in {"true", "1", "yes", "t", "y"}:
+        return True
+    if tok in {"false", "0", "no", "f", "n"}:
+        return False
+    return None
+
+
+def _pca_panel_meta(rec: dict[str, Any], *, manifold_prefix: str = "") -> tuple[str, str]:
+    strata_m = str(rec.get("permanova_strata") or "free")
+    r2_g = float(rec.get("permanova_r2") or 0.0)
+    p_g = float(rec.get("permanova_p") or 1.0)
+    ws_r2 = rec.get("permanova_within_subject_r2")
+    subj_r2 = rec.get("permanova_subject_r2")
+    p_ws = rec.get("permanova_p_within_subject")
+    n_ps = int(rec.get("paired_subjects") or 0)
+    if strata_m == "subject_paired" and ws_r2 is not None and p_ws is not None:
+        ttl = f"Global splicing PCA ({manifold_prefix}Within-subject R² = {float(ws_r2):.3f}, Paired P = {float(p_ws):.3g}; Global R² = {r2_g:.3f})"
+        cap = f"Empirical-Bayes depth-stabilized splicing manifold with paired-subject restricted PERMANOVA across {n_ps} paired subjects (subject baseline R² = {float(subj_r2 or 0.0):.3f})."
+    elif strata_m == "split_plot_paired" and ws_r2 is not None and p_ws is not None:
+        ttl = f"Global splicing PCA ({manifold_prefix}Global R² = {r2_g:.3f}, P = {p_g:.3g}; Within-subject R² = {float(ws_r2):.3f})"
+        cap = f"Split-plot cohort with {n_ps} paired subjects (dashed subject trajectories; subject R² = {float(subj_r2 or 0.0):.3f}, within-subject paired P = {float(p_ws):.3g})."
+    else:
+        ttl = f"Global splicing PCA ({manifold_prefix}PERMANOVA R² = {r2_g:.3f}, P = {p_g:.3g})"
+        cap = "Empirical-Bayes depth-stabilized splicing manifold across measurable cohort events."
+    return ttl, cap
+
+
 def _resolve_rmats_dir_for_contrast(
     rmats_map: dict[str, Path],
     c_spec: dict[str, Any],
@@ -703,8 +741,16 @@ def _finalize_consulting_report_and_zip(
             self.create_archive = True
             n_units = len({s.get("biological_sample_id", s.get("sample_id")) for s in samples_list})
             n_conds = len({s.get("condition") for s in samples_list})
+            paired_cids = [str(c.get("contrast_id")) for c in contrasts_list if c.get("paired")]
+            ch1_callout = (
+                f"Audited {len(samples_list):,} {'cells/nuclei' if mode == 'single-cell' else 'RNA-seq libraries'} "
+                f"across {n_units:,} independent biological units and {n_conds} conditions "
+                f"({len(contrasts_list)} declared contrast{'s' if len(contrasts_list) != 1 else ''})."
+            )
+            if mode != "single-cell" and paired_cids:
+                ch1_callout += f" Paired-subject design active for {len(paired_cids)}/{len(contrasts_list)} contrast(s) (~ subject + condition; {n_units:,} biological subjects)."
             self.chapter_callouts: dict[int, str] = {
-                1: f"Audited {len(samples_list):,} {'cells/nuclei' if mode == 'single-cell' else 'RNA-seq libraries'} across {n_units:,} independent biological units and {n_conds} conditions ({len(contrasts_list)} declared contrast{'s' if len(contrasts_list) != 1 else ''}).",
+                1: ch1_callout,
                 2: "Empirical-Bayes Binomial support-shrunk PSI landscape separating biological splicing variation from sampling noise.",
                 3: "Differential host-gene transcription (DEG), precision-supported alternative splicing (DAS), and lossless orthogonal SUPPA2 / DEXSeq / DRIMSeq-stageR DTU tables.",
                 4: "Host transcription vs post-transcriptional splicing decoupling, pairwise cross-comparison overlaps, and ΔPSI directional concordance.",
@@ -794,45 +840,90 @@ def run_bulk(
         raise ValueError("Provide either `--bundle <dir>` or both `--rmats` and `--samples`.")
 
     s_df = samples.copy() if isinstance(samples, pd.DataFrame) else _read_tabular(Path(samples), as_metadata=True)
-    sid_col = next((c for c in ("sample_id", "sample", "id") if c in s_df.columns), s_df.columns[0])
-    cond_col = next((c for c in ("condition", "group") if c in s_df.columns), s_df.columns[1])
-    bio_col = next((c for c in ("biological_sample_id", "donor_id", "donor", "mouse_id", "subject", "patient", "individual", "animal_id") if c in s_df.columns), None)
-    samples_list = [
-        {
-            "sample_id": str(r[sid_col]).strip(),
-            "condition": str(r[cond_col]).strip(),
-            "biological_sample_id": str(r[bio_col]).strip() if bio_col and pd.notna(r[bio_col]) and str(r[bio_col]).strip() else str(r[sid_col]).strip(),
-            "cell_type": str(r[cond_col]).strip(),
-        }
-        for _, r in s_df.iterrows()
-    ]
+    s_cols_l = {str(c).strip().lower(): c for c in s_df.columns}
+    sid_col = next((s_cols_l[k] for k in ("sample_id", "sample", "id") if k in s_cols_l), s_df.columns[0])
+    cond_col = next((s_cols_l[k] for k in ("condition", "group") if k in s_cols_l), s_df.columns[1])
+    _bio_aliases = ("biological_sample_id", "donor_id", "donor", "mouse_id", "subject", "patient", "individual", "animal_id")
+    _blank_bio = {"", "nan", "none", "na", "null", "n/a"}
+
+    def _row_bio_id(row: pd.Series, fallback_sid: str) -> str:
+        for al in _bio_aliases:
+            col_orig = s_cols_l.get(al)
+            if col_orig is None:
+                continue
+            val = row[col_orig]
+            if pd.notna(val):
+                sv = str(val).strip()
+                if sv and sv.lower() not in _blank_bio:
+                    return sv
+        return fallback_sid
+
+    samples_list = []
+    for _, r in s_df.iterrows():
+        sid_s = str(r[sid_col]).strip()
+        cond_s = str(r[cond_col]).strip()
+        samples_list.append({
+            "sample_id": sid_s,
+            "condition": cond_s,
+            "biological_sample_id": _row_bio_id(r, sid_s),
+            "cell_type": cond_s,
+        })
+    bio_by_sid = {s["sample_id"]: s["biological_sample_id"] for s in samples_list}
     cond_to_sids: dict[str, list[str]] = {}
     for s in samples_list:
         cond_to_sids.setdefault(s["condition"], []).append(s["sample_id"])
 
+    def _shared_paired_subjects(num_sids: list[str], den_sids: list[str]) -> list[str]:
+        den_set = {bio_by_sid.get(s, s) for s in den_sids}
+        return [
+            b for b in dict.fromkeys(bio_by_sid.get(s, s) for s in num_sids)
+            if b in den_set and any(bio_by_sid.get(s, s) != s for s in (num_sids + den_sids))
+        ]
+
     if contrasts is not None:
         c_df = contrasts.copy() if isinstance(contrasts, pd.DataFrame) else _read_tabular(Path(contrasts), as_metadata=True)
-        cid_c = next((c for c in ("contrast_id", "contrast", "comparison_id") if c in c_df.columns), c_df.columns[0])
-        num_c = next((c for c in ("treatment", "numerator", "group_a") if c in c_df.columns), c_df.columns[1])
-        den_c = next((c for c in ("control", "denominator", "group_b") if c in c_df.columns), c_df.columns[2])
-        contrasts_list = [
-            {
+        c_cols_l = {str(c).strip().lower(): c for c in c_df.columns}
+        cid_c = next((c_cols_l[k] for k in ("contrast_id", "contrast", "comparison_id") if k in c_cols_l), c_df.columns[0])
+        num_c = next((c_cols_l[k] for k in ("treatment", "numerator", "group_a") if k in c_cols_l), c_df.columns[1])
+        den_c = next((c_cols_l[k] for k in ("control", "denominator", "group_b") if k in c_cols_l), c_df.columns[2])
+        paired_c = next((c_cols_l[k] for k in ("paired", "is_paired") if k in c_cols_l), None)
+        design_c = next((c_cols_l[k] for k in ("design", "formula", "model") if k in c_cols_l), None)
+        contrasts_list = []
+        for _, r in c_df.iterrows():
+            num_s = str(r[num_c]).strip()
+            den_s = str(r[den_c]).strip()
+            num_sids = cond_to_sids.get(num_s, [])
+            den_sids = cond_to_sids.get(den_s, [])
+            exp_paired = _parse_bool_flag(r[paired_c]) if paired_c else None
+            shared_subj = _shared_paired_subjects(num_sids, den_sids)
+            is_paired = bool(exp_paired) if exp_paired is not None else (len(shared_subj) >= 2)
+            raw_design = str(r[design_c]).strip() if (design_c and pd.notna(r[design_c]) and str(r[design_c]).strip()) else ""
+            design_str = raw_design or ("~ subject + condition" if is_paired else "~ condition")
+            contrasts_list.append({
                 "contrast_id": str(r[cid_c]).strip(),
-                "label": f"{str(r[num_c]).strip()} vs {str(r[den_c]).strip()}",
-                "numerator": {"label": str(r[num_c]).strip(), "sample_ids": cond_to_sids.get(str(r[num_c]).strip(), [])},
-                "denominator": {"label": str(r[den_c]).strip(), "sample_ids": cond_to_sids.get(str(r[den_c]).strip(), [])},
-            }
-            for _, r in c_df.iterrows()
-        ]
+                "label": f"{num_s} vs {den_s}",
+                "numerator": {"label": num_s, "sample_ids": num_sids},
+                "denominator": {"label": den_s, "sample_ids": den_sids},
+                "paired": bool(is_paired),
+                "paired_subjects": int(len(shared_subj)),
+                "design": design_str,
+            })
     else:
         conds = list(cond_to_sids.keys())
         if len(conds) < 2:
             raise ValueError("At least 2 conditions in samples table are required when --contrasts is omitted.")
+        num_sids = cond_to_sids[conds[0]]
+        den_sids = cond_to_sids[conds[1]]
+        shared_subj = _shared_paired_subjects(num_sids, den_sids)
+        is_paired = len(shared_subj) >= 2
         contrasts_list = [{
             "contrast_id": f"{conds[0]}_vs_{conds[1]}",
             "label": f"{conds[0]} vs {conds[1]}",
-            "numerator": {"label": conds[0], "sample_ids": cond_to_sids[conds[0]]},
-            "denominator": {"label": conds[1], "sample_ids": cond_to_sids[conds[1]]},
+            "numerator": {"label": conds[0], "sample_ids": num_sids},
+            "denominator": {"label": conds[1], "sample_ids": den_sids},
+            "paired": bool(is_paired),
+            "paired_subjects": int(len(shared_subj)),
+            "design": "~ subject + condition" if is_paired else "~ condition",
         }]
 
     rmats_map = _discover_rmats_contrasts(rmats, contrasts_list, rmats_mode=rmats_mode)
@@ -844,7 +935,7 @@ def run_bulk(
     motif_summaries: list[dict[str, Any]] = []
 
     # Chapter 01: Biological design + Alignment/Strandedness QC + MultiQC 5'-to-3' coverage
-    render_biological_design_panel(samples_list, out, panels, is_single_cell=False)
+    render_biological_design_panel(samples_list, out, panels, is_single_cell=False, contrasts_list=contrasts_list)
     render_bulk_sequencing_qc_panel(bundle_path, samples_list, out, panels, tables)
 
     cov_candidates = []
@@ -1297,8 +1388,9 @@ def run_bulk(
         pca_tsv_dst = out / "outputs/landscape/psi-pca-coordinates.tsv"
         pca_tsv_dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(sm_bulk_dir / "sample_manifold_coordinates.tsv", pca_tsv_dst)
+        pca_ttl_sm, pca_cap_sm = _pca_panel_meta(sm_rec)
         for src_name, dst_name, pid, ttl, cap, dpath, dunit in [
-            ("psi_pca.png", "psi-pca.png", "psi-pca", f"Global splicing PCA (PERMANOVA R² = {(sm_rec.get('permanova_r2') or 0.0):.3f}, P = {(sm_rec.get('permanova_p') or 1.0):.3g})", "Empirical-Bayes depth-stabilized splicing manifold across measurable cohort events.", pca_tsv_dst, "biological_sample"),
+            ("psi_pca.png", "psi-pca.png", "psi-pca", pca_ttl_sm, pca_cap_sm, pca_tsv_dst, "biological_sample"),
             ("psi_clustermap.png", "psi-heatmap.png", "psi-heatmap", "Depth-stabilized PSI Z-score clustermap", "Separated Sample Group vs Splicing Subtype legends with representative gene callouts.", psi_pq, "splicing_event"),
         ]:
             sp = sm_bulk_dir / "figures" / src_name
@@ -1336,10 +1428,13 @@ def run_bulk(
             render_editorial_psi_pca(land, pca_png, pca_png.with_suffix(".svg"), title=f"Global Splicing PCA ({land['manifold_events']:,} Events) & PERMANOVA — {study_name}")
             pca_tsv = out / "outputs/landscape/psi-pca-coordinates.tsv"
             pd.DataFrame(land["samples"]).to_csv(pca_tsv, sep="\t", index=False)
+            pca_ttl_fb, pca_cap_fb = _pca_panel_meta(
+                land, manifold_prefix=f"{land['manifold_events']:,} events · PC1 {land['pca_variance_pct'][0]:.1f}%, "
+            )
             panels.append({
                 "id": "psi-pca", "chapter": 2, "contrast_id": "all",
-                "title": f"Global splicing PCA ({land['manifold_events']:,} events · PC1 {land['pca_variance_pct'][0]:.1f}%, PERMANOVA P = {land['permanova_p']:.3g})",
-                "caption": "Empirical-Bayes depth-stabilized splicing manifold across measurable cohort events.",
+                "title": pca_ttl_fb,
+                "caption": pca_cap_fb,
                 "image": pca_png.relative_to(out).as_posix(), "svg": pca_png.with_suffix(".svg").relative_to(out).as_posix(),
                 "data_links": [{"role": "plot_data", "label": "PCA coordinates (TSV)", "path": pca_tsv.relative_to(out).as_posix(), "unit": "biological_sample", "contrast_id": "all", "policy": None}],
             })

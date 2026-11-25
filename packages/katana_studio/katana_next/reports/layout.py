@@ -341,23 +341,40 @@ def render(builder):
         '<tr><td>' + esc(s['sample_id']) + '</td><td>' + esc(s.get('biological_sample_id', s['sample_id'])) + '</td><td>' + esc(s.get('condition', '')) + '</td></tr>'
         for s in project.get('samples', [])
     )
+    has_bulk_design_cols = (not is_sc) and any(('paired' in c or 'design' in c) for c in contrasts)
+    has_paired_contrast = (not is_sc) and any(bool(c.get('paired')) for c in contrasts)
+
+    def _design_cell(c):
+        if not has_bulk_design_cols:
+            return ''
+        is_p = bool(c.get('paired'))
+        n_p = int(c.get('paired_subjects') or 0)
+        p_lbl = ('Paired (n=' + str(n_p) + ')' if n_p > 0 else 'Paired') if is_p else 'Unpaired'
+        des_lbl = str(c.get('design') or ('~ subject + condition' if is_p else '~ condition'))
+        return '<td>' + esc(p_lbl + ' · ' + des_lbl) + '</td>'
+
     contrast_rows = ''.join(
-        '<tr><td><strong>' + esc(c.get('label', c['contrast_id'])) + '</strong></td><td>' + esc(c['numerator'].get('label', '')) + '</td><td>' + esc(c['denominator'].get('label', '')) + '</td><td class="num">' + str(len(c['numerator'].get('sample_ids', []))) + ' vs ' + str(len(c['denominator'].get('sample_ids', []))) + '</td></tr>'
+        '<tr><td><strong>' + esc(c.get('label', c['contrast_id'])) + '</strong></td><td>' + esc(c['numerator'].get('label', '')) + '</td><td>' + esc(c['denominator'].get('label', '')) + '</td><td class="num">' + str(len(c['numerator'].get('sample_ids', []))) + ' vs ' + str(len(c['denominator'].get('sample_ids', []))) + '</td>' + _design_cell(c) + '</tr>'
         for c in contrasts
     )
     annotation = project.get('annotation', {})
     replicate_note = (
         'Single-cell / Smart-seq3 study: biological inference respects donor / biological replicate structure and Kish effective sample size (cells are not treated as independent biological organisms).'
         if is_sc else
-        'Effects follow the explicitly declared numerator / denominator. Independent biological units are recorded per sample; no pairing is inferred from sample names.'
+        (
+            'Effects follow the explicitly declared numerator / denominator and paired subject metadata. Paired contrasts block on shared biological subjects (~ subject + condition); unpaired contrasts use ~ condition.'
+            if has_paired_contrast else
+            'Effects follow the explicitly declared numerator / denominator. Independent biological units are recorded per sample; no pairing is inferred from sample names.'
+        )
     )
+    design_th = '<th>Design</th>' if has_bulk_design_cols else ''
     design = (
         '<h3>Declared Study Architecture &amp; Comparisons</h3>'
         '<p class="fig-notes">' + esc(replicate_note) + '</p>'
         '<details><summary>All recorded ' + unit_label.lower() + ' (' + str(len(project.get('samples', []))) + ')</summary>'
         '<div class="table-scroll"><table class="metadata"><thead><tr><th>ID</th><th>Biological unit / Donor</th><th>Condition / State</th></tr></thead><tbody>' + sample_rows + '</tbody></table></div></details>'
         '<details open><summary>Declared statistical comparisons (' + str(len(contrasts)) + ')</summary>'
-        '<div class="table-scroll"><table class="metadata"><thead><tr><th>Comparison</th><th>Numerator</th><th>Denominator</th><th class="num">Group sizes</th></tr></thead><tbody>' + contrast_rows + '</tbody></table></div></details>'
+        '<div class="table-scroll"><table class="metadata"><thead><tr><th>Comparison</th><th>Numerator</th><th>Denominator</th><th class="num">Group sizes</th>' + design_th + '</tr></thead><tbody>' + contrast_rows + '</tbody></table></div></details>'
         '<p class="fig-notes">Reference assembly: <strong>' + esc(annotation.get('genome_build', 'Not recorded')) + '</strong> · ' + esc(project.get('metadata', {}).get('annotation_release', 'Annotation release recorded in provenance')) + '.</p>'
     )
     if sections:
