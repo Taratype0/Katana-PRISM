@@ -181,6 +181,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--flank-gc-caliper", type=float, default=0.08)
     parser.add_argument("--acceptor-core-nt", type=int, default=3)
     parser.add_argument("--distal-intron-nt", type=int, default=500, help="Distal intronic cis-regulatory window outer bound in nt (default: 500; 0 for proximal 200-nt only)")
+    parser.add_argument(
+        "--calibration",
+        choices=["gene_block_permutation", "rademacher_hc"],
+        default="gene_block_permutation",
+        help="Null calibration for continuous rescue: exchangeable host-gene-block permutation (default) or heteroskedasticity-robust Rademacher gene-block maxT",
+    )
     parser.add_argument("--permutations", type=int, default=4999)
     parser.add_argument("--seed", type=int, default=20261117)
     parser.add_argument("--emit-versions-yml", type=Path, default=None)
@@ -227,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
             rbp_expr_df=rbp_expr_df,
             min_rbp_expr=args.min_rbp_expr,
             n_permutations=args.permutations,
+            calibration=args.calibration,
             seed=args.seed,
             threads=active_threads,
         )
@@ -266,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
                 rbp_expr_df=rbp_expr_df,
                 min_rbp_expr=args.min_rbp_expr,
                 n_permutations=args.permutations,
+                calibration=args.calibration,
                 seed=args.seed,
                 threads=active_threads,
             )

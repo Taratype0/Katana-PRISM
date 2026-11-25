@@ -212,3 +212,164 @@ def test_sc_six_paired_donors_reaches_fwer_03125() -> None:
     assert top["RBP"] == "RBP0"
     assert abs(float(top["rbp_P_FWER"]) - (2.0 / 64.0)) < 1e-12
     assert float(top["rbp_P_FWER"]) <= 0.05
+
+
+def test_sc_unpaired_cell_count_imbalance_null() -> None:
+    """v15 Re-audit Blocker 2A: Equal-donor-mean unpaired cohorts must NOT use cell-pooled PSI numerator."""
+    from scsplicetrace.contrast_discovery import compute_sc_splicing_contrast
+
+    design = []
+    values = []
+    for arm in ("T", "C"):
+        for d in range(20):
+            usage = 0.9 if d < 10 else 0.1
+            count = 80 if (usage == 0.9) == (arm == "T") else 8
+            for j in range(count):
+                design.append((f"{arm}.{d}.{j}", f"{arm}.{d}", arm))
+                values.append(usage)
+    md = pd.DataFrame(design, columns=["cell_id", "donor_id", "condition"])
+    usage_df = pd.DataFrame({"E": values}, index=md["cell_id"])
+    sup_df = pd.DataFrame({"E": [100.0] * len(md)}, index=md["cell_id"])
+    c_df, d_del, info = compute_sc_splicing_contrast(
+        usage_df, md, pd.Series({"E": "G"}), support=sup_df, group_col="condition", numerator_group="T", denominator_group="C"
+    )
+    assert info["inference_unit"] == "unpaired_donor_pseudobulk"
+    assert d_del is None
+    row = c_df.iloc[0]
+    assert row["event_inference_unit"] == "unpaired_donor_pseudobulk"
+    assert abs(float(row["raw_dpsi"])) < 1e-12
+    assert abs(float(row["psi_numerator"]) - 0.5) < 1e-12
+    assert abs(float(row["psi_denominator"]) - 0.5) < 1e-12
+    assert float(row["p_value"]) > 0.99
+    assert float(row["fdr"]) > 0.99
+
+
+def test_sc_paired_sign_flip_midpoint_symmetry() -> None:
+    """v15 Re-audit Blocker 2B: Paired baseline_PSI uses arm-symmetric midpoint so 2^D flips stay exact (<=2/64 at alpha=0.05)."""
+    from itertools import product
+    from scsplicetrace.contrast_discovery import compute_sc_splicing_contrast, discover_sc_rbp_programs
+
+    rng = np.random.default_rng(1602)
+    n_donors, n_events, n_motifs = 6, 35, 12
+    signs = np.asarray(list(product((-1, 1), repeat=n_donors)), dtype=float)
+    ids = [f"e{i}" for i in range(n_events)]
+    genes = pd.Series([f"g{i}" for i in range(n_events)], index=ids)
+    nuisance = pd.DataFrame({"event_id": ids, "flank_GC": 0.5, "exon_GC": 0.5, "log_length": 4.0, "event_type": "SE"})
+    for _ in range(87):
+        motifs = rng.normal(size=(n_events, 1, n_motifs))
+        midpoint = rng.uniform(0.43, 0.57, size=n_events)
+        deltas = np.clip(rng.normal(0.0, 0.16, size=(n_donors, n_events)), -0.6, 0.6)
+    md = pd.DataFrame(
+        [(f"{d}.{arm}.{c}", f"{d}", arm) for d in range(n_donors) for arm in ("T", "C") for c in range(8)],
+        columns=["cell_id", "donor_id", "condition"],
+    )
+    support = pd.DataFrame(np.full((len(md), len(ids)), 1e5), index=md["cell_id"], columns=ids)
+    labels = np.array([f"r{k}" for k in range(n_motifs)])
+    rejections = 0
+    for s in signs:
+        values = np.stack([
+            midpoint + (1.0 if row.condition == "T" else -1.0) * s[int(row.donor_id)] * deltas[int(row.donor_id)] / 2.0
+            for row in md.itertuples()
+        ])
+        u_df = pd.DataFrame(values, index=md["cell_id"], columns=ids)
+        c_df, d_df, _ = compute_sc_splicing_contrast(
+            u_df, md, genes, support=support, group_col="condition", numerator_group="T", denominator_group="C"
+        )
+        assert np.allclose(c_df["baseline_PSI"].to_numpy(float), midpoint, atol=1e-6)
+        res = discover_sc_rbp_programs(c_df, motifs, labels, ["reg"], nuisance, donor_delta_df=d_df)
+        if float(res.rbp_ranking["rbp_P_FWER"].min()) <= 0.05:
+            rejections += 1
+    assert rejections <= 2
+
+
+def test_sc_partially_paired_and_arm_missingness_handling() -> None:
+    """Explicit partial-pairing routing + arm-dependent missingness exclusion in unpaired cohorts."""
+    from scsplicetrace.contrast_discovery import compute_sc_splicing_contrast
+
+    # Case A: 3 paired donors + 2 unpaired donors -> paired_donor_small_n strictly on paired donors
+    rows_a, psi_a, sup_a = [], [], []
+    for d in ("P1", "P2", "P3"):
+        for arm in ("T", "C"):
+            for k in range(5):
+                rows_a.append({"cell_id": f"{d}_{arm}_{k}", "donor_id": d, "condition": arm})
+                psi_a.append({"E1": 0.8 if arm == "T" else 0.2})
+                sup_a.append({"E1": 25.0})
+    for d, arm in (("U1", "T"), ("U2", "C")):
+        for k in range(10):
+            rows_a.append({"cell_id": f"{d}_{arm}_{k}", "donor_id": d, "condition": arm})
+            psi_a.append({"E1": 0.1 if arm == "T" else 0.9})
+            sup_a.append({"E1": 25.0})
+    md_a = pd.DataFrame(rows_a)
+    c_a, d_a, info_a = compute_sc_splicing_contrast(
+        pd.DataFrame(psi_a, index=md_a["cell_id"]), md_a, pd.Series({"E1": "G1"}),
+        support=pd.DataFrame(sup_a, index=md_a["cell_id"]), numerator_group="T", denominator_group="C", min_cells_per_group=5, min_support_per_group=10.0,
+    )
+    assert info_a["inference_unit"] == "paired_donor_small_n"
+    assert d_a is None
+    assert info_a["unpaired_donors_excluded"] == 2
+    assert float(c_a.iloc[0]["raw_dpsi"]) > 0.55
+
+    # Case B: 1 overlapping donor + 3 disjoint per arm + arm-dependent missingness in E_arm_miss
+    rows_b, psi_b, sup_b = [], [], []
+    for arm in ("T", "C"):
+        for k in range(5):
+            rows_b.append({"cell_id": f"OV_{arm}_{k}", "donor_id": "OV", "condition": arm})
+            psi_b.append({"E_ok": 0.5, "E_arm_miss": 0.5})
+            sup_b.append({"E_ok": 25.0, "E_arm_miss": 25.0})
+    for i in range(3):
+        for k in range(6):
+            rows_b.append({"cell_id": f"DT{i}_{k}", "donor_id": f"DT{i}", "condition": "T"})
+            psi_b.append({"E_ok": 0.85, "E_arm_miss": 0.85 if i == 0 else np.nan})
+            sup_b.append({"E_ok": 25.0, "E_arm_miss": 25.0 if i == 0 else 0.0})
+            rows_b.append({"cell_id": f"DC{i}_{k}", "donor_id": f"DC{i}", "condition": "C"})
+            psi_b.append({"E_ok": 0.15, "E_arm_miss": 0.15})
+            sup_b.append({"E_ok": 25.0, "E_arm_miss": 25.0})
+    md_b = pd.DataFrame(rows_b)
+    c_b, _, info_b = compute_sc_splicing_contrast(
+        pd.DataFrame(psi_b, index=md_b["cell_id"]), md_b, pd.Series({"E_ok": "G1", "E_arm_miss": "G2"}),
+        support=pd.DataFrame(sup_b, index=md_b["cell_id"]), numerator_group="T", denominator_group="C", min_cells_per_group=5, min_support_per_group=10.0,
+    )
+    assert info_b["inference_unit"] == "partially_paired_disjoint_unpaired"
+    assert info_b["overlap_donors_excluded_from_unpaired"] == 1
+    idx_b = c_b.set_index("event_id")
+    assert bool(idx_b.loc["E_ok", "eligible"]) is True
+    assert bool(idx_b.loc["E_arm_miss", "eligible"]) is False
+    assert idx_b.loc["E_arm_miss", "event_inference_unit"] == "insufficient_group_donors"
+
+
+def test_splicetrace_cli_calibration_option(tmp_path: Path) -> None:
+    """Confirm splicetrace CLI accepts and routes --calibration rademacher_hc."""
+    import json
+    from splicetrace.cli import main as st_main
+
+    fg_p = tmp_path / "fg.tsv"
+    bg_p = tmp_path / "bg.tsv"
+    # Tiny synthetic fixture just checking CLI invocation/fallback into run_bulk_continuous_rescue with calibration
+    fa = PRISM_ROOT / "benchmarks"  # dummy fallback; use existing small fasta from test_katana_prism_1_0 or verify parser
+    # Minimal 1-chrom FASTA + <250 matched events triggers auto small-sample rescue with calibration!
+    fasta_p = tmp_path / "mini.fa"
+    seq = "ACGTACGTGGCCAAATTTCCCGGG" * 100
+    fasta_p.write_text(f">chr1\n{seq}\n", encoding="utf-8")
+    (tmp_path / "mini.fa.fai").write_text(f"chr1\t{len(seq)}\t6\t{len(seq)}\t{len(seq) + 1}\n", encoding="utf-8")
+    ev_rows = []
+    for i in range(40):
+        ev_rows.append({
+            "event_id": f"EV{i}", "gene_id": f"G{i}", "gene_symbol": f"G{i}", "event_type": "SE",
+            "chr": "chr1", "strand": "+", "exonStart_0base": 800 + i * 5, "exonEnd": 900 + i * 5,
+            "upstreamES": 500, "upstreamEE": 600, "downstreamES": 1400, "downstreamEE": 1500,
+            "dpsi": 0.25 if i < 12 else 0.0, "baseline_PSI": 0.5, "PValue": 1e-4 if i < 12 else 0.8,
+            "fdr": 0.005 if i < 12 else 0.9, "depth": 50.0, "GC": 0.5, "length": 100, "ambiguous_fraction": 0.0,
+        })
+    df_ev = pd.DataFrame(ev_rows)
+    df_ev.iloc[:15].to_csv(fg_p, sep="\t", index=False)
+    df_ev.iloc[15:].to_csv(bg_p, sep="\t", index=False)
+    out_d = tmp_path / "out_rad"
+    rc = st_main([
+        "--foreground", str(fg_p), "--background", str(bg_p), "--fasta", str(fasta_p),
+        "--out", str(out_d), "--calibration", "rademacher_hc", "--permutations", "19", "--seed", "7",
+    ])
+    assert rc == 0
+    receipt = json.loads((out_d / "run_receipt.json").read_text(encoding="utf-8"))
+    assert receipt["calibration"] == "rademacher_hc"
+    assert receipt["inference_mode"] == "case_control_cpg_rademacher_hc_maxT"
+

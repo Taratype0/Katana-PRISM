@@ -54,10 +54,18 @@ def compute_sc_splicing_contrast(
 ) -> tuple[pd.DataFrame, pd.DataFrame | None, dict]:
     """Compute precision-weighted continuous splicing shifts (`dpsi`, `z_shift`) without hard FDR filtering.
 
-    - When >= 5 paired donors carry both `numerator_group` and `denominator_group`, also returns a
-      paired `(donor_id x event_id)` delta table for exact population-level donor sign-symmetry inference!
-    - When < 5 donors exist (e.g., 2-donor Smart-seq3 or single-library CRISPRi perturbation), estimates
-      between-replicate overdispersion via stratified cell-block pseudobulks and tags `inference_unit="gene_block_contrast"`.
+    - When >= 5 paired donors carry both `numerator_group` and `denominator_group`, returns a paired
+      `(donor_id x event_id)` delta table and arm-symmetric donor midpoint `baseline_PSI` for exact
+      population-level donor sign-symmetry inference (`paired_donor_population`).
+    - When 3-4 paired donors exist (`min_paired_donors <= len(paired_donors) < 5`), computes paired
+      within-donor shifts strictly on paired donors (`paired_donor_small_n`) with gene-block Rademacher maxT.
+    - When unpaired multi-donor cohorts exist (`len(paired_donors) == 0`), computes strictly equal-donor-weighted
+      means, Welch variance, and Satterthwaite df (`unpaired_donor_pseudobulk`, zero cell-pooled numerator or
+      variance fallback). When 1-2 overlapping donors appear alongside >= `min_unpaired_donors_per_group`
+      disjoint donors per arm, excludes the overlapping donors before Welch inference
+      (`partially_paired_disjoint_unpaired`) to prevent double-counting.
+    - Otherwise (e.g., D = 1-2 paired donors), estimates between-replicate overdispersion via stratified
+      cell-block pseudobulks (`gene_block_contrast`) using arm-symmetric `baseline_PSI`.
     """
     md = metadata.copy()
     if "qc_pass" in md.columns:
@@ -124,54 +132,87 @@ def compute_sc_splicing_contrast(
     paired_donors = sorted(set(donors_num) & set(donors_den))
 
     donor_delta_df: pd.DataFrame | None = None
-    paired_mean_d: np.ndarray | None = None
-    paired_base_d: np.ndarray | None = None
+    donor_mean_d: np.ndarray | None = None
+    donor_base_d: np.ndarray | None = None
+    donor_arm1_d: np.ndarray | None = None
+    donor_arm0_d: np.ndarray | None = None
+    donor_within_var = np.full(u.shape[1], np.nan, dtype=float)
     df_event = np.full(u.shape[1], np.nan, dtype=float)
     n_paired_ev = np.zeros(u.shape[1], dtype=int)
     n_donors_num_ev = np.zeros(u.shape[1], dtype=int)
     n_donors_den_ev = np.zeros(u.shape[1], dtype=int)
     min_pd = int(max(3, min_paired_donors))
     min_ud = int(max(2, min_unpaired_donors_per_group))
-    if len(paired_donors) >= 5:
-        inference_unit = "paired_donor_population"
-        d_deltas = []
-        d_bases = []
-        d_vars = []
-        num_cov_list = []
-        den_cov_list = []
-        for d in paired_donors:
+    min_sup_donor = 3.0 if s_df is not None else 2.0
+    disjoint_num = sorted(set(donors_num) - set(paired_donors))
+    disjoint_den = sorted(set(donors_den) - set(paired_donors))
+    extra_info: dict[str, int] = {}
+
+    def _run_paired_donors(p_list: list[str], *, make_delta_df: bool) -> None:
+        nonlocal donor_delta_df, donor_mean_d, donor_base_d, donor_arm1_d, donor_arm0_d
+        nonlocal donor_within_var, df_event, n_paired_ev, n_donors_num_ev, n_donors_den_ev, donor_eligible, var_between
+        d_deltas, d_bases, d_p1s, d_p0s, d_vars = [], [], [], [], []
+        num_cov_list, den_cov_list = [], []
+        for d in p_list:
             p1, v1, c1, s1 = _pooled_stats(is_num & (d_vec == d))
             p0, v0, c0, s0 = _pooled_stats(is_den & (d_vec == d))
-            num_cov_list.append((c1 >= 2) & (s1 >= 3.0) & np.isfinite(p1))
-            den_cov_list.append((c0 >= 2) & (s0 >= 3.0) & np.isfinite(p0))
-            ok_d = (c1 >= 2) & (c0 >= 2) & (s1 >= 3.0) & (s0 >= 3.0) & np.isfinite(p1) & np.isfinite(p0)
+            ok1 = (c1 >= 2) & (s1 >= min_sup_donor) & np.isfinite(p1)
+            ok0 = (c0 >= 2) & (s0 >= min_sup_donor) & np.isfinite(p0)
+            num_cov_list.append(ok1)
+            den_cov_list.append(ok0)
+            ok_d = ok1 & ok0
             d_deltas.append(np.where(ok_d, p1 - p0, np.nan))
-            d_bases.append(np.where(ok_d, p0, np.nan))
+            # Arm-symmetric donor midpoint so FWL nuisance baseline is invariant under donor sign flips
+            d_bases.append(np.where(ok_d, 0.5 * (p1 + p0), np.nan))
+            d_p1s.append(np.where(ok_d, p1, np.nan))
+            d_p0s.append(np.where(ok_d, p0, np.nan))
             d_vars.append(np.where(ok_d, v1 + v0, np.nan))
-        d_mat = np.stack(d_deltas, axis=0)  # D x E
-        b_d_mat = np.stack(d_bases, axis=0)
+        d_mat = np.stack(d_deltas, axis=0)
         n_d = np.isfinite(d_mat).sum(axis=0)
         n_paired_ev = n_d.astype(int)
         n_donors_num_ev = np.stack(num_cov_list, axis=0).sum(axis=0).astype(int)
         n_donors_den_ev = np.stack(den_cov_list, axis=0).sum(axis=0).astype(int)
         donor_eligible = n_d >= min_pd
         mean_d = np.divide(np.nansum(d_mat, axis=0), np.maximum(n_d, 1), out=np.full(u.shape[1], np.nan), where=donor_eligible)
-        paired_mean_d = mean_d
-        paired_base_d = np.divide(np.nansum(b_d_mat, axis=0), np.maximum(n_d, 1), out=np.full(u.shape[1], np.nan), where=donor_eligible)
+        donor_mean_d = mean_d
+        donor_base_d = np.divide(np.nansum(np.stack(d_bases, axis=0), axis=0), np.maximum(n_d, 1), out=np.full(u.shape[1], np.nan), where=donor_eligible)
+        donor_arm1_d = np.divide(np.nansum(np.stack(d_p1s, axis=0), axis=0), np.maximum(n_d, 1), out=np.full(u.shape[1], np.nan), where=donor_eligible)
+        donor_arm0_d = np.divide(np.nansum(np.stack(d_p0s, axis=0), axis=0), np.maximum(n_d, 1), out=np.full(u.shape[1], np.nan), where=donor_eligible)
         var_between = np.divide(
             np.nansum((d_mat - mean_d[None, :]) ** 2, axis=0),
             np.maximum(n_d - 1, 1) * np.maximum(n_d, 1),
             out=np.full(u.shape[1], np.nan),
             where=donor_eligible,
         )
+        donor_within_var = np.divide(
+            np.nansum(np.stack(d_vars, axis=0), axis=0),
+            np.maximum(n_d, 1) ** 2,
+            out=np.full(u.shape[1], np.nan),
+            where=donor_eligible,
+        )
         df_event = np.where(donor_eligible, np.maximum(n_d - 1, 1).astype(float), np.nan)
-        donor_delta_df = pd.DataFrame(d_mat, index=paired_donors, columns=u_df.columns.astype(str))
-    elif len(donors_num) >= 2 and len(donors_den) >= 2:
-        # Unpaired multi-donor cohort (e.g., 2v2, 3v3, 4v4 animals/patients):
-        # estimate between-donor Welch variance strictly at the biological-donor unit level (zero cell pseudoreplication)
-        inference_unit = "unpaired_donor_pseudobulk"
-        p_num_d = np.stack([_pooled_stats(is_num & (d_vec == d))[0] for d in donors_num], axis=0)
-        p_den_d = np.stack([_pooled_stats(is_den & (d_vec == d))[0] for d in donors_den], axis=0)
+        if make_delta_df:
+            donor_delta_df = pd.DataFrame(d_mat, index=p_list, columns=u_df.columns.astype(str))
+
+    def _run_unpaired_donors(d_num_list: list[str], d_den_list: list[str]) -> None:
+        nonlocal donor_mean_d, donor_base_d, donor_arm1_d, donor_arm0_d
+        nonlocal donor_within_var, df_event, n_donors_num_ev, n_donors_den_ev, donor_eligible, var_between
+        p_num_cols, v_num_cols = [], []
+        for d in d_num_list:
+            p1, v1, c1, s1 = _pooled_stats(is_num & (d_vec == d))
+            ok1 = (c1 >= 2) & (s1 >= min_sup_donor) & np.isfinite(p1)
+            p_num_cols.append(np.where(ok1, p1, np.nan))
+            v_num_cols.append(np.where(ok1, v1, np.nan))
+        p_den_cols, v_den_cols = [], []
+        for d in d_den_list:
+            p0, v0, c0, s0 = _pooled_stats(is_den & (d_vec == d))
+            ok0 = (c0 >= 2) & (s0 >= min_sup_donor) & np.isfinite(p0)
+            p_den_cols.append(np.where(ok0, p0, np.nan))
+            v_den_cols.append(np.where(ok0, v0, np.nan))
+        p_num_d = np.stack(p_num_cols, axis=0)
+        v_num_d = np.stack(v_num_cols, axis=0)
+        p_den_d = np.stack(p_den_cols, axis=0)
+        v_den_d = np.stack(v_den_cols, axis=0)
         n1_d = np.isfinite(p_num_d).sum(axis=0)
         n0_d = np.isfinite(p_den_d).sum(axis=0)
         n_donors_num_ev = n1_d.astype(int)
@@ -184,9 +225,37 @@ def compute_sc_splicing_contrast(
         se0_sq = np.divide(v0_d, np.maximum(n0_d, 1), out=np.zeros(u.shape[1]), where=n0_d >= 2)
         both_d = (n1_d >= min_ud) & (n0_d >= min_ud)
         donor_eligible = both_d
+        # Strictly equal-donor-weighted numerator, symmetric midpoint baseline, and Welch between-donor SE
+        donor_arm1_d = np.where(both_d, m1_d, np.nan)
+        donor_arm0_d = np.where(both_d, m0_d, np.nan)
+        donor_mean_d = np.where(both_d, m1_d - m0_d, np.nan)
+        donor_base_d = np.where(both_d, 0.5 * (m1_d + m0_d), np.nan)
         var_between = np.where(both_d, se1_sq + se0_sq, np.nan)
+        wv1 = np.divide(np.nansum(v_num_d, axis=0), np.maximum(n1_d, 1) ** 2, out=np.full(u.shape[1], np.nan), where=n1_d >= 1)
+        wv0 = np.divide(np.nansum(v_den_d, axis=0), np.maximum(n0_d, 1) ** 2, out=np.full(u.shape[1], np.nan), where=n0_d >= 1)
+        donor_within_var = np.where(both_d, wv1 + wv0, np.nan)
         denom_df = (se1_sq ** 2) / np.maximum(n1_d - 1, 1) + (se0_sq ** 2) / np.maximum(n0_d - 1, 1)
-        df_event = np.where(both_d & (denom_df > 1e-18), ((se1_sq + se0_sq) ** 2) / np.maximum(denom_df, 1e-18), np.where(both_d, np.maximum(n1_d + n0_d - 2, 1).astype(float), np.nan))
+        df_event = np.where(
+            both_d & (denom_df > 1e-18),
+            ((se1_sq + se0_sq) ** 2) / np.maximum(denom_df, 1e-18),
+            np.where(both_d, np.maximum(n1_d + n0_d - 2, 1).astype(float), np.nan),
+        )
+
+    if len(paired_donors) >= 5:
+        inference_unit = "paired_donor_population"
+        _run_paired_donors(paired_donors, make_delta_df=True)
+        extra_info["unpaired_donors_excluded"] = len(set(donors_num) ^ set(donors_den))
+    elif len(paired_donors) >= min_pd:
+        inference_unit = "paired_donor_small_n"
+        _run_paired_donors(paired_donors, make_delta_df=False)
+        extra_info["unpaired_donors_excluded"] = len(set(donors_num) ^ set(donors_den))
+    elif len(paired_donors) == 0 and len(donors_num) >= min_ud and len(donors_den) >= min_ud:
+        inference_unit = "unpaired_donor_pseudobulk"
+        _run_unpaired_donors(donors_num, donors_den)
+    elif 0 < len(paired_donors) < min_pd and len(disjoint_num) >= min_ud and len(disjoint_den) >= min_ud:
+        inference_unit = "partially_paired_disjoint_unpaired"
+        _run_unpaired_donors(disjoint_num, disjoint_den)
+        extra_info["overlap_donors_excluded_from_unpaired"] = len(paired_donors)
     else:
         inference_unit = "gene_block_contrast"
         donor_eligible = np.ones(u.shape[1], dtype=bool)
@@ -196,6 +265,13 @@ def compute_sc_splicing_contrast(
         if len(donors_den) > 0:
             p_den_c = np.stack([_pooled_stats(is_den & (d_vec == d))[2] > 0 for d in donors_den], axis=0)
             n_donors_den_ev = p_den_c.sum(axis=0).astype(int)
+        if len(paired_donors) > 0:
+            p_cov = np.stack([
+                (_pooled_stats(is_num & (d_vec == d))[2] >= 2)
+                & (_pooled_stats(is_den & (d_vec == d))[2] >= 2)
+                for d in paired_donors
+            ], axis=0)
+            n_paired_ev = p_cov.sum(axis=0).astype(int)
         rng = np.random.default_rng(int(seed))
         K = int(max(4, n_cell_blocks_if_few_donors))
         num_idx = rng.permutation(np.flatnonzero(is_num))
@@ -231,15 +307,21 @@ def compute_sc_splicing_contrast(
         & np.isfinite(psi_den)
     )
     eligible = pooled_ok & donor_eligible
-    # For >=5 paired donors, use strictly within-donor mean_d & donor-averaged baseline_psi (never fall back to cell-pooled PSI)
-    if paired_mean_d is not None and paired_base_d is not None:
-        raw_dpsi = np.where(eligible & np.isfinite(paired_mean_d), paired_mean_d, np.nan)
-        baseline_psi = np.where(eligible & np.isfinite(paired_base_d), paired_base_d, np.nan)
+    # Strictly use donor-level means/midpoints and within-donor variance across ALL multi-donor branches (zero cell-pooled leakage)
+    if donor_mean_d is not None and donor_base_d is not None:
+        raw_dpsi = np.where(eligible & np.isfinite(donor_mean_d), donor_mean_d, np.nan)
+        baseline_psi = np.where(eligible & np.isfinite(donor_base_d), donor_base_d, np.nan)
         eligible = eligible & np.isfinite(raw_dpsi)
+        psi_num_out = np.where(eligible & np.isfinite(donor_arm1_d), donor_arm1_d, psi_num)
+        psi_den_out = np.where(eligible & np.isfinite(donor_arm0_d), donor_arm0_d, psi_den)
+        within_var_use = np.where(eligible & np.isfinite(donor_within_var), donor_within_var, 0.05)
     else:
         raw_dpsi = np.where(eligible, psi_num - psi_den, np.nan)
-        baseline_psi = np.where(eligible, psi_den, np.nan)
-    se2_tot = np.where(eligible, np.maximum(np.nan_to_num(se2_num + se2_den, nan=0.05), np.nan_to_num(var_between, nan=0.0)) + 0.0016, np.nan)
+        baseline_psi = np.where(eligible, 0.5 * (psi_num + psi_den), np.nan)
+        psi_num_out = psi_num
+        psi_den_out = psi_den
+        within_var_use = np.nan_to_num(se2_num + se2_den, nan=0.05)
+    se2_tot = np.where(eligible, np.maximum(within_var_use, np.nan_to_num(var_between, nan=0.0)) + 0.0016, np.nan)
     se_tot = np.sqrt(se2_tot)
     z_shift = np.where(eligible, raw_dpsi / se_tot, np.nan)
     # Two-sided donor-aware event P-value & BH FDR strictly across donor-eligible events
@@ -255,7 +337,11 @@ def compute_sc_splicing_contrast(
     tau2_dpsi = max(float(np.nanmean(np.maximum(raw_dpsi[eligible] ** 2 - se2_tot[eligible], 0.0))) if np.any(eligible) else 0.005, 0.001)
     shrunk_dpsi = np.where(eligible, raw_dpsi * (tau2_dpsi / (tau2_dpsi + se2_tot)), np.nan)
 
-    insufficient_label = "insufficient_paired_donors" if inference_unit == "paired_donor_population" else "insufficient_group_donors"
+    insufficient_label = (
+        "insufficient_paired_donors"
+        if inference_unit in ("paired_donor_population", "paired_donor_small_n")
+        else "insufficient_group_donors"
+    )
     ev_inf_unit = np.where(
         eligible,
         inference_unit,
@@ -271,8 +357,8 @@ def compute_sc_splicing_contrast(
         "n_paired_donors": n_paired_ev,
         "n_donors_numerator": n_donors_num_ev,
         "n_donors_denominator": n_donors_den_ev,
-        "psi_numerator": psi_num,
-        "psi_denominator": psi_den,
+        "psi_numerator": psi_num_out,
+        "psi_denominator": psi_den_out,
         "baseline_PSI": baseline_psi,
         "raw_dpsi": raw_dpsi,
         "dpsi": shrunk_dpsi,
@@ -290,11 +376,12 @@ def compute_sc_splicing_contrast(
         "paired_donors": len(paired_donors),
         "donors_numerator": len(donors_num),
         "donors_denominator": len(donors_den),
-        "min_paired_donors": min_pd if inference_unit == "paired_donor_population" else 0,
-        "min_unpaired_donors_per_group": min_ud if inference_unit == "unpaired_donor_pseudobulk" else 0,
+        "min_paired_donors": min_pd if inference_unit in ("paired_donor_population", "paired_donor_small_n") else 0,
+        "min_unpaired_donors_per_group": min_ud if inference_unit in ("unpaired_donor_pseudobulk", "partially_paired_disjoint_unpaired") else 0,
         "events_excluded_donor_insufficiency": int((pooled_ok & (~donor_eligible)).sum()),
         "eligible_events": int(eligible.sum()),
         "eligible_genes": int(len(set(genes[eligible]))),
+        **extra_info,
     }
     return contrast_df, donor_delta_df, info
 

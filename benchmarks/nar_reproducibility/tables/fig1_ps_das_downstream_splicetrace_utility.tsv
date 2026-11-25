@@ -1,10 +1,10 @@
 cohort	knockdown_RBP	upstream_gate	downstream_model	qualified_foreground_events	scannable_primary_chr_events	asymmetric_switches_rescued	downstream_SpliceTrace_sig_rbps_fwer05	exact_target_P_FWER	exact_target_abs_Z	exact_target_rank	retained_full_ENCODE_NMD_switches	retained_full_ENCODE_UniProt_switches
-ENCODE_PTBP1	PTBP1	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	1768	1768	37	26	0.0005	9.128	1.0	631.0	877.0
-ENCODE_PTBP1	PTBP1	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	1653	1653	0	27	0.0005	9.05	1.0	588.0	830.0
-ENCODE_PTBP1	PTBP1	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	1462	1462	0	17	0.0005	8.207	1.0	529.0	739.0
-ENCODE_SRSF1	SRSF1	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	4031	4031	98	50	0.002	5.066	27.0	1534.0	2011.0
-ENCODE_SRSF1	SRSF1	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	3772	3772	0	51	0.001	5.21	20.0	1436.0	1908.0
-ENCODE_SRSF1	SRSF1	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	3343	3343	0	42	0.001	5.221	22.0	1293.0	1748.0
+ENCODE_PTBP1	PTBP1	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	1768	1768	37	26	0.0005	9.128	1.0	632.0	878.0
+ENCODE_PTBP1	PTBP1	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	1653	1653	0	27	0.0005	9.05	1.0	589.0	831.0
+ENCODE_PTBP1	PTBP1	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	1462	1462	0	17	0.0005	8.207	1.0	530.0	740.0
+ENCODE_SRSF1	SRSF1	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	4031	4031	98	50	0.002	5.066	27.0	1535.0	2012.0
+ENCODE_SRSF1	SRSF1	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	3772	3772	0	51	0.001	5.21	20.0	1437.0	1909.0
+ENCODE_SRSF1	SRSF1	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	3343	3343	0	42	0.001	5.221	22.0	1294.0	1749.0
 ENCODE_HNRNPA1	HNRNPA1	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	857	857	18	0	1.0	1.728	156.0	374.0	425.0
 ENCODE_HNRNPA1	HNRNPA1	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	789	789	0	0	1.0	1.633	159.0	344.0	397.0
 ENCODE_HNRNPA1	HNRNPA1	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	680	680	0	0	1.0	1.534	160.0	302.0	354.0
