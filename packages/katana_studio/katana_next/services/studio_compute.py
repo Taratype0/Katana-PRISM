@@ -1142,6 +1142,7 @@ def compute_live_target_ranker(
     max_fdr: float = 0.05,
     deg_independent_only: bool = False,
     require_domain_or_nmd: bool = False,
+    hidden_from_deg_only: bool = False,
 ) -> dict[str, Any]:
     """Dynamically score & rank splicing targets across all 5 orthogonal evidence pillars."""
     grouped = _artifacts_by_source_id(context)
@@ -1173,62 +1174,85 @@ def compute_live_target_ranker(
             fdr_col_i = next((c for c in ("fdr", "FDR", "padj") if c in df.columns), "fdr")
             pv_col_i = next((c for c in ("pvalue", "p_value", "PValue") if c in df.columns), None)
             fdr = pd.to_numeric(df[fdr_col_i], errors="coerce").fillna(1.0)
+            def _deg_indep_mask(frame: pd.DataFrame) -> pd.Series:
+                if "deg_fdr" in frame.columns:
+                    deg_q = pd.to_numeric(frame["deg_fdr"], errors="coerce").fillna(1.0)
+                    fc_s = frame["host_log2fc"] if "host_log2fc" in frame.columns else (frame["deg_log2fc"] if "deg_log2fc" in frame.columns else pd.Series(0.0, index=frame.index))
+                    deg_fc = pd.to_numeric(fc_s, errors="coerce").abs().fillna(0.0)
+                    return (deg_q > 0.05) | (deg_fc < 0.5)
+                return pd.Series(True, index=frame.index)
+
+            def _hidden_deg_mask(frame: pd.DataFrame) -> pd.Series:
+                if "hidden_from_deg" in frame.columns:
+                    return frame["hidden_from_deg"].astype(str).str.lower().isin({"true", "1", "yes"})
+                if "deg_independent" in frame.columns:
+                    return frame["deg_independent"].astype(str).str.lower().isin({"true", "1", "yes"})
+                if "deg_fdr" in frame.columns:
+                    return pd.to_numeric(frame["deg_fdr"], errors="coerce").fillna(1.0) > 0.05
+                return pd.Series(False, index=frame.index)
+
             mask = (dpsi.abs() >= min_abs_dpsi) & (fdr <= max_fdr)
-            if deg_independent_only and "deg_fdr" in df.columns:
-                deg_q = pd.to_numeric(df["deg_fdr"], errors="coerce").fillna(1.0)
-                fc_s = df["host_log2fc"] if "host_log2fc" in df.columns else (df["deg_log2fc"] if "deg_log2fc" in df.columns else pd.Series(0.0, index=df.index))
-                deg_fc = pd.to_numeric(fc_s, errors="coerce").abs().fillna(0.0)
-                mask &= (deg_q > 0.05) | (deg_fc < 0.5)
+            if deg_independent_only:
+                mask &= _deg_indep_mask(df)
+            if hidden_from_deg_only:
+                mask &= _hidden_deg_mask(df)
             sub = df.loc[mask].copy()
             if len(sub) < 5 and max_fdr < 0.99:
                 # Single-cell / sparse studies may have 0 BH-FDR hits; surface top exploratory candidates cleanly
                 fb_mask = dpsi.abs() >= min_abs_dpsi
-                if deg_independent_only and "deg_fdr" in df.columns:
-                    deg_q = pd.to_numeric(df["deg_fdr"], errors="coerce").fillna(1.0)
-                    fc_s = df["host_log2fc"] if "host_log2fc" in df.columns else (df["deg_log2fc"] if "deg_log2fc" in df.columns else pd.Series(0.0, index=df.index))
-                    deg_fc = pd.to_numeric(fc_s, errors="coerce").abs().fillna(0.0)
-                    fb_mask &= (deg_q > 0.05) | (deg_fc < 0.5)
+                if deg_independent_only:
+                    fb_mask &= _deg_indep_mask(df)
+                if hidden_from_deg_only:
+                    fb_mask &= _hidden_deg_mask(df)
                 fb_sub = df.loc[fb_mask].copy()
-                if fb_sub.empty:
+                if fb_sub.empty and not hidden_from_deg_only and not deg_independent_only:
                     fb_sub = df.copy()
                 sort_fb = pv_col_i if pv_col_i else fdr_col_i
                 sub = fb_sub.sort_values(sort_fb).head(80).copy()
                 ranker_note = f"Showing top exploratory candidates (fewer than 5 events passed FDR ≤ {max_fdr:g} in {cid})."
-            s_dpsi = pd.to_numeric(sub["dpsi"], errors="coerce").fillna(0.0).abs().clip(0, 1.0)
+            if sub.empty:
+                return {"available": True, "comparison_id": cid, "note": ranker_note, "total_qualified": 0, "rows": []}
+            s_dpsi = pd.to_numeric(sub["dpsi"], errors="coerce").fillna(0.0).abs().clip(0, 1.0).astype(float)
             def _bool_col(col_names: tuple[str, ...]) -> pd.Series:
                 for cn in col_names:
                     if cn in sub.columns:
                         return sub[cn].astype(str).str.lower().isin({"true", "1", "yes"}).astype(float)
-                return pd.Series(0.0, index=sub.index)
+                return pd.Series(0.0, index=sub.index, dtype=float)
             dtu_s = _bool_col(("dtu_corroborated", "dtu_sig"))
             dex_s = _bool_col(("dexseq_corroborated", "dexseq_sig"))
             sup_s = _bool_col(("suppa_sig",))
-            s_iso = (dtu_s * 0.5 + dex_s * 0.35 + sup_s * 0.35).clip(0, 1.0)
+            s_iso = (dtu_s * 0.5 + dex_s * 0.35 + sup_s * 0.35).clip(0, 1.0).astype(float)
             if "module_abs_kME" in sub.columns:
-                s_net = pd.to_numeric(sub["module_abs_kME"], errors="coerce").fillna(0.0).clip(0, 1.0)
+                s_net = pd.to_numeric(sub["module_abs_kME"], errors="coerce").fillna(0.0).clip(0, 1.0).astype(float)
             elif "splicenet_module" in sub.columns:
-                s_net = sub["splicenet_module"].fillna("").astype(str).map(lambda x: 0.85 if x and x not in ("Unassigned", "nan", "None") else 0.0)
+                s_net = sub["splicenet_module"].fillna("").astype(str).map(lambda x: 0.85 if x and x not in ("Unassigned", "nan", "None") else 0.0).astype(float)
             else:
-                s_net = pd.Series(0.0, index=sub.index)
-            s_mot = sub.get("cis_rbp_motifs", pd.Series("", index=sub.index)).fillna("").astype(str).map(lambda x: 1.0 if x and x.lower() not in ("none", "nan") else 0.0)
+                s_net = pd.Series(0.0, index=sub.index, dtype=float)
+            s_mot = sub.get("cis_rbp_motifs", pd.Series("", index=sub.index)).fillna("").astype(str).map(lambda x: 1.0 if x and x.lower() not in ("none", "nan") else 0.0).astype(float)
             has_dom = sub.get("disrupted_uniprot_domains", pd.Series("", index=sub.index)).fillna("").astype(str).map(lambda x: bool(x and x.lower() not in ("none", "nan")))
             has_nmd = sub.get("nmd_switch_class", pd.Series("", index=sub.index)).fillna("").astype(str).map(lambda x: "NMD" in x and x != "dual_NMD")
             if require_domain_or_nmd:
                 keep_dn = has_dom | has_nmd
                 sub = sub.loc[keep_dn].copy()
+                if sub.empty:
+                    return {"available": True, "comparison_id": cid, "note": ranker_note, "total_qualified": 0, "rows": []}
                 s_dpsi, s_iso, s_net, s_mot = s_dpsi.loc[sub.index], s_iso.loc[sub.index], s_net.loc[sub.index], s_mot.loc[sub.index]
                 has_dom, has_nmd = has_dom.loc[sub.index], has_nmd.loc[sub.index]
-            s_prot = (has_dom.astype(float) * 0.65 + has_nmd.astype(float) * 0.65).clip(0, 1.0)
-            sub["composite_score"] = (
+            s_prot = (has_dom.astype(float) * 0.65 + has_nmd.astype(float) * 0.65).clip(0, 1.0).astype(float)
+            score_ser = (
                 float(w_dpsi) * s_dpsi
                 + float(w_isoform) * s_iso
                 + float(w_splicenet) * s_net
                 + float(w_motif) * s_mot
                 + float(w_proteome) * s_prot
-            ).round(4)
+            )
+            sub["composite_score"] = pd.to_numeric(score_ser, errors="coerce").fillna(0.0).round(4)
             if das_art_ref is not None and "event_id" in sub.columns:
                 sub["source_artifact_id"] = das_art_ref.artifact_id
                 sub["das_row_id"] = sub["event_id"].astype(str).map(lambda e: das_row_lookup.get(e, ""))
+            for _bcol in ("hidden_from_deg", "deg_independent", "suppa_sig", "dexseq_sig", "dtu_sig"):
+                if _bcol in sub.columns:
+                    sub[_bcol] = sub[_bcol].astype(str).str.strip().str.lower().isin({"true", "1", "yes"})
             sub = sub.sort_values(["composite_score", fdr_col_i], ascending=[False, True])
             return {
                 "available": True,

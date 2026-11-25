@@ -1346,6 +1346,8 @@ def test_sc_report_studio_contract_end_to_end(tmp_path: Path) -> None:
         assert gc_sc["found"] is True and gc_sc["das_artifact_id"] and gc_sc["das_row_id"]
         rk_sc = compute_live_target_ranker(ctx, comparison="PopA__Activated_vs_Resting")
         assert rk_sc["available"] is True and len(rk_sc["rows"]) > 0
+        from katana_next.services.studio_interactive import cross_paradigm_explorer
+        assert cross_paradigm_explorer(ctx)["available"] is False
 
 
 def test_selected_target_genecard_eventcard_workflow(tmp_path: Path) -> None:
@@ -1685,6 +1687,111 @@ def test_cross_paradigm_dexseq_sign_fix_and_fused_bulk_report(tmp_path: Path) ->
         znames = set(zf.namelist())
         assert "REPORT.html" in znames
         assert "outputs/cross_paradigm/CROSS_PARADIGM_EXPLORER.html" in znames
+
+    # Step 3: Verify Katana Studio API integration (Cross-Paradigm Explorer, rMATS-blind GeneCard, Target Resolve/Export & Target Ranker)
+    import importlib.util as _ilu
+    if _ilu.find_spec("duckdb") is not None and _ilu.find_spec("fastapi") is not None:
+        from fastapi.testclient import TestClient
+        from katana_next.api.app import PlatformRuntime, create_app
+        from katana_next.services.report_archive import report_source
+        from katana_next.services.report_import import import_report
+
+        runtime = PlatformRuntime(application_root=PACKAGES_DIR / "katana_studio")
+        ws_dest = tmp_path / "ws_cp_studio"
+        src_dir = report_source(rep_dir / "REPORT.zip", tmp_path / "cp_cache")
+        ctx = import_report(src_dir, ws_dest, runtime.projects)
+        runtime.jobs.bind_project(ctx.manifest.project_id, ctx.manifest.output_root)
+        pid = ctx.manifest.project_id
+        client = TestClient(create_app(runtime))
+
+        r_cp = client.get(f"/api/projects/{pid}/cross-paradigm", params={"comparison": "KO_vs_WT"})
+        assert r_cp.status_code == 200
+        cp_api = r_cp.json()
+        assert cp_api["available"] is True
+        assert cp_api["dexseq_sign_inverted"] is True
+        assert cp_api["counts"]["class1_concordant_pct"] == 100.0
+        assert cp_api["counts"]["suppa_af_al_fdr"] == 2
+        assert cp_api["counts"]["dtu_switch_resolved"] == 1
+        assert cp_api["counts"]["dtu_hidden_from_deg"] == 1
+        assert cp_api["explorer_html_url"].endswith("CROSS_PARADIGM_EXPLORER.html")
+        assert client.get(cp_api["explorer_html_url"]).status_code == 200
+        for cls_key in ("class1", "class2_af_al", "class3_switches", "class4_dexseq"):
+            rows = cp_api["tables"][cls_key]
+            assert len(rows) > 0, f"Expected rows for {cls_key}"
+            assert rows[0]["row_id"] and rows[0]["source_artifact_id"]
+
+        # Gene1 (rMATS + Class I DEXSeq verified)
+        r_gc1 = client.post(f"/api/projects/{pid}/genecard-preview", json={"gene_query": "Gene1", "comparison": "KO_vs_WT"})
+        assert r_gc1.status_code == 200
+        gc1 = r_gc1.json()
+        assert gc1["found"] is True and gc1["evidence_origin"] == "rmats"
+        assert gc1["cross_paradigm"]["available"] is True
+        assert gc1["cross_paradigm"]["class1"] is not None
+        assert gc1["cross_paradigm"]["dex_bins"] is not None
+
+        # Gene10 (rMATS + Class III stageR switch hidden from DEG) + direct Class III switch event lookup
+        r_gc10 = client.post(f"/api/projects/{pid}/genecard-preview", json={"gene_query": "Gene10", "comparison": "KO_vs_WT"})
+        assert r_gc10.status_code == 200
+        gc10 = r_gc10.json()
+        assert gc10["found"] is True
+        assert gc10["cross_paradigm"]["hidden_from_deg"] is True
+        assert gc10["cross_paradigm"]["class3_switch"]["fate"] == "Coding -> NMD (Loss of ORF)"
+        assert len(gc10["track1_quantification"]["dtu_isoforms"]) >= 2
+
+        r_gc10_sw = client.post(
+            f"/api/projects/{pid}/genecard-preview",
+            json={"gene_query": "Gene10", "event_id": f"{g10_coding}->{g10_nmd}", "comparison": "KO_vs_WT"},
+        )
+        assert r_gc10_sw.status_code == 200
+        gc10_sw = r_gc10_sw.json()
+        assert gc10_sw["found"] is True and gc10_sw["evidence_origin"] == "cross_paradigm_dtu"
+        assert gc10_sw["track4_proteome"]["status"] == "coding_architecture"
+
+        # rMATS-blind SUPPA2 AF target (ENSMUSG00000000021)
+        r_gc21 = client.post(f"/api/projects/{pid}/genecard-preview", json={"gene_query": "ENSMUSG00000000021", "comparison": "KO_vs_WT"})
+        assert r_gc21.status_code == 200
+        gc21 = r_gc21.json()
+        assert gc21["found"] is True and gc21["evidence_origin"] == "cross_paradigm_suppa2"
+        assert gc21["das_artifact_id"] and gc21["das_row_id"]
+
+        # Nonexistent gene returns found=False cleanly rather than unrelated top rMATS event
+        r_missing = client.post(f"/api/projects/{pid}/genecard-preview", json={"gene_query": "NO_SUCH_GENE_XYZ", "comparison": "KO_vs_WT"})
+        assert r_missing.status_code == 200 and r_missing.json()["found"] is False
+
+        # Target resolve for rMATS-blind ENSMUSG00000000021 & Target export from Class III row
+        r_res = client.post(
+            f"/api/projects/{pid}/targets/resolve",
+            json={"queries": ["ENSMUSG00000000021"], "target_kind": "gene", "comparison": "KO_vs_WT"},
+        )
+        assert r_res.status_code == 200 and len(r_res.json()["matched"]) == 1
+
+        c3_row = cp_api["tables"]["class3_switches"][0]
+        r_exp = client.post(
+            f"/api/projects/{pid}/targets/export",
+            json={
+                "selections": [{
+                    "source_artifact_id": c3_row["source_artifact_id"],
+                    "row_ids": [c3_row["row_id"]],
+                    "target_kind": "gene",
+                    "filters": {},
+                }],
+            },
+        )
+        assert r_exp.status_code == 200 and r_exp.json()["target_count"] == 1
+
+        # Target Ranker exposes Cross-Paradigm metadata and survives strict empty filters cleanly
+        r_rk = client.post(
+            f"/api/projects/{pid}/compute/target-ranker",
+            json={"comparison": "KO_vs_WT", "hidden_from_deg_only": True},
+        )
+        assert r_rk.status_code == 200 and r_rk.json()["available"] is True
+        assert any(row.get("hidden_from_deg") is True for row in r_rk.json()["rows"])
+
+        r_rk_empty = client.post(
+            f"/api/projects/{pid}/compute/target-ranker",
+            json={"comparison": "KO_vs_WT", "min_abs_dpsi": 0.99, "hidden_from_deg_only": True},
+        )
+        assert r_rk_empty.status_code == 200 and r_rk_empty.json()["total_qualified"] == 0
 
 
 # ---------------------------------------------------------------------------

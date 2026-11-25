@@ -100,9 +100,9 @@ def import_report(report_path, output_root, projects=None):
             # Preserve identifier strings, including leading zeroes and literal NA.
             sep = ',' if '.csv' in path.suffixes else '\t'
             header = pd.read_csv(path, sep=sep, nrows=0).columns
-            identifiers = {c: str for c in header if c in {'gene_id','gene_symbol','GeneID','geneSymbol','event_id','event_uid','row_id','ID','comparison_id','contrast_id','sample_id'}}
+            identifiers = {c: str for c in header if c in {'gene_id','gene_symbol','gene_base','GeneID','geneSymbol','event_id','event_uid','row_id','ID','comparison_id','contrast_id','sample_id'}}
             frame = pd.read_csv(path, sep=sep, dtype=identifiers, keep_default_na=False, low_memory=False)
-        for old, new in [('GeneID','gene_id'), ('geneSymbol','gene_symbol'), ('event_uid','event_id')]:
+        for old, new in [('GeneID','gene_id'), ('geneSymbol','gene_symbol'), ('event_uid','event_id'), ('gene_base','gene_id')]:
             if old in frame and new not in frame:
                 frame[new] = frame[old].astype(str).str.strip('"')
         cid = entry.get('contrast_id')

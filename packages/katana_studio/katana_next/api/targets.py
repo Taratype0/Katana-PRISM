@@ -227,7 +227,24 @@ def create_targets_router(runtime) -> APIRouter:
             if not tokens:
                 return {"selections": [], "matched": [], "unmatched": []}
 
-            cand_arts = [a for a in (das_art, deg_art) if a is not None]
+            cand_arts = []
+            seen_aids: set[str] = set()
+            for cand in (
+                das_art,
+                deg_art,
+                *(_find_contrast_artifact(grouped, aid, cid) for aid in (
+                    "cross_paradigm.isoform_switches",
+                    "cross_paradigm.af_al",
+                    "cross_paradigm.dexseq_only",
+                    "cross_paradigm.class1",
+                    "differential.dtu",
+                    "differential.suppa2",
+                    "differential.dexseq",
+                )),
+            ):
+                if cand is not None and cand.artifact_id not in seen_aids:
+                    seen_aids.add(cand.artifact_id)
+                    cand_arts.append(cand)
             matched: list[dict[str, Any]] = []
             selections_map: dict[str, list[str]] = {}
             unmatched: list[str] = []
@@ -242,8 +259,17 @@ def create_targets_router(runtime) -> APIRouter:
                     if not sub_c.empty:
                         df = sub_c
                 ec = next((c for c in ("event_id", "event_uid", "ID") if c in df.columns), None)
-                gc = next((c for c in ("gene_id", "GeneID") if c in df.columns), None)
+                gc = next((c for c in ("gene_id", "GeneID", "gene_base") if c in df.columns), None)
                 sc = next((c for c in ("gene_symbol", "gene_name", "geneSymbol") if c in df.columns), gc)
+                if payload.target_kind == "event":
+                    has_geom = bool(
+                        ec
+                        and "event_type" in df.columns
+                        and any(c in df.columns for c in ("chr", "chrom", "chromosome"))
+                        and "strand" in df.columns
+                    )
+                    if not has_geom:
+                        continue
                 loaded.append((art, df, ec, gc, sc))
 
             for tok in tokens:

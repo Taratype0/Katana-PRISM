@@ -37,11 +37,12 @@ const baseRoutes: ApplicationRoute[] = [
     assayScope: "all" as const,
   })),
   {id: "deg", label: "03.1 DEG · Interactive Volcano", workspace: "differential", match: "^differential.deg$", figure: "DEG volcano", assayScope: "all"},
-  {id: "isoform", label: "03.2 Isoform · DTU / DEXSeq", workspace: "differential", match: "dtu|dexseq|isoform|expression_response", chapters: [3, 4], figure: "DTU|DEXSeq|transcript|exon|isoform", assayScope: "bulk"},
+  {id: "isoform", label: "03.2 Isoform · DTU / DEXSeq / SUPPA2", workspace: "differential", match: "dtu|dexseq|suppa2|isoform|expression_response", chapters: [3, 4], figure: "DTU|DEXSeq|SUPPA|AF/AL|transcript|exon|isoform", assayScope: "bulk"},
 
   // 04 · Cross-Layer (DEG × PS-DAS) & Rescue Logic
-  {id: "integrated", label: "04 · Cross-Layer (DEG × PS-DAS) & Rescue", workspace: "prioritize", workflow: "interpretation.joint_response", match: "evidence|joint|cross_comparison", chapters: [4], figure: "integration|candidate|evidence|overlap|decoupling|quadrant", assayScope: "all"},
+  {id: "integrated", label: "04 · Cross-Layer (DEG × PS-DAS) & Rescue", workspace: "prioritize", workflow: "interpretation.joint_response", match: "evidence|joint|cross_comparison|multilayer_convergence|cross_paradigm", chapters: [4], figure: "integration|candidate|evidence|overlap|decoupling|quadrant|cross-paradigm|uplift|AF/AL|coordinate|positional|concordance", assayScope: "all"},
   {id: "cross", label: "04.1 Multi-Contrast Rescue & Concordance", workspace: "differential", parent: "integrated", match: "cross_comparison|interaction", chapters: [4], figure: "overlap|shared|specific|similarity|interaction|cross|decoupling", assayScope: "all"},
+  {id: "cross-paradigm", label: "04.2 Cross-Paradigm · 4-Class & Blind-Spot Explorer", workspace: "prioritize", parent: "integrated", match: "cross_paradigm|multilayer_convergence", chapters: [4, 8], figure: "cross-paradigm|uplift|AF/AL|coordinate|positional|concordance|isoform switch", assayScope: "bulk"},
 
   // 05 · GO & KEGG Live Enrichment Lab
   {id: "enrichment", label: "05 · GO & KEGG Live Enrichment Lab", workspace: "prioritize", match: "enrichment|pathways", chapters: [5], figure: "GO|KEGG|pathway|enrichment", assayScope: "all"},
@@ -50,11 +51,11 @@ const baseRoutes: ApplicationRoute[] = [
   {id: "network", label: "06 · Katana-SpliceNet · Gene Network", workspace: "programs", match: "programs|splicenet", chapters: [6], assayScope: "all"},
 
   // 07 · Katana-SpliceTrace · RBP, Motif & Proteome Lab
-  {id: "motif", label: "07 · Katana-SpliceTrace · RBP & Motif Lab", workspace: "prioritize", match: "motif|mapp|rbp|binding|splicetrace|proteome", chapters: [7], figure: "SpliceTrace|13-channel|11-channel|logo|NMD|domain|MAPP|CLIP|RBP|bridge", assayScope: "all"},
+  {id: "motif", label: "07 · Katana-SpliceTrace · RBP & Motif Lab", workspace: "prioritize", match: "motif|mapp|rbp|binding|splicetrace|proteome", chapters: [7], figure: "SpliceTrace|13-channel|11-channel|logo|NMD|domain|MAPP|CLIP|RBP|bridge|isoform|fate|masked", assayScope: "all"},
 
   // 08 · Target Scorer & 4-Track GeneCard / Sashimi
   {id: "targets", label: "08 · Target Scorer & 4-Track GeneCard", workspace: "targets", assayScope: "all"},
-  {id: "candidates", label: "08.1 Multi-Evidence Scorecard", workspace: "prioritize", parent: "targets", match: "evidence|cross_comparison|integrative", chapters: [8], figure: "scorecard|candidate|evidence", assayScope: "all"},
+  {id: "candidates", label: "08.1 Multi-Evidence Scorecard", workspace: "prioritize", parent: "targets", match: "evidence|cross_comparison|integrative|cross_paradigm|multilayer_convergence", chapters: [8], figure: "scorecard|candidate|evidence", assayScope: "all"},
   {id: "sashimi", label: "08.2 Server / Local BAM Sashimi", workspace: "validate", parent: "targets", match: "sashimi", figure: "sashimi", assayScope: "all"},
 
   // 09 · Standalone Report & Complete Exports
@@ -64,13 +65,14 @@ const baseRoutes: ApplicationRoute[] = [
 const children: Record<string, [string, string, string][]> = {
   motif: [
     ["sequence", "07.1 Positional 11-Channel & PWM Logos", "motif|sequence|11-channel|logo"],
-    ["clip", "07.2 50-nt EJC NMD & UniProt Domains", "CLIP|RBP|NMD|domain|surgery"],
+    ["clip", "07.2 50-nt EJC NMD & UniProt Domains", "CLIP|RBP|NMD|domain|surgery|isoform|fate|masked"],
     ["cross", "07.3 Module × RBP Regulatory Bridge", "Cross RBP|candidate membership|bridge"],
     ["mapp", "07.4 Native MAPP Activities", "MAPP"],
   ],
   isoform: [
     ["dtu", "03.2a Transcript Usage (DTU)", "DTU|transcript"],
     ["dexseq", "03.2b Exon Usage (DEXSeq)", "DEXSeq|exon"],
+    ["suppa2", "03.2c Local Splicing (SUPPA2)", "SUPPA|AF/AL"],
   ],
 };
 

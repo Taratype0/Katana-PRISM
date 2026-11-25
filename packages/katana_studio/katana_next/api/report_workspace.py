@@ -92,6 +92,7 @@ class LiveTargetRankerPayload(BaseModel):
     max_fdr: float = Field(default=0.05, ge=0.0, le=1.0)
     deg_independent_only: bool = False
     require_domain_or_nmd: bool = False
+    hidden_from_deg_only: bool = False
 
 
 def create_report_router(runtime):
@@ -202,6 +203,12 @@ def create_report_router(runtime):
     def rescue_view(project_id: str, payload: ContrastRescuePayload):
         from katana_next.services.studio_interactive import contrast_rescue_filter
         try: return contrast_rescue_filter(runtime.projects.get(project_id), **payload.model_dump())
+        except (ValueError, OSError, KeyError) as exc: raise HTTPException(422,str(exc)) from exc
+
+    @router.get('/api/projects/{project_id}/cross-paradigm')
+    def cross_paradigm_view(project_id: str, comparison: str = ''):
+        from katana_next.services.studio_interactive import cross_paradigm_explorer
+        try: return cross_paradigm_explorer(runtime.projects.get(project_id), comparison=comparison)
         except (ValueError, OSError, KeyError) as exc: raise HTTPException(422,str(exc)) from exc
 
     @router.get('/api/projects/{project_id}/single-cell-manifold')

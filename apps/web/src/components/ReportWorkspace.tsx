@@ -7,6 +7,7 @@ import {ReportFigures, reportGet, reportUrl, type ReportPanel} from "./ReportFig
 import {ReportNetwork} from "./ReportNetwork";
 import {SpliceTraceExplorer} from "./SpliceTraceExplorer";
 import {QuadrantExplorer, ContrastRescueExplorer} from "./QuadrantAndRescueExplorer";
+import {CrossParadigmExplorer} from "./CrossParadigmExplorer";
 import {SingleCellManifoldExplorer} from "./SingleCellManifoldExplorer";
 import {GeneCardDossier} from "./GeneCardDossier";
 import {PsiLandscapeLab} from "./PsiLandscapeLab";
@@ -229,9 +230,18 @@ export function ReportWorkspace({
             <SingleCellManifoldExplorer projectId={pid} />
           )}
 
-          {/* 04 · Cross-Layer DEG × DAS Quadrant & Multi-Contrast Rescue Filter */}
+          {/* 04 · Cross-Layer DEG × DAS Quadrant, Cross-Paradigm 4-Class & Multi-Contrast Rescue Filter */}
           {(route.id === "integrated" || route.id === "candidates") && (
             <QuadrantExplorer projectId={pid} comparison={comparison} onInspectGeneCard={inspectGene} />
+          )}
+          {!isSingleCell && (route.id === "integrated" || route.id === "cross-paradigm") && (
+            <CrossParadigmExplorer
+              projectId={pid}
+              comparison={comparison}
+              onInspectGeneCard={inspectGene}
+              onAdd={onAdd}
+              standalone={route.id === "cross-paradigm"}
+            />
           )}
           {(route.id === "integrated" || route.id === "cross") && project.manifest.contrasts.length > 1 && (
             <ContrastRescueExplorer projectId={pid} contrasts={project.manifest.contrasts} onInspectGeneCard={inspectGene} />

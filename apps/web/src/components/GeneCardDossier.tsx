@@ -351,6 +351,7 @@ export function GeneCardDossier({
     w_proteome: 1.5,
     deg_independent_only: false,
     require_domain_or_nmd: false,
+    hidden_from_deg_only: false,
   });
 
   useEffect(() => {
@@ -425,7 +426,7 @@ export function GeneCardDossier({
         <div className="mck-subcard" style={{marginBottom: 14}}>
           <div className="mck-toolbar-row">
             <h4>Live 5-Pillar Evidence Weighting Scorer ({ranked.total_qualified} qualified events in {comparison})</h4>
-            <div style={{display: "flex", gap: 12, fontSize: 12}}>
+            <div style={{display: "flex", gap: 12, fontSize: 12, flexWrap: "wrap"}}>
               <label style={{display: "inline-flex", alignItems: "center", gap: 5}}>
                 <input
                   type="checkbox"
@@ -442,12 +443,20 @@ export function GeneCardDossier({
                 />
                 Require UniProt Domain / NMD
               </label>
+              <label style={{display: "inline-flex", alignItems: "center", gap: 5}}>
+                <input
+                  type="checkbox"
+                  checked={weights.hidden_from_deg_only}
+                  onChange={e => setWeights(w => ({...w, hidden_from_deg_only: e.target.checked}))}
+                />
+                Hidden from DEG / Isoform Switch
+              </label>
             </div>
           </div>
           <div className="mck-slider-strip">
             {([
               ["w_dpsi", "|ΔPSI| Weight"],
-              ["w_isoform", "DTU / DEXSeq"],
+              ["w_isoform", "DTU / DEXSeq / SUPPA2"],
               ["w_splicenet", "SpliceNet |kME|"],
               ["w_motif", "Cis-RBP Motif"],
               ["w_proteome", "UniProt / NMD"],
@@ -467,11 +476,18 @@ export function GeneCardDossier({
           </div>
           <div className="mck-filter-pills" style={{marginTop: 8}}>
             <small style={{fontWeight: 600, color: "#051C2C"}}>Top Ranked Priority Targets (1-Click Load):</small>
-            {ranked.rows.slice(0, 10).map(r => (
+            {ranked.rows.slice(0, 10).map(r => {
+              const badges = [
+                r.coord_verified_exon ? `1bp:${r.coord_verified_exon}` : "",
+                r.isoform_switch_fate ? String(r.isoform_switch_fate) : "",
+                r.hidden_from_deg ? "Hidden from DEG" : "",
+              ].filter(Boolean);
+              return (
               <span key={r.event_id} style={{display: "inline-flex", alignItems: "center", gap: 3}}>
                 <button
                   type="button"
                   className={`mck-chip ${d?.event_id === r.event_id ? "active" : ""}`}
+                  title={badges.join(" · ") || r.event_id}
                   onClick={() => {
                     setGeneInput(r.gene_symbol);
                     setActiveGene(r.gene_symbol);
@@ -479,6 +495,8 @@ export function GeneCardDossier({
                   }}
                 >
                   {r.gene_symbol} · {r.composite_score.toFixed(2)} pts
+                  {r.coord_verified_exon ? " · DEXSeq" : ""}
+                  {r.hidden_from_deg ? " · Switch" : ""}
                 </button>
                 {onAdd && r.source_artifact_id && r.das_row_id && (
                   <button
@@ -501,7 +519,8 @@ export function GeneCardDossier({
                   </button>
                 )}
               </span>
-            ))}
+              );
+            })}
           </div>
           {ranked.note && <p className="mck-hint" style={{marginTop: 6}}>{ranked.note}</p>}
         </div>
@@ -576,12 +595,20 @@ export function GeneCardDossier({
         <div ref={dossierRef} className="mck-dossier-stack">
           <div className="mck-dossier-banner">
             <div>
-              <h4>{d.gene_symbol} <small>({d.gene_id})</small></h4>
+              <h4>
+                {d.gene_symbol} <small>({d.gene_id})</small>
+                {d.evidence_origin && d.evidence_origin !== "rmats" && (
+                  <span className="mck-tag mck-tag-blue" style={{marginLeft: 8}}>rMATS-Blind · {d.evidence_origin}</span>
+                )}
+                {d.cross_paradigm?.hidden_from_deg && (
+                  <span className="mck-tag mck-tag-coral" style={{marginLeft: 6}}>Hidden from DEG</span>
+                )}
+              </h4>
               <span>Event: <code>{d.event_id}</code> ({d.event_type})</span>
             </div>
             <div className="mck-kpi-strip" style={{alignItems: "center"}}>
               <span><strong>ΔPSI:</strong> {d.dpsi != null ? `${d.dpsi >= 0 ? "+" : ""}${d.dpsi.toFixed(3)}` : "NA"}</span>
-              <span><strong>DAS FDR:</strong> {d.fdr != null ? d.fdr.toExponential(2) : "NA"}</span>
+              <span><strong>FDR:</strong> {d.fdr != null ? d.fdr.toExponential(2) : "NA"}</span>
               <span><strong>Host DEG log2FC:</strong> {d.track1_quantification?.deg.log2fc != null ? `${d.track1_quantification.deg.log2fc >= 0 ? "+" : ""}${d.track1_quantification.deg.log2fc.toFixed(2)}` : "NS / NA"}</span>
               {onAdd && d.das_artifact_id && d.das_row_id && (
                 <>
@@ -600,21 +627,23 @@ export function GeneCardDossier({
                   >
                     + Add Gene to Target Basket
                   </button>
-                  <button
-                    type="button"
-                    className="primary-action compact"
-                    onClick={() => onAdd({
-                      basket_id: crypto.randomUUID(),
-                      source_artifact_id: d.das_artifact_id!,
-                      source_name: "GeneCard Dossier",
-                      row_ids: [d.das_row_id!],
-                      target_kind: "event",
-                      labels: [`${d.gene_symbol || d.gene_id} ${d.event_type || ""} ${d.event_id}`.trim()],
-                      filters: {source_comparison_ids: comparison ? [comparison] : []},
-                    })}
-                  >
-                    + Add Event to Target Basket
-                  </button>
+                  {(!d.evidence_origin || d.evidence_origin === "rmats") && (
+                    <button
+                      type="button"
+                      className="primary-action compact"
+                      onClick={() => onAdd({
+                        basket_id: crypto.randomUUID(),
+                        source_artifact_id: d.das_artifact_id!,
+                        source_name: "GeneCard Dossier",
+                        row_ids: [d.das_row_id!],
+                        target_kind: "event",
+                        labels: [`${d.gene_symbol || d.gene_id} ${d.event_type || ""} ${d.event_id}`.trim()],
+                        filters: {source_comparison_ids: comparison ? [comparison] : []},
+                      })}
+                    >
+                      + Add Event to Target Basket
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -638,7 +667,134 @@ export function GeneCardDossier({
                 points={(d.track1_quantification?.psi_samples || []).map(s => ({group: s.condition, value: s.psi, sample: s.sample_id}))}
               />
             </div>
+            {!!d.track1_quantification?.dtu_isoforms?.length && (
+              <div className="mck-filter-pills" style={{marginTop: 10}}>
+                <small style={{fontWeight: 600, color: "#051C2C"}}>DRIMSeq / stageR Transcripts:</small>
+                {d.track1_quantification.dtu_isoforms.map(tx => (
+                  <span key={tx.transcript_id} className="mck-tag">
+                    {tx.transcript_id} · q={tx.fdr != null ? tx.fdr.toExponential(2) : "NA"}
+                  </span>
+                ))}
+              </div>
+            )}
           </article>
+
+          {/* ORTHOGONAL CROSS-PARADIGM EVIDENCE (DTU · DEXSEQ · SUPPA2) */}
+          {d.cross_paradigm?.available && (
+            <article className="mck-dossier-track" aria-label="Orthogonal Cross-Paradigm Evidence">
+              <div className="mck-track-title">
+                ORTHOGONAL CROSS-PARADIGM EVIDENCE (DTU · DEXSEQ · SUPPA2)
+                <div className="mck-filter-pills" style={{marginLeft: "auto"}}>
+                  {d.cross_paradigm.classes.map(cls => (
+                    <span key={cls} className="mck-tag mck-tag-blue">{cls}</span>
+                  ))}
+                  {d.cross_paradigm.hidden_from_deg && (
+                    <span className="mck-tag mck-tag-coral">Hidden from DEG</span>
+                  )}
+                </div>
+              </div>
+              <div style={{display: "grid", gap: 8}}>
+                {d.cross_paradigm.class1 && (
+                  <div className="mck-compact-strip">
+                    <span className="mck-tag mck-tag-blue">Class I · 1-bp DEXSeq Coordinate Verified</span>
+                    <span>
+                      Exon <code>{String(d.cross_paradigm.class1.dexseq_exon || "")}</code> ({String(d.cross_paradigm.class1.dexseq_coord || "")}) overlaps{" "}
+                      <strong>{String(d.cross_paradigm.class1.overlap_bp ?? 0)} bp</strong> · calibrated log2FC ={" "}
+                      <strong>{Number(d.cross_paradigm.class1.dexseq_lfc ?? 0).toFixed(2)}</strong> · padj ={" "}
+                      {Number(d.cross_paradigm.class1.dexseq_padj ?? 1).toExponential(2)}{" "}
+                      ({d.cross_paradigm.class1.concordant_fixed ? "Direction concordant" : "Discordant"})
+                    </span>
+                  </div>
+                )}
+                {d.cross_paradigm.class3_switch && (
+                  <div className="mck-subcard" style={{padding: 10}}>
+                    <div style={{display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 6}}>
+                      <span className="mck-tag mck-tag-blue">Class III · stageR Switch</span>
+                      <strong>
+                        <code>{String(d.cross_paradigm.class3_switch.tx_dn || "")}</code> →{" "}
+                        <code>{String(d.cross_paradigm.class3_switch.tx_up || "")}</code>
+                      </strong>
+                      <span>{String(d.cross_paradigm.class3_switch.fate || "")}</span>
+                      {d.cross_paradigm.class3_switch.delta_aa != null && (
+                        <small>Δaa = {Number(d.cross_paradigm.class3_switch.delta_aa)}</small>
+                      )}
+                      {d.cross_paradigm.class3_switch.gene_q != null && (
+                        <small>gene_q = {Number(d.cross_paradigm.class3_switch.gene_q).toExponential(2)}</small>
+                      )}
+                    </div>
+                    {Array.isArray(d.cross_paradigm.class3_switch.txs) && d.cross_paradigm.class3_switch.txs.length > 0 && (
+                      <div className="report-table-wrap" style={{maxHeight: 160}}>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Transcript</th>
+                              <th>Role</th>
+                              <th>Biotype</th>
+                              <th className="num">aa</th>
+                              <th className="num">ΔIF</th>
+                              <th className="num">tx_q</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(d.cross_paradigm.class3_switch.txs as Array<Record<string, unknown>>).map((tx, idx) => (
+                              <tr key={`${String(tx.tx_id || idx)}`}>
+                                <td><code>{String(tx.tx_id || "")}</code></td>
+                                <td>{String(tx.role || "")}</td>
+                                <td>{String(tx.biotype || "")}</td>
+                                <td className="num">{String(tx.aa_len ?? "")}</td>
+                                <td className="num">{tx.dIF != null ? Number(tx.dIF).toFixed(3) : "NA"}</td>
+                                <td className="num">{tx.tx_q != null ? Number(tx.tx_q).toExponential(2) : "NA"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!!d.cross_paradigm.class2_af_al?.length && (
+                  <div className="mck-compact-strip">
+                    <span className="mck-tag mck-tag-blue">Class II · SUPPA2 AF/AL ({d.cross_paradigm.class2_af_al.length})</span>
+                    <span>
+                      {d.cross_paradigm.class2_af_al.slice(0, 4).map(ev => (
+                        `${String(ev.etype || "")} ΔPSI=${Number(ev.dpsi ?? 0).toFixed(3)} (BH-FDR=${Number(ev.bh_fdr ?? ev.pvalue ?? 1).toExponential(2)})`
+                      )).join(" · ")}
+                    </span>
+                  </div>
+                )}
+                {!!d.cross_paradigm.class4_dexseq?.length && (
+                  <div className="mck-compact-strip">
+                    <span className="mck-tag">Class IV · rMATS-Blind DEXSeq Exons ({d.cross_paradigm.class4_dexseq.length})</span>
+                    <span>
+                      {d.cross_paradigm.class4_dexseq.slice(0, 4).map(ex => (
+                        `${String(ex.feature_id || "")} [${String(ex.coord || "")}] log2FC=${Number(ex.lfc ?? 0).toFixed(2)} padj=${Number(ex.padj ?? 1).toExponential(2)}`
+                      )).join(" · ")}
+                    </span>
+                  </div>
+                )}
+                {!d.cross_paradigm.class2_af_al?.length && !!d.cross_paradigm.suppa_hits?.length && (
+                  <div className="mck-compact-strip">
+                    <span className="mck-tag">SUPPA2 Local Splicing ({d.cross_paradigm.suppa_hits.length})</span>
+                    <span>
+                      {d.cross_paradigm.suppa_hits.slice(0, 3).map(ev => (
+                        `${String(ev.event_id || "").slice(0, 28)} ΔPSI=${Number(ev.dpsi ?? 0).toFixed(3)} p=${Number(ev.pvalue ?? 1).toExponential(2)}`
+                      )).join(" · ")}
+                    </span>
+                  </div>
+                )}
+                {!d.cross_paradigm.class1 && !d.cross_paradigm.class4_dexseq?.length && !!d.cross_paradigm.dexseq_hits?.length && (
+                  <div className="mck-compact-strip">
+                    <span className="mck-tag">DEXSeq Exon Usage ({d.cross_paradigm.dexseq_hits.length})</span>
+                    <span>
+                      {d.cross_paradigm.dexseq_hits.slice(0, 4).map(ex => (
+                        `${String(ex.feature_id || "")} log2FC=${Number(ex.log2fc ?? 0).toFixed(2)} padj=${Number(ex.padj ?? 1).toExponential(2)}`
+                      )).join(" · ")}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </article>
+          )}
 
           {/* TRACK 2: Quantitative Splice-Junction Sashimi Preview */}
           {d.track2_sashimi && (

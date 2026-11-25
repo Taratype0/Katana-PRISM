@@ -1104,9 +1104,228 @@ def single_cell_manifold(context, feature: str = "") -> dict[str, Any]:
     }
 
 
+def _load_cross_paradigm_summary(context) -> dict[str, Any] | None:
+    if not context.manifest.metadata.get("report_workspace"):
+        return None
+    try:
+        path = member(report_root(context), "outputs/cross_paradigm/cross_paradigm_summary.json")
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        return data if isinstance(data, dict) else None
+    except (ValueError, OSError, json.JSONDecodeError):
+        return None
+
+
+def _match_gene_rows(df: pd.DataFrame, target_gid: str = "", target_sym: str = "") -> pd.DataFrame:
+    if df.empty:
+        return df
+    mask = pd.Series(False, index=df.index)
+    gid_u = _norm_gene(target_gid).upper()
+    sym_u = str(target_sym or "").strip().upper()
+    if gid_u:
+        for col in ("gene_id", "GeneID", "gene_base"):
+            if col in df.columns:
+                mask |= df[col].map(_norm_gene).str.upper() == gid_u
+    if sym_u:
+        for col in ("gene_symbol", "gene_name", "geneSymbol"):
+            if col in df.columns:
+                mask |= df[col].astype(str).str.strip().str.upper() == sym_u
+        for col in ("gene_id", "GeneID", "gene_base"):
+            if col in df.columns:
+                mask |= df[col].map(_norm_gene).str.upper() == _norm_gene(sym_u).upper()
+    return df.loc[mask]
+
+
+def _filter_comparison_df(df: pd.DataFrame, cid: str) -> pd.DataFrame:
+    if df.empty or not cid or "comparison_id" not in df.columns:
+        return df
+    return df[df["comparison_id"].astype(str) == cid]
+
+
+def cross_paradigm_explorer(context, comparison: str = "") -> dict[str, Any]:
+    """Read-only Cross-Paradigm (rMATS × DEXSeq × SUPPA2 AF/AL × stageR DTU) explorer."""
+    grouped = _artifacts_by_source_id(context)
+    summary = _load_cross_paradigm_summary(context) or {}
+    summary_contrasts = summary.get("contrasts") if isinstance(summary.get("contrasts"), dict) else {}
+
+    available_contrasts: list[str] = list(summary_contrasts.keys())
+    seen_c = set(available_contrasts)
+    for aid in ("cross_paradigm.class1", "cross_paradigm.af_al", "cross_paradigm.isoform_switches", "cross_paradigm.dexseq_only"):
+        for art in grouped.get(aid, []):
+            for c_val in (art.contrast_ids or ()):
+                if c_val and c_val != "all" and c_val not in seen_c:
+                    seen_c.add(c_val)
+                    available_contrasts.append(c_val)
+
+    default_cid = (
+        (context.manifest.contrasts[0].contrast_id if context.manifest.contrasts else "")
+        or (available_contrasts[0] if available_contrasts else "")
+    )
+    cid = comparison or default_cid
+    if cid not in summary_contrasts and not comparison and available_contrasts:
+        cid = available_contrasts[0]
+
+    explorer_html_url = ""
+    if context.manifest.metadata.get("report_workspace"):
+        try:
+            member(report_root(context), "outputs/cross_paradigm/CROSS_PARADIGM_EXPLORER.html")
+            explorer_html_url = f"/api/projects/{context.manifest.project_id}/report-source/outputs/cross_paradigm/CROSS_PARADIGM_EXPLORER.html"
+        except (ValueError, OSError):
+            explorer_html_url = ""
+
+    summary_c = summary_contrasts.get(cid, {}) if isinstance(summary_contrasts.get(cid), dict) else {}
+    tables_out: dict[str, list[dict[str, Any]]] = {}
+    artifact_ids: dict[str, str] = {}
+
+    class_specs = (
+        ("class1", "cross_paradigm.class1"),
+        ("class2_af_al", "cross_paradigm.af_al"),
+        ("class3_switches", "cross_paradigm.isoform_switches"),
+        ("class4_dexseq", "cross_paradigm.dexseq_only"),
+    )
+    for key, aid in class_specs:
+        art = _find_contrast_artifact(grouped, aid, cid)
+        rows: list[dict[str, Any]] = []
+        if art is not None:
+            df = _filter_comparison_df(_load_artifact_df(art), cid)
+            if not df.empty:
+                artifact_ids[key] = art.artifact_id
+                rows = _clean_records(df.head(300))
+                for row in rows:
+                    row["source_artifact_id"] = art.artifact_id
+        if not rows:
+            prev_rows = (summary_c.get("tables_preview") or {}).get(key, [])
+            if isinstance(prev_rows, list) and prev_rows:
+                rows = [dict(r) for r in prev_rows]
+        tables_out[key] = rows
+
+    conv_art = _find_contrast_artifact(grouped, "prioritize.multilayer_convergence", cid)
+    if conv_art is not None:
+        artifact_ids["multilayer_convergence"] = conv_art.artifact_id
+
+    available = bool(summary_c) or any(bool(v) for v in tables_out.values())
+    if not available:
+        return {
+            "available": False,
+            "comparison_id": cid,
+            "available_contrasts": available_contrasts,
+            "explorer_html_url": explorer_html_url,
+            "counts": {},
+            "artifact_ids": artifact_ids,
+            "tables": tables_out,
+            "bench_multi_contrast": [],
+            "suppa_7class": [],
+            "interactive_genes": [],
+            "gene_dex_bins": {},
+        }
+
+    counts = dict(summary_c.get("counts") or {})
+    if not counts:
+        c1 = tables_out["class1"]
+        c2 = tables_out["class2_af_al"]
+        c3 = tables_out["class3_switches"]
+        c4 = tables_out["class4_dexseq"]
+        c1_conc = sum(1 for r in c1 if bool(r.get("concordant_fixed")))
+        counts = {
+            "class1_events": len(c1),
+            "class1_genes": len({str(r.get("gene_id") or r.get("gene_base") or r.get("gene_symbol") or "") for r in c1 if r.get("gene_id") or r.get("gene_base") or r.get("gene_symbol")}),
+            "class1_concordant": c1_conc,
+            "class1_concordant_pct": round((c1_conc / len(c1)) * 100.0, 1) if c1 else 0.0,
+            "suppa_af_al_fdr": sum(1 for r in c2 if bool(r.get("sig_fdr"))),
+            "suppa_af_al_nom": len(c2),
+            "dtu_switch_resolved": len(c3),
+            "dtu_hidden_from_deg": sum(1 for r in c3 if bool(r.get("hidden_from_deg"))),
+            "class4_exons": len(c4),
+            "class4_genes": len({str(r.get("gene_id") or r.get("gene_base") or r.get("gene_symbol") or "") for r in c4 if r.get("gene_id") or r.get("gene_base") or r.get("gene_symbol")}),
+        }
+
+    return {
+        "available": True,
+        "comparison_id": cid,
+        "available_contrasts": available_contrasts,
+        "treat_label": summary_c.get("treat_label", ""),
+        "ctrl_label": summary_c.get("ctrl_label", ""),
+        "dexseq_sign_inverted": bool(summary_c.get("dexseq_sign_inverted", False)),
+        "explorer_html_url": explorer_html_url,
+        "counts": counts,
+        "artifact_ids": artifact_ids,
+        "tables": tables_out,
+        "bench_multi_contrast": summary.get("bench_multi_contrast") or [],
+        "suppa_7class": summary_c.get("suppa_7class") or [],
+        "interactive_genes": summary_c.get("interactive_genes") or [],
+        "gene_dex_bins": summary_c.get("gene_dex_bins") or {},
+    }
+
+
 # ---------------------------------------------------------------------------
 # 5. 4-Track Adaptive GeneCard & Quantitative Splice-Junction Sashimi Preview
 # ---------------------------------------------------------------------------
+def _find_fallback_genecard_row(
+    grouped: dict[str, list[Any]],
+    cid: str,
+    gene_query: str,
+    event_id: str,
+    *,
+    event_only: bool = False,
+) -> tuple[str | None, Any | None, pd.Series | None]:
+    """Locate an rMATS-blind target row across Cross-Paradigm, DTU, SUPPA2, DEXSeq, or DEG tables."""
+    specs = (
+        ("cross_paradigm_dtu", "cross_paradigm.isoform_switches", ("gene_q", "tx_up_q")),
+        ("cross_paradigm_suppa2", "cross_paradigm.af_al", ("bh_fdr", "pvalue")),
+        ("cross_paradigm_dexseq", "cross_paradigm.dexseq_only", ("padj",)),
+        ("dtu", "differential.dtu", ("transcript_q", "gene_q", "dtu_fdr", "fdr", "padj")),
+        ("suppa2", "differential.suppa2", ("pvalue", "fdr", "padj")),
+        ("dexseq", "differential.dexseq", ("padj", "pvalue", "fdr")),
+        ("deg", "differential.deg", ("deg_fdr", "padj", "fdr", "pvalue")),
+    )
+    q_ev = str(event_id or "").strip()
+    q_gene = str(gene_query or "").strip()
+    q_gid = _norm_gene(q_gene or q_ev).upper()
+    q_sym = q_gene.upper()
+    q_ceid = _canon_eid(q_ev) if q_ev else ""
+
+    for origin, aid, sort_cols in specs:
+        art = _find_contrast_artifact(grouped, aid, cid)
+        if art is None:
+            continue
+        df = _filter_comparison_df(_load_artifact_df(art), cid)
+        if df.empty:
+            continue
+        sort_c = next((c for c in sort_cols if c in df.columns), None)
+        if not q_ev and not q_gene and not event_only:
+            ordered = df.assign(_sc=pd.to_numeric(df[sort_c], errors="coerce").fillna(1.0)).sort_values("_sc") if sort_c else df
+            return origin, art, ordered.iloc[0]
+
+        hit = pd.DataFrame()
+        if q_ev:
+            q_ev_u = q_ev.upper()
+            if origin == "cross_paradigm_dtu" and {"tx_dn", "tx_up"} <= set(df.columns):
+                pairs = (df["tx_dn"].astype(str) + "->" + df["tx_up"].astype(str)).str.upper()
+                m_sw = df[pairs == q_ev_u]
+                if not m_sw.empty:
+                    hit = m_sw
+            if hit.empty and origin in ("cross_paradigm_dexseq", "dexseq") and {"gene_symbol", "feature_id"} <= set(df.columns):
+                labels = (df["gene_symbol"].astype(str) + ":" + df["feature_id"].astype(str)).str.upper()
+                m_dx = df[labels == q_ev_u]
+                if not m_dx.empty:
+                    hit = m_dx
+            if hit.empty:
+                for ecol in ("event_id", "transcript_id", "feature_id"):
+                    if ecol in df.columns:
+                        m_e = df[df[ecol].astype(str).str.upper() == q_ev_u]
+                        if m_e.empty and ecol == "event_id" and q_ceid:
+                            m_e = df[df[ecol].map(_canon_eid) == q_ceid]
+                        if not m_e.empty:
+                            hit = m_e
+                            break
+        if hit.empty and not event_only and (q_gene or q_ev):
+            hit = _match_gene_rows(df, q_gid, q_sym or q_ev.upper())
+        if not hit.empty:
+            if sort_c:
+                hit = hit.assign(_sc=pd.to_numeric(hit[sort_c], errors="coerce").fillna(1.0)).sort_values("_sc")
+            return origin, art, hit.iloc[0]
+    return None, None, None
+
+
 def genecard_preview(
     context,
     gene_query: str = "",
@@ -1120,36 +1339,36 @@ def genecard_preview(
     das_art = _find_das_artifact(grouped, cid)
     deg_art = _find_contrast_artifact(grouped, "differential.deg", cid)
     dtu_art = _find_contrast_artifact(grouped, "differential.dtu", cid)
+    dex_art = _find_contrast_artifact(grouped, "differential.dexseq", cid)
+    sup_art = _find_contrast_artifact(grouped, "differential.suppa2", cid)
+    cp_c1_art = _find_contrast_artifact(grouped, "cross_paradigm.class1", cid)
+    cp_c2_art = _find_contrast_artifact(grouped, "cross_paradigm.af_al", cid)
+    cp_c3_art = _find_contrast_artifact(grouped, "cross_paradigm.isoform_switches", cid)
+    cp_c4_art = _find_contrast_artifact(grouped, "cross_paradigm.dexseq_only", cid)
     prot_art = _find_contrast_artifact(grouped, "prioritize.proteome_consequences", cid)
     tgt_art = _find_contrast_artifact(grouped, "prioritize.splicetrace_targets", cid) or _find_contrast_artifact(grouped, "prioritize.motif_consequences", cid)
 
-    das_df = _load_artifact_df(das_art) if das_art else pd.DataFrame()
-    deg_df = _load_artifact_df(deg_art) if deg_art else pd.DataFrame()
-    dtu_df = _load_artifact_df(dtu_art) if dtu_art else pd.DataFrame()
-    prot_df = _load_artifact_df(prot_art) if prot_art else pd.DataFrame()
-    tgt_df = _load_artifact_df(tgt_art) if tgt_art else pd.DataFrame()
+    das_df = _filter_comparison_df(_load_artifact_df(das_art) if das_art else pd.DataFrame(), cid).copy()
+    deg_df = _filter_comparison_df(_load_artifact_df(deg_art) if deg_art else pd.DataFrame(), cid)
+    dtu_df = _filter_comparison_df(_load_artifact_df(dtu_art) if dtu_art else pd.DataFrame(), cid)
+    dex_df = _filter_comparison_df(_load_artifact_df(dex_art) if dex_art else pd.DataFrame(), cid)
+    sup_df = _filter_comparison_df(_load_artifact_df(sup_art) if sup_art else pd.DataFrame(), cid)
+    cp_c1_df = _filter_comparison_df(_load_artifact_df(cp_c1_art) if cp_c1_art else pd.DataFrame(), cid)
+    cp_c2_df = _filter_comparison_df(_load_artifact_df(cp_c2_art) if cp_c2_art else pd.DataFrame(), cid)
+    cp_c3_df = _filter_comparison_df(_load_artifact_df(cp_c3_art) if cp_c3_art else pd.DataFrame(), cid)
+    cp_c4_df = _filter_comparison_df(_load_artifact_df(cp_c4_art) if cp_c4_art else pd.DataFrame(), cid)
+    prot_df = _filter_comparison_df(_load_artifact_df(prot_art) if prot_art else pd.DataFrame(), cid)
+    tgt_df = _filter_comparison_df(_load_artifact_df(tgt_art) if tgt_art else pd.DataFrame(), cid)
 
-    if das_df.empty:
-        return {"found": False, "reason": "No differential splicing table available in workspace."}
-
-    if "comparison_id" in das_df.columns and cid:
-        das_c = das_df[das_df["comparison_id"].astype(str) == cid].copy()
-        if not das_c.empty:
-            das_df = das_c
-
-    ec = next((c for c in ("event_id", "event_uid", "ID") if c in das_df.columns), das_df.columns[0])
-    gc = next((c for c in ("gene_id", "GeneID") if c in das_df.columns), ec)
-    sc = next((c for c in ("gene_symbol", "gene_name", "geneSymbol") if c in das_df.columns), None)
-    dpsi_c = next((c for c in ("dpsi", "IncLevelDifference", "delta_psi") if c in das_df.columns), None)
-    fdr_c = next((c for c in ("FDR", "fdr", "padj") if c in das_df.columns), None)
-
-    das_df["_eid"] = das_df[ec].astype(str)
-    das_df["_gid"] = das_df[gc].map(_norm_gene)
-    # Enrich gene_symbol from report display_names or prot_df if missing
     sym_lookup: dict[str, str] = {}
-    if not prot_df.empty and {"gene_id", "gene_symbol"}.issubset(prot_df.columns):
-        for _, r in prot_df[["gene_id", "gene_symbol"]].dropna().drop_duplicates().iterrows():
-            sym_lookup[_norm_gene(r["gene_id"])] = str(r["gene_symbol"])
+    for ref_df in (prot_df, deg_df, dtu_df, cp_c1_df, cp_c2_df, cp_c3_df, cp_c4_df):
+        if not ref_df.empty and "gene_symbol" in ref_df.columns:
+            gid_col_r = next((c for c in ("gene_id", "GeneID", "gene_base") if c in ref_df.columns), None)
+            if gid_col_r:
+                for _, r in ref_df[[gid_col_r, "gene_symbol"]].dropna().drop_duplicates().iterrows():
+                    sym_v = str(r["gene_symbol"]).strip()
+                    if sym_v and sym_v not in {"NA", "nan", "None"} and not sym_v.startswith("ENS"):
+                        sym_lookup[_norm_gene(r[gid_col_r])] = sym_v
     if das_art is not None:
         try:
             from .report_names import display_names
@@ -1160,49 +1379,124 @@ def genecard_preview(
         except Exception:
             pass
 
-    if sc and sc in das_df.columns:
-        das_df["_sym"] = das_df[sc].astype(str)
-        mask_ens = das_df["_sym"].isin({"", "NA", "nan", "None"}) | das_df["_sym"].str.startswith("ENS")
-        das_df.loc[mask_ens, "_sym"] = das_df.loc[mask_ens, "_gid"].map(lambda g: sym_lookup.get(g, g))
-    else:
-        das_df["_sym"] = das_df["_gid"].map(lambda g: sym_lookup.get(g, g))
+    ec = gc = sc = dpsi_c = fdr_c = None
+    if not das_df.empty:
+        ec = next((c for c in ("event_id", "event_uid", "ID") if c in das_df.columns), das_df.columns[0])
+        gc = next((c for c in ("gene_id", "GeneID") if c in das_df.columns), ec)
+        sc = next((c for c in ("gene_symbol", "gene_name", "geneSymbol") if c in das_df.columns), None)
+        dpsi_c = next((c for c in ("dpsi", "IncLevelDifference", "delta_psi") if c in das_df.columns), None)
+        fdr_c = next((c for c in ("FDR", "fdr", "padj") if c in das_df.columns), None)
+        das_df["_eid"] = das_df[ec].astype(str)
+        das_df["_gid"] = das_df[gc].map(_norm_gene)
+        if sc and sc in das_df.columns:
+            das_df["_sym"] = das_df[sc].astype(str)
+            mask_ens = das_df["_sym"].isin({"", "NA", "nan", "None"}) | das_df["_sym"].str.startswith("ENS")
+            das_df.loc[mask_ens, "_sym"] = das_df.loc[mask_ens, "_gid"].map(lambda g: sym_lookup.get(g, g))
+        else:
+            das_df["_sym"] = das_df["_gid"].map(lambda g: sym_lookup.get(g, g))
 
-    # Locate target event & host gene
-    chosen_row = None
+    # Locate target event & host gene (rMATS DAS primary, with rMATS-blind DTU/SUPPA2/DEXSeq/DEG fallback)
+    chosen_row: pd.Series | None = None
+    evidence_origin = "rmats"
+    source_art = das_art
+    explicit_query = bool(str(gene_query or "").strip() or str(event_id or "").strip())
+
     if event_id:
-        c_req = _canon_eid(event_id)
-        m_ev = das_df[(das_df["_eid"] == str(event_id)) | (das_df["_eid"].map(_canon_eid) == c_req)]
-        if not m_ev.empty:
-            chosen_row = m_ev.iloc[0]
-    if chosen_row is None and gene_query:
-        q_norm = _norm_gene(gene_query).upper()
-        m_g = das_df[(das_df["_gid"].str.upper() == q_norm) | (das_df["_sym"].str.upper() == q_norm)].copy()
-        if not m_g.empty:
-            prot_ceids = set(prot_df["event_id"].map(_canon_eid)) if (not prot_df.empty and "event_id" in prot_df.columns) else set()
-            m_g["_rs"] = m_g["passes_read_support"].astype(str).str.lower().isin({"true", "1"}).astype(int) if "passes_read_support" in m_g.columns else 1
-            m_g["_has_prot"] = m_g["_eid"].map(_canon_eid).isin(prot_ceids).astype(int)
-            m_g["_sig"] = (pd.to_numeric(m_g[fdr_c], errors="coerce").fillna(1.0) <= 0.05).astype(int) if fdr_c else 1
-            m_g["_abs"] = pd.to_numeric(m_g[dpsi_c], errors="coerce").abs().fillna(0.0) if dpsi_c else 0.0
-            m_g = m_g.sort_values(["_rs", "_sig", "_has_prot", "_abs"], ascending=[False, False, False, False])
-            chosen_row = m_g.iloc[0]
-    if chosen_row is None:
-        # Default to top significant PS-DAS event
-        w = das_df.copy()
-        if "passes_read_support" in w.columns:
-            w_rs = w[w["passes_read_support"].astype(str).str.lower().isin({"true", "1"})]
-            if not w_rs.empty:
-                w = w_rs
-        if fdr_c:
-            w = w.sort_values(fdr_c)
-        chosen_row = w.iloc[0]
+        if not das_df.empty:
+            c_req = _canon_eid(event_id)
+            m_ev = das_df[(das_df["_eid"] == str(event_id)) | (das_df["_eid"].map(_canon_eid) == c_req)]
+            if not m_ev.empty:
+                chosen_row = m_ev.iloc[0]
+        if chosen_row is None:
+            fb_origin, fb_art, fb_row = _find_fallback_genecard_row(grouped, cid, gene_query, event_id, event_only=True)
+            if fb_row is not None and fb_origin is not None:
+                evidence_origin = fb_origin
+                source_art = fb_art
+                chosen_row = fb_row
+    if not das_df.empty:
+        if chosen_row is None and gene_query:
+            q_norm = _norm_gene(gene_query).upper()
+            m_g = das_df[(das_df["_gid"].str.upper() == q_norm) | (das_df["_sym"].str.upper() == q_norm)].copy()
+            if not m_g.empty:
+                prot_ceids = set(prot_df["event_id"].map(_canon_eid)) if (not prot_df.empty and "event_id" in prot_df.columns) else set()
+                m_g["_rs"] = m_g["passes_read_support"].astype(str).str.lower().isin({"true", "1"}).astype(int) if "passes_read_support" in m_g.columns else 1
+                m_g["_has_prot"] = m_g["_eid"].map(_canon_eid).isin(prot_ceids).astype(int)
+                m_g["_sig"] = (pd.to_numeric(m_g[fdr_c], errors="coerce").fillna(1.0) <= 0.05).astype(int) if fdr_c else 1
+                m_g["_abs"] = pd.to_numeric(m_g[dpsi_c], errors="coerce").abs().fillna(0.0) if dpsi_c else 0.0
+                m_g = m_g.sort_values(["_rs", "_sig", "_has_prot", "_abs"], ascending=[False, False, False, False])
+                chosen_row = m_g.iloc[0]
 
-    target_eid = str(chosen_row["_eid"])
-    target_gid = str(chosen_row["_gid"])
-    target_sym = str(chosen_row["_sym"])
+    if chosen_row is None and explicit_query:
+        fb_origin, fb_art, fb_row = _find_fallback_genecard_row(grouped, cid, gene_query, event_id)
+        if fb_row is not None and fb_origin is not None:
+            evidence_origin = fb_origin
+            source_art = fb_art
+            chosen_row = fb_row
+        else:
+            return {"found": False, "reason": f"No splicing, isoform, or expression evidence found for '{gene_query or event_id}' in {cid or 'workspace'}."}
+
+    if chosen_row is None:
+        if not das_df.empty:
+            w = das_df.copy()
+            if "passes_read_support" in w.columns:
+                w_rs = w[w["passes_read_support"].astype(str).str.lower().isin({"true", "1"})]
+                if not w_rs.empty:
+                    w = w_rs
+            if fdr_c:
+                w = w.sort_values(fdr_c)
+            chosen_row = w.iloc[0]
+        else:
+            fb_origin, fb_art, fb_row = _find_fallback_genecard_row(grouped, cid, "", "")
+            if fb_row is None or fb_origin is None:
+                return {"found": False, "reason": "No differential splicing, isoform, or expression table available in workspace."}
+            evidence_origin = fb_origin
+            source_art = fb_art
+            chosen_row = fb_row
+
+    if evidence_origin == "rmats":
+        target_eid = str(chosen_row["_eid"])
+        target_gid = str(chosen_row["_gid"])
+        target_sym = str(chosen_row["_sym"])
+        ev_type = str(chosen_row.get("event_type", "SE") or "SE")
+        target_dpsi = _safe_float(chosen_row.get(dpsi_c)) if dpsi_c else None
+        target_fdr = _safe_float(chosen_row.get(fdr_c)) if fdr_c else None
+    else:
+        target_gid = _norm_gene(chosen_row.get("gene_id") or chosen_row.get("gene_base") or chosen_row.get("GeneID") or "")
+        raw_sym = str(chosen_row.get("gene_symbol") or chosen_row.get("gene_name") or chosen_row.get("geneSymbol") or "").strip()
+        target_sym = raw_sym if (raw_sym and raw_sym not in {"NA", "nan", "None"} and not raw_sym.startswith("ENS")) else sym_lookup.get(target_gid, target_gid or raw_sym)
+        if evidence_origin == "cross_paradigm_dtu":
+            ev_type = "DTU"
+            tx_pair = f"{chosen_row.get('tx_dn', '')}->{chosen_row.get('tx_up', '')}".strip("->")
+            target_eid = tx_pair or target_gid or target_sym
+            target_dpsi = None
+            target_fdr = _safe_float(chosen_row.get("gene_q"))
+        elif evidence_origin in ("cross_paradigm_suppa2", "suppa2"):
+            raw_eid = str(chosen_row.get("event_id") or target_gid or target_sym)
+            m_et = re.search(r";([A-Z0-9]+):", raw_eid)
+            ev_type = str(chosen_row.get("etype") or (m_et.group(1) if m_et else "SUPPA2"))
+            target_eid = raw_eid
+            target_dpsi = _safe_float(chosen_row.get("dpsi"))
+            target_fdr = _safe_float(chosen_row.get("bh_fdr") if chosen_row.get("bh_fdr") is not None else chosen_row.get("pvalue"))
+        elif evidence_origin in ("cross_paradigm_dexseq", "dexseq"):
+            ev_type = "DEXSeq"
+            fid = str(chosen_row.get("feature_id") or "")
+            target_eid = f"{target_sym}:{fid}".strip(": ")
+            target_dpsi = None
+            target_fdr = _safe_float(chosen_row.get("padj"))
+        elif evidence_origin == "dtu":
+            ev_type = "DTU"
+            target_eid = str(chosen_row.get("transcript_id") or target_gid or target_sym)
+            target_dpsi = None
+            target_fdr = _safe_float(chosen_row.get("transcript_q") if chosen_row.get("transcript_q") is not None else chosen_row.get("gene_q"))
+        else:
+            ev_type = "DEG"
+            target_eid = target_gid or target_sym
+            target_dpsi = None
+            target_fdr = _safe_float(chosen_row.get("deg_fdr") if chosen_row.get("deg_fdr") is not None else (chosen_row.get("padj") if chosen_row.get("padj") is not None else chosen_row.get("fdr")))
 
     # All events of this host gene
-    gene_events_df = das_df[das_df["_gid"] == target_gid].copy()
-    if dpsi_c:
+    gene_events_df = das_df[das_df["_gid"] == target_gid].copy() if not das_df.empty else pd.DataFrame()
+    if not gene_events_df.empty and dpsi_c:
         gene_events_df["_abs"] = pd.to_numeric(gene_events_df[dpsi_c], errors="coerce").abs().fillna(0.0)
         gene_events_df = gene_events_df.sort_values("_abs", ascending=False)
     host_events = [
@@ -1354,21 +1648,21 @@ def genecard_preview(
     # DTU summary if available
     dtu_isoforms = []
     if not dtu_df.empty:
-        gd_c = next((c for c in ("gene_id", "GeneID") if c in dtu_df.columns), None)
         td_c = next((c for c in ("transcript_id", "feature_id", "featureID") if c in dtu_df.columns), None)
-        qd_c = next((c for c in ("dtu_fdr", "fdr", "padj", "qvalue") if c in dtu_df.columns), None)
+        qd_c = next((c for c in ("dtu_fdr", "transcript_q", "gene_q", "fdr", "padj", "qvalue") if c in dtu_df.columns), None)
         ed_c = next((c for c in ("effect", "dIF", "log2fc") if c in dtu_df.columns), None)
-        if gd_c and td_c:
-            sub_dtu = dtu_df[dtu_df[gd_c].map(_norm_gene) == target_gid].head(8)
+        if td_c:
+            sub_dtu = _match_gene_rows(dtu_df, target_gid, target_sym).head(8)
             for _, tr in sub_dtu.iterrows():
                 dtu_isoforms.append({
                     "transcript_id": str(tr[td_c]),
                     "effect": _safe_float(tr[ed_c]) if ed_c else None,
                     "fdr": _safe_float(tr[qd_c]) if qd_c else None,
+                    "gene_q": _safe_float(tr.get("gene_q")),
+                    "transcript_q": _safe_float(tr.get("transcript_q")),
                 })
 
     # ---------------- TRACK 2: Quantitative Exon-Junction Sashimi Preview ----------------
-    ev_type = str(chosen_row.get("event_type", "SE") or "SE")
     chrom = str(chosen_row.get("chr", chosen_row.get("chrom", "")) or "")
     strand = str(chosen_row.get("strand", "+") or "+")
     exons_geom: list[dict[str, Any]] = []
@@ -1438,6 +1732,12 @@ def genecard_preview(
                 {"label": "MXE2 J1", "role": "skipping", "from_idx": 0, "to_idx": 2},
                 {"label": "MXE2 J2", "role": "skipping", "from_idx": 2, "to_idx": 3},
             ]
+
+    if not exons_geom and chosen_row.get("coord"):
+        m_c = re.match(r"^([^:]+):(\d+)-(\d+)\(([+-])\)$", str(chosen_row.get("coord", "")).strip())
+        if m_c:
+            chrom, strand = m_c.group(1), m_c.group(4)
+            exons_geom = [{"label": f"DEXSeq {chosen_row.get('feature_id', 'exon')}", "role": "alternative", "start": int(m_c.group(2)), "end": int(m_c.group(3))}]
 
     def _mean_clean(vals: list[float | None]) -> float | None:
         clean = [v for v in vals if v is not None]
@@ -1552,6 +1852,36 @@ def genecard_preview(
                 }
 
     # Real-time on-demand Track 3 & Track 4 enrichment so EVERY gene/event in EVERY workspace renders all 4 tracks!
+    if evidence_origin == "cross_paradigm_dtu" and track4_proteome.get("status") in ("unavailable", "scanned_unmapped"):
+        up_aa = _safe_float(chosen_row.get("tx_up_aa")) or 0.0
+        dn_aa = _safe_float(chosen_row.get("tx_dn_aa")) or 0.0
+        fate_txt = str(chosen_row.get("fate") or "")
+        if up_aa == 0 and dn_aa == 0:
+            track4_proteome = {
+                "status": "noncoding",
+                "transcript_id": str(chosen_row.get("tx_up") or ""),
+                "summary": f"stageR full-length isoform switch: {chosen_row.get('tx_dn', '')} -> {chosen_row.get('tx_up', '')} ({fate_txt}).",
+                "architecture": {},
+            }
+        else:
+            nmd_cls = "inclusion_NMD" if "NMD" in fate_txt else "coding_preserved"
+            track4_proteome = {
+                "status": "coding_architecture",
+                "computed_mode": "stageR_full_length_isoform_switch",
+                "transcript_id": f"{chosen_row.get('tx_dn', '')} -> {chosen_row.get('tx_up', '')}",
+                "uniprot_acc": "",
+                "coding_region_location": "Full-length isoform switch",
+                "frame_status": fate_txt,
+                "nmd_switch_class": nmd_cls,
+                "aa_len_inclusion": up_aa if up_aa > 0 else dn_aa,
+                "aa_len_exclusion": dn_aa if dn_aa > 0 else up_aa,
+                "delta_aa": _safe_float(chosen_row.get("delta_aa")),
+                "ptc_to_last_ejc_nt": 60.0 if "NMD" in fate_txt else 0.0,
+                "disrupted_protein_features": "",
+                "summary": f"stageR full-length isoform switch: {chosen_row.get('tx_dn', '')} ({chosen_row.get('tx_dn_biotype', '')}, {int(dn_aa)} aa) -> {chosen_row.get('tx_up', '')} ({chosen_row.get('tx_up_biotype', '')}, {int(up_aa)} aa) · {fate_txt}.",
+                "architecture": {},
+            }
+
     from .studio_compute import compute_on_demand_genecard_tracks
     track3_motifs, track4_proteome = compute_on_demand_genecard_tracks(
         context,
@@ -1568,16 +1898,85 @@ def genecard_preview(
         custom_motif=custom_motif,
     )
 
+    # ---------------- Cross-Paradigm Orthogonal Evidence Summary ----------------
+    cp_summary = _load_cross_paradigm_summary(context) or {}
+    cp_sum_c = (cp_summary.get("contrasts") or {}).get(cid, {}) if isinstance(cp_summary.get("contrasts"), dict) else {}
+
+    c1_df_g = _match_gene_rows(cp_c1_df, target_gid, target_sym)
+    c2_df_g = _match_gene_rows(cp_c2_df, target_gid, target_sym)
+    c3_df_g = _match_gene_rows(cp_c3_df, target_gid, target_sym)
+    c4_df_g = _match_gene_rows(cp_c4_df, target_gid, target_sym)
+
+    c1_rec = _clean_records(c1_df_g.head(1))[0] if not c1_df_g.empty else None
+    c2_recs = _clean_records(c2_df_g.head(10))
+    c3_rec = _clean_records(c3_df_g.head(1))[0] if not c3_df_g.empty else None
+    c4_recs = _clean_records(c4_df_g.head(10))
+
+    ig_match = next(
+        (
+            g for g in (cp_sum_c.get("interactive_genes") or [])
+            if _norm_gene(g.get("gene_base", "")).upper() == target_gid.upper()
+            or str(g.get("gene_symbol", "")).strip().upper() == target_sym.upper()
+        ),
+        None,
+    )
+    if c3_rec is not None and ig_match is not None and ig_match.get("txs"):
+        c3_rec["txs"] = ig_match["txs"]
+    elif c3_rec is None and ig_match is not None:
+        c3_rec = dict(ig_match)
+
+    sup_df_g = _match_gene_rows(sup_df, target_gid, target_sym)
+    if not sup_df_g.empty:
+        if "_sig" in sup_df_g.columns and sup_df_g["_sig"].any():
+            sup_df_g = sup_df_g.sort_values(["_sig", "pvalue"], ascending=[False, True])
+        elif "pvalue" in sup_df_g.columns:
+            sup_df_g = sup_df_g.sort_values("pvalue")
+    suppa_hits = _clean_records(sup_df_g.head(8))
+
+    dex_df_g = _match_gene_rows(dex_df, target_gid, target_sym)
+    if not dex_df_g.empty:
+        if "_sig" in dex_df_g.columns and dex_df_g["_sig"].any():
+            dex_df_g = dex_df_g.sort_values(["_sig", "padj"], ascending=[False, True])
+        elif "padj" in dex_df_g.columns:
+            dex_df_g = dex_df_g.sort_values("padj")
+    dexseq_hits = _clean_records(dex_df_g.head(8))
+
+    dex_bins = (cp_sum_c.get("gene_dex_bins") or {}).get(target_gid) or (ig_match.get("dex_bins") if ig_match else None)
+    cp_classes: list[str] = []
+    if c1_rec is not None:
+        cp_classes.append("Class I · 1-bp DEXSeq Verified")
+    if c2_recs:
+        cp_classes.append("Class II · SUPPA2 AF/AL")
+    if c3_rec is not None:
+        cp_classes.append("Class III · stageR Isoform Switch")
+    if c4_recs:
+        cp_classes.append("Class IV · DEXSeq-Only")
+
+    hidden_from_deg = bool(c3_rec["hidden_from_deg"]) if (c3_rec is not None and c3_rec.get("hidden_from_deg") is not None) else None
+    cross_paradigm_block = {
+        "available": bool(cp_classes or suppa_hits or dexseq_hits or dtu_isoforms or dex_bins),
+        "classes": cp_classes,
+        "hidden_from_deg": hidden_from_deg,
+        "class1": c1_rec,
+        "class2_af_al": c2_recs,
+        "class3_switch": c3_rec,
+        "class4_dexseq": c4_recs,
+        "suppa_hits": suppa_hits,
+        "dexseq_hits": dexseq_hits,
+        "dex_bins": dex_bins,
+    }
+
     return {
         "found": True,
+        "evidence_origin": evidence_origin,
         "comparison_id": cid,
         "gene_id": target_gid,
         "gene_symbol": target_sym,
         "event_id": target_eid,
         "event_type": ev_type,
-        "dpsi": _safe_float(chosen_row.get(dpsi_c)) if dpsi_c else None,
-        "fdr": _safe_float(chosen_row.get(fdr_c)) if fdr_c else None,
-        "das_artifact_id": das_art.artifact_id if das_art else "",
+        "dpsi": target_dpsi,
+        "fdr": target_fdr,
+        "das_artifact_id": source_art.artifact_id if source_art else "",
         "das_row_id": str(chosen_row.get("row_id", "")),
         "host_events": host_events,
         "track1_quantification": {
@@ -1589,4 +1988,5 @@ def genecard_preview(
         "track2_sashimi": track2_sashimi,
         "track3_motifs": track3_motifs,
         "track4_proteome": track4_proteome,
+        "cross_paradigm": cross_paradigm_block,
     }

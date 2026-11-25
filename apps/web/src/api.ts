@@ -172,6 +172,8 @@ export const api = {
     request<QuadrantPayload>(`/projects/${encodeURIComponent(projectId)}/quadrant-explorer?${new URLSearchParams(comparison ? {comparison} : {})}`),
   contrastRescue: (projectId: string, payload: {contrast_a: string; contrast_b: string; min_abs_dpsi: number; max_fdr: number; relation: "reversed" | "concordant" | "specific_to_a"; rs_only: boolean}) =>
     request<ContrastRescueResult>(`/projects/${encodeURIComponent(projectId)}/contrast-rescue`, {method: "POST", body: JSON.stringify(payload)}),
+  crossParadigm: (projectId: string, comparison = "") =>
+    request<CrossParadigmPayload>(`/projects/${encodeURIComponent(projectId)}/cross-paradigm?${new URLSearchParams(comparison ? {comparison} : {})}`),
   singleCellManifold: (projectId: string, feature = "") =>
     request<SingleCellManifoldPayload>(`/projects/${encodeURIComponent(projectId)}/single-cell-manifold?${new URLSearchParams(feature ? {feature} : {})}`),
   genecardPreview: (projectId: string, payload: {gene_query?: string; event_id?: string; comparison?: string; custom_sequence?: string; custom_motif?: string}) =>
@@ -182,7 +184,7 @@ export const api = {
     request<LiveOraResultPayload>(`/projects/${encodeURIComponent(projectId)}/compute/live-ora`, {method: "POST", body: JSON.stringify(payload)}),
   computeMotifScan: (projectId: string, payload: {comparison?: string; query_motif_or_rbp?: string; custom_sequence?: string}) =>
     request<LiveMotifScanResult>(`/projects/${encodeURIComponent(projectId)}/compute/motif-scan`, {method: "POST", body: JSON.stringify(payload)}),
-  computeTargetRanker: (projectId: string, payload: {comparison?: string; w_dpsi?: number; w_isoform?: number; w_splicenet?: number; w_motif?: number; w_proteome?: number; min_abs_dpsi?: number; max_fdr?: number; deg_independent_only?: boolean; require_domain_or_nmd?: boolean}) =>
+  computeTargetRanker: (projectId: string, payload: {comparison?: string; w_dpsi?: number; w_isoform?: number; w_splicenet?: number; w_motif?: number; w_proteome?: number; min_abs_dpsi?: number; max_fdr?: number; deg_independent_only?: boolean; require_domain_or_nmd?: boolean; hidden_from_deg_only?: boolean}) =>
     request<LiveTargetRankerResult>(`/projects/${encodeURIComponent(projectId)}/compute/target-ranker`, {method: "POST", body: JSON.stringify(payload)}),
 };
 
@@ -280,9 +282,53 @@ export type SingleCellManifoldPayload = {
   }>;
 };
 
+export type CrossParadigmRow = Record<string, unknown> & {
+  row_id?: string;
+  source_artifact_id?: string;
+  gene_id?: string;
+  gene_base?: string;
+  gene_symbol?: string;
+};
+
+export type CrossParadigmPayload = {
+  available: boolean;
+  comparison_id: string;
+  available_contrasts: string[];
+  treat_label?: string;
+  ctrl_label?: string;
+  dexseq_sign_inverted?: boolean;
+  explorer_html_url: string;
+  counts: Record<string, number | string | null>;
+  artifact_ids: Record<string, string>;
+  tables: {
+    class1: CrossParadigmRow[];
+    class2_af_al: CrossParadigmRow[];
+    class3_switches: CrossParadigmRow[];
+    class4_dexseq: CrossParadigmRow[];
+  };
+  bench_multi_contrast: Array<Record<string, unknown>>;
+  suppa_7class: Array<Record<string, unknown>>;
+  interactive_genes: Array<Record<string, unknown>>;
+  gene_dex_bins: Record<string, unknown>;
+};
+
+export type GeneCardCrossParadigm = {
+  available: boolean;
+  classes: string[];
+  hidden_from_deg?: boolean | null;
+  class1?: Record<string, unknown> | null;
+  class2_af_al: Array<Record<string, unknown>>;
+  class3_switch?: Record<string, unknown> | null;
+  class4_dexseq: Array<Record<string, unknown>>;
+  suppa_hits: Array<Record<string, unknown>>;
+  dexseq_hits: Array<Record<string, unknown>>;
+  dex_bins?: {chr?: string; strand?: string; bins?: Array<Record<string, unknown>>} | null;
+};
+
 export type GeneCardPayload = {
   found: boolean;
   reason?: string;
+  evidence_origin?: string;
   comparison_id?: string;
   gene_id?: string;
   gene_symbol?: string;
@@ -297,7 +343,7 @@ export type GeneCardPayload = {
     deg: {log2fc: number | null; fdr: number | null; baseMean: number | null};
     expression_samples: Array<{sample_id: string; condition: string; arm: string; value: number; unit: string}>;
     psi_samples: Array<{sample_id: string; condition: string; psi: number; ijc: number | null; sjc: number | null}>;
-    dtu_isoforms: Array<{transcript_id: string; effect: number | null; fdr: number | null}>;
+    dtu_isoforms: Array<{transcript_id: string; effect: number | null; fdr: number | null; gene_q?: number | null; transcript_q?: number | null}>;
   };
   track2_sashimi?: {
     chrom: string;
@@ -331,6 +377,7 @@ export type GeneCardPayload = {
     note?: string;
     architecture?: Record<string, unknown>;
   };
+  cross_paradigm?: GeneCardCrossParadigm;
 };
 
 export type LivePsiLandscapePayload = {
@@ -458,6 +505,12 @@ export type LiveTargetRankerResult = {
     cis_rbp_motifs?: string;
     nmd_switch_class?: string;
     disrupted_uniprot_domains?: string;
+    coord_verified_exon?: string | null;
+    isoform_switch_fate?: string | null;
+    hidden_from_deg?: boolean | null;
+    suppa_sig?: boolean | null;
+    dexseq_sig?: boolean | null;
+    dtu_sig?: boolean | null;
     composite_score: number;
   }>;
 };
