@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scsplicetrace"
-version = "1.0.4"
+version = "1.0.5"
 description = "scSpliceTrace: Single-cell Smart-seq3 donor-stratified cis-regulatory RBP discovery and isoform protein consequence engine"
 readme = "README.md"
 requires-python = ">=3.10"

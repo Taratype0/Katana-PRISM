@@ -390,6 +390,10 @@ def _render_das_class_direction_bar(
     })
 
 
+def _dir_contrast_label(cand: Path) -> str:
+    return cand.parent.name if cand.name.lower() == "rmats_post" else cand.name
+
+
 def _has_rmats_files(d: Path, rmats_mode: str = "JCEC") -> bool:
     m = str(rmats_mode or "JCEC").upper()
     return d.is_dir() and any((d / f"{et}.MATS.{m}.txt").is_file() for et in EVENTS)
@@ -408,8 +412,7 @@ def _discover_rmats_contrasts(rmats_arg: str | Path | dict[str, Path], declared_
         return out
     base = Path(s)
     if _has_rmats_files(base, rmats_mode):
-        cid = declared_contrasts[0]["contrast_id"] if declared_contrasts else base.name
-        return {cid: base}
+        return {_dir_contrast_label(base): base}
     out = {}
     for sub in sorted(base.iterdir()):
         if not sub.is_dir():
@@ -452,9 +455,7 @@ def _resolve_rmats_dir_for_contrast(
             raise FileNotFoundError(f"Declared manifest rmats_dir for '{cid}' lacks *.MATS.{rmats_mode.upper()}.txt files: {explicit_dir}")
         if explicit_arm_order:
             return explicit_dir, False
-        rev_name = explicit_dir.name.lower() in rev_conflict_set or (
-            explicit_dir.name == "rmats_post" and explicit_dir.parent.name.lower() in rev_conflict_set
-        )
+        rev_name = _dir_contrast_label(explicit_dir).lower() in rev_conflict_set
         return explicit_dir, rev_name
 
     forward_keys = [k for k in (cid, f"{num_lbl}-{den_lbl}", f"{num_lbl}_vs_{den_lbl}") if k]
@@ -475,7 +476,24 @@ def _resolve_rmats_dir_for_contrast(
             return lower_map[key.lower()], True
 
     if len(rmats_map) == 1 and n_declared_contrasts == 1:
-        return next(iter(rmats_map.values())), False
+        only_key, only_dir = next(iter(rmats_map.items()))
+        dir_label = _dir_contrast_label(only_dir)
+        dl_low = dir_label.lower()
+        ok_low = only_key.lower()
+        fwd_low = {k.lower() for k in forward_keys}
+        if (not explicit_arm_order) and (ok_low in rev_conflict_set or dl_low in rev_conflict_set):
+            return only_dir, True
+        if dl_low in fwd_low or ok_low in fwd_low:
+            return only_dir, False
+        if (not explicit_arm_order) and num_lbl and den_lbl and ("_vs_" in dl_low or "-" in dl_low):
+            parts = dl_low.split("_vs_") if "_vs_" in dl_low else dl_low.split("-")
+            toks = {p.strip() for p in parts if p.strip()}
+            if toks & {num_lbl.lower(), den_lbl.lower()}:
+                raise ValueError(
+                    f"Bare rMATS directory {only_dir} ('{dir_label}') conflicts with declared contrast "
+                    f"'{cid}' ({num_lbl} vs {den_lbl})."
+                )
+        return only_dir, False
 
     raise FileNotFoundError(
         f"No rMATS contrast directory matched '{cid}' "
@@ -570,6 +588,7 @@ def _finalize_consulting_report_and_zip(
     network_browsers: list[dict[str, Any]] | None = None,
     enrichment_summaries: list[dict[str, Any]] | None = None,
     interactive_blocks: list[dict[str, Any]] | None = None,
+    extra_metadata: dict[str, Any] | None = None,
     dummy: bool = False,
 ) -> dict[str, Any]:
     """Build SHA256-verified report-manifest.json, provenance.json, interactive table browsers, REPORT.html, and REPORT.zip."""
@@ -663,7 +682,11 @@ def _finalize_consulting_report_and_zip(
         "samples": samples_list,
         "contrasts": contrasts_list,
         "annotation": {"genome_build": "GRCm39 / mm39" if species == "mouse" else "GRCh38 / hg38", "species": species},
-        "metadata": {"assay_mode": "single-cell" if mode == "single-cell" else "bulk", "species": species},
+        "metadata": {
+            "assay_mode": "single-cell" if mode == "single-cell" else "bulk",
+            "species": species,
+            **(extra_metadata or {}),
+        },
     }
 
     class _SuiteReportBuilder:
@@ -815,15 +838,21 @@ def run_bulk(
         cid_c = next((c for c in ("contrast_id", "contrast", "comparison_id") if c in c_df.columns), c_df.columns[0])
         num_c = next((c for c in ("treatment", "numerator", "group_a") if c in c_df.columns), c_df.columns[1])
         den_c = next((c for c in ("control", "denominator", "group_b") if c in c_df.columns), c_df.columns[2])
-        contrasts_list = [
-            {
-                "contrast_id": str(r[cid_c]).strip(),
-                "label": f"{str(r[num_c]).strip()} vs {str(r[den_c]).strip()}",
-                "numerator": {"label": str(r[num_c]).strip(), "sample_ids": cond_to_sids.get(str(r[num_c]).strip(), [])},
-                "denominator": {"label": str(r[den_c]).strip(), "sample_ids": cond_to_sids.get(str(r[den_c]).strip(), [])},
-            }
-            for _, r in c_df.iterrows()
-        ]
+        contrasts_list = []
+        seen_cids_bulk: set[str] = set()
+        for _, r in c_df.iterrows():
+            cid_s = str(r[cid_c]).strip()
+            if cid_s.lower() in seen_cids_bulk:
+                raise ValueError(f"Duplicate normalized contrast_id {cid_s!r} in contrasts table.")
+            seen_cids_bulk.add(cid_s.lower())
+            num_s = str(r[num_c]).strip()
+            den_s = str(r[den_c]).strip()
+            contrasts_list.append({
+                "contrast_id": cid_s,
+                "label": f"{num_s} vs {den_s}",
+                "numerator": {"label": num_s, "sample_ids": cond_to_sids.get(num_s, [])},
+                "denominator": {"label": den_s, "sample_ids": cond_to_sids.get(den_s, [])},
+            })
     else:
         conds = list(cond_to_sids.keys())
         if len(conds) < 2:
@@ -931,34 +960,47 @@ def run_bulk(
                 for k, v in bm["rmats_sample_order"].items():
                     if not isinstance(v, list):
                         raise ValueError(f"'rmats_sample_order[{k!r}]' must be a list")
-                    manifest_rmats_order[str(k).strip()] = [str(x).strip() for x in v]
+                    k_s = str(k).strip()
+                    if k_s in manifest_rmats_order:
+                        raise ValueError(f"Duplicate group key {k_s!r} in rmats_sample_order")
+                    manifest_rmats_order[k_s] = [str(x).strip() for x in v]
             comps_b = bm.get("comparisons", [])
             if comps_b is not None and not isinstance(comps_b, list):
                 raise ValueError("'comparisons' must be a list")
+            seen_manifest_cids: set[str] = set()
+            for comp_m in comps_b or []:
+                if isinstance(comp_m, dict) and comp_m.get("comparison_id"):
+                    c_key = str(comp_m["comparison_id"]).strip()
+                    c_low = c_key.lower()
+                    if c_low in seen_manifest_cids:
+                        raise ValueError(f"Duplicate normalized comparison_id {c_key!r} in manifest.json comparisons")
+                    seen_manifest_cids.add(c_low)
+                    cm_ord_raw = comp_m.get("rmats_sample_order")
+                    cm_ord: dict[str, list[str]] = {}
+                    if cm_ord_raw is not None:
+                        if not isinstance(cm_ord_raw, dict):
+                            raise ValueError(f"comparisons[{c_key!r}].rmats_sample_order must be an object")
+                        for k, v in cm_ord_raw.items():
+                            if not isinstance(v, list):
+                                raise ValueError(f"comparisons[{c_key!r}].rmats_sample_order[{k!r}] must be a list")
+                            k_s = str(k).strip()
+                            if k_s in cm_ord:
+                                raise ValueError(f"Duplicate group key {k_s!r} in comparisons[{c_key!r}].rmats_sample_order")
+                            cm_ord[k_s] = [str(x).strip() for x in v]
+                    comp_rec = {
+                        "rmats_group1": str(comp_m["rmats_group1"]).strip() if comp_m.get("rmats_group1") else None,
+                        "rmats_group2": str(comp_m["rmats_group2"]).strip() if comp_m.get("rmats_group2") else None,
+                        "rmats_dir": str(comp_m["rmats_dir"]).strip() if comp_m.get("rmats_dir") else None,
+                        "rmats_sample_order": cm_ord,
+                    }
+                    manifest_comps[c_key] = comp_rec
+                    manifest_comps.setdefault(c_low, comp_rec)
         except (json.JSONDecodeError, ValueError, TypeError) as exc:
             raise ValueError(f"Malformed manifest.json in {mpath_b}: {exc}") from exc
-        for comp_m in comps_b or []:
-            if isinstance(comp_m, dict) and comp_m.get("comparison_id"):
-                c_key = str(comp_m["comparison_id"]).strip()
-                cm_ord_raw = comp_m.get("rmats_sample_order")
-                cm_ord: dict[str, list[str]] = {}
-                if cm_ord_raw is not None:
-                    if not isinstance(cm_ord_raw, dict):
-                        raise ValueError(f"comparisons[{c_key!r}].rmats_sample_order must be an object")
-                    for k, v in cm_ord_raw.items():
-                        if not isinstance(v, list):
-                            raise ValueError(f"comparisons[{c_key!r}].rmats_sample_order[{k!r}] must be a list")
-                        cm_ord[str(k).strip()] = [str(x).strip() for x in v]
-                comp_rec = {
-                    "rmats_group1": str(comp_m["rmats_group1"]).strip() if comp_m.get("rmats_group1") else None,
-                    "rmats_group2": str(comp_m["rmats_group2"]).strip() if comp_m.get("rmats_group2") else None,
-                    "rmats_dir": str(comp_m["rmats_dir"]).strip() if comp_m.get("rmats_dir") else None,
-                    "rmats_sample_order": cm_ord,
-                }
-                manifest_comps[c_key] = comp_rec
-                manifest_comps.setdefault(c_key.lower(), comp_rec)
 
     cond_by_sid = {str(s["sample_id"]): str(s["condition"]) for s in samples_list}
+    has_declared_samples = bool(samples_list)
+    rmats_input_provenance: list[dict[str, Any]] = []
     for c_spec in contrasts_list:
         cid = c_spec["contrast_id"]
         mc = manifest_comps.get(cid) or manifest_comps.get(cid.lower()) or {}
@@ -1009,6 +1051,7 @@ def run_bulk(
         num_sids = g2_sids if rmats_inverted else g1_sids
         den_sids = g1_sids if rmats_inverted else g2_sids
         frames = []
+        native_files_prov: list[dict[str, Any]] = []
         for et in EVENTS:
             f_et = rdir / f"{et}.MATS.{eff_mode_req}.txt"
             if not f_et.is_file():
@@ -1022,13 +1065,20 @@ def run_bulk(
                 continue
             p1_0 = parse_number_list(raw["IncLevel1"].iloc[0]) or parse_number_list(raw["IJC_SAMPLE_1"].iloc[0])
             p2_0 = parse_number_list(raw["IncLevel2"].iloc[0]) or parse_number_list(raw["IJC_SAMPLE_2"].iloc[0])
-            exp_g1 = len(g1_sids) if explicit_order else len(p1_0)
-            exp_g2 = len(g2_sids) if explicit_order else len(p2_0)
-            if explicit_order and (len(p1_0) != exp_g1 or len(p2_0) != exp_g2):
+            exp_g1 = len(g1_sids) if (explicit_order or has_declared_samples) else len(p1_0)
+            exp_g2 = len(g2_sids) if (explicit_order or has_declared_samples) else len(p2_0)
+            if (explicit_order or has_declared_samples) and (len(p1_0) != exp_g1 or len(p2_0) != exp_g2):
                 raise ValueError(
-                    f"manifest.json rmats_sample_order length mismatch in {f_et.name} for '{cid}': "
-                    f"group1={exp_g1} vs rMATS={len(p1_0)}, group2={exp_g2} vs rMATS={len(p2_0)}."
+                    f"Declared sample count mismatch in {f_et.name} for '{cid}': "
+                    f"{arm1_lbl}={exp_g1} vs rMATS={len(p1_0)}, {arm2_lbl}={exp_g2} vs rMATS={len(p2_0)}."
                 )
+            native_files_prov.append({
+                "event_type": et,
+                "filename": f_et.name,
+                "sha256": _sha256_file(f_et),
+                "bytes": f_et.stat().st_size,
+                "rows": len(raw),
+            })
             for r_i, (p1s, p2s, i1s, i2s, s1s, s2s) in enumerate(zip(
                 raw["IncLevel1"].map(parse_number_list),
                 raw["IncLevel2"].map(parse_number_list),
@@ -1064,6 +1114,19 @@ def run_bulk(
             frames.append(raw)
         if not frames:
             continue
+        rmats_input_provenance.append({
+            "contrast_id": cid,
+            "rmats_dir": str(rdir),
+            "rmats_mode": eff_mode_req,
+            "reverse_direction": bool(rmats_inverted),
+            "numerator_label": num_lbl,
+            "denominator_label": den_lbl,
+            "arm1_label": arm1_lbl,
+            "arm1_samples": list(g1_sids),
+            "arm2_label": arm2_lbl,
+            "arm2_samples": list(g2_sids),
+            "files": native_files_prov,
+        })
         cat_df = pd.concat(frames, ignore_index=True)
         if species == "auto":
             species = "mouse" if cat_df["gene_id"].astype(str).str.startswith("ENSMUSG").any() else "human"
@@ -1546,6 +1609,18 @@ def run_bulk(
     )
     interactive_blocks.extend(cp_blocks)
 
+    prov_qc_p = out / "outputs/qc/rmats-input-provenance.json"
+    prov_qc_p.parent.mkdir(parents=True, exist_ok=True)
+    prov_qc_p.write_text(json.dumps({"contrasts": rmats_input_provenance}, indent=2), encoding="utf-8")
+    tables.append({
+        "name": "Native rMATS input provenance & arm-to-sample mapping",
+        "analysis_id": "quality.rmats_input_provenance",
+        "chapter": 1,
+        "contrast_id": "all",
+        "rows": sum(len(rec.get("files", [])) for rec in rmats_input_provenance),
+        "source": prov_qc_p.relative_to(out).as_posix(),
+    })
+
     return _finalize_consulting_report_and_zip(
         outdir=out,
         study_name=study_name,
@@ -1560,6 +1635,7 @@ def run_bulk(
         species=species,
         network_browsers=network_browsers,
         interactive_blocks=interactive_blocks,
+        extra_metadata={"rmats_input_provenance": rmats_input_provenance},
         dummy=dummy,
     )
 
@@ -1733,13 +1809,71 @@ def run_single_cell(
     # Merge primary donor-aware event contrast statistics from scSpliceTrace if available
     st_dir = Path(scsplicetrace_dir) if (scsplicetrace_dir and str(scsplicetrace_dir) != "NO_SCSPLICETRACE" and Path(scsplicetrace_dir).is_dir()) else None
     st_dirs_by_contrast: dict[str, Path] = {}
+    event_trace_cids: set[str] = set()
+
+    _NON_DONOR_SCOPE_TOKENS = {
+        "exploratory_cell_pooled", "cell_pooled", "exploratory", "pooled",
+        "pooled_exploratory", "unverified_pooled", "cell_level",
+    }
+    _DONOR_AWARE_SCOPE_TOKENS = {
+        "paired_donor_population", "paired_donor_small_n", "stratified_paired_2donor",
+        "stratified_multi_donor_meta", "unpaired_donor_pseudobulk",
+        "partially_paired_disjoint_unpaired", "donor_aware",
+        "insufficient_paired_donors", "insufficient_group_donors",
+        "insufficient_multi_donor_design", "insufficient_cells_or_support",
+        "incomplete_donor_schema", "missing_or_ineligible",
+    }
 
     def _coerce_bool_series(ser: pd.Series) -> pd.Series:
         return ser.map(
             lambda v: False if pd.isna(v) else (v if isinstance(v, bool) else str(v).strip().lower() in {"true", "1", "yes"})
         ).astype(bool)
 
-    def _merge_st_events(base_ev: pd.DataFrame, trace_dir: Path, forced_cid: str | None = None) -> tuple[pd.DataFrame, str | None]:
+    def _is_donor_aware_sc_frame(df: pd.DataFrame, *, has_event_trace: bool) -> bool:
+        if has_event_trace:
+            return True
+        scope_tokens: set[str] = set()
+        for scol in ("event_inference_unit", "inference_unit", "inference_scope", "statistical_scope", "analysis_scope"):
+            if scol in df.columns:
+                vals_s = df[scol].fillna("").astype(str).str.strip().str.lower()
+                scope_tokens.update(v for v in vals_s if v and v not in {"nan", "none", "null", "na"})
+        if scope_tokens & _NON_DONOR_SCOPE_TOKENS:
+            return False
+        if "eligible" not in df.columns:
+            return False
+        has_scope = bool(scope_tokens & _DONOR_AWARE_SCOPE_TOKENS)
+        has_prov = any(
+            col in df.columns and pd.to_numeric(df[col], errors="coerce").notna().any()
+            for col in ("n_paired_donors", "contributing_donors", "n_donors_used", "donor_n_paired", "n_donors_numerator")
+        )
+        return has_scope or has_prov
+
+    def _match_cid_in_list(target: str, cids: list[str]) -> str | None:
+        t_s = str(target).strip()
+        if not t_s:
+            return None
+        exact = [c for c in cids if c == t_s]
+        if len(exact) == 1:
+            return exact[0]
+        if len(exact) > 1:
+            raise ValueError(f"Ambiguous contrast match for {t_s!r}: {exact}")
+        low = [c for c in cids if c.lower() == t_s.lower()]
+        if len(low) == 1:
+            return low[0]
+        if len(low) > 1:
+            raise ValueError(f"Ambiguous contrast match for {t_s!r}: {low}")
+        tail = [c for c in cids if "__" in c and c.split("__")[-1].lower() == t_s.lower()]
+        if len(tail) == 1:
+            return tail[0]
+        if len(tail) > 1:
+            raise ValueError(f"Ambiguous contrast match for {t_s!r} across subtypes: {tail}")
+        return None
+
+    def _merge_st_events(
+        base_ev: pd.DataFrame,
+        trace_dir: Path,
+        forced_cid: str | None = None,
+    ) -> tuple[pd.DataFrame, list[str], bool]:
         st_cmp = forced_cid
         st_sum_f = trace_dir / "scsplicetrace_summary.json"
         if st_cmp is None and st_sum_f.is_file():
@@ -1752,49 +1886,53 @@ def run_single_cell(
             except Exception:
                 pass
         base_ev = base_ev.copy()
-        for src_p, dst_p in (
-            ("dpsi", "pooled_exploratory_dpsi"),
-            ("pvalue", "pooled_exploratory_pvalue"),
-            ("p_value", "pooled_exploratory_pvalue"),
-            ("fdr", "pooled_exploratory_fdr"),
-        ):
-            if src_p in base_ev.columns and dst_p not in base_ev.columns:
-                base_ev[dst_p] = pd.to_numeric(base_ev[src_p], errors="coerce")
         _primary_stat_cols = (
-            "raw_dpsi", "dpsi", "delta_psi", "effect", "z_shift",
+            "raw_dpsi", "dpsi", "delta_psi", "effect", "z_shift", "se_dpsi",
             "p_value", "pvalue", "PValue",
             "fdr", "FDR", "q_value", "padj",
-            "eligible", "event_inference_unit",
-            "n_donors_used", "donor_n_paired", "donor_n_unpaired_fg", "donor_n_unpaired_bg",
+            "eligible", "event_inference_unit", "donor_inference_scope",
+            "n_donors_used", "n_paired_donors", "contributing_donors",
+            "n_donors_numerator", "n_donors_denominator", "donor_sign_agreement",
+            "donor_n_paired", "donor_n_unpaired_fg", "donor_n_unpaired_bg",
         )
-        ev_trace_p = trace_dir / "scsplicetrace_event_contrasts.tsv"
-        if ev_trace_p.is_file() and "event_id" in base_ev.columns:
-            st_ev = _safe_read_csv(ev_trace_p, sep="\t", dtype={"event_id": str})
-            base_clean = base_ev.drop(columns=[c for c in _primary_stat_cols if c in base_ev.columns])
+        _placeholders = {"cohort_all", "all", "default", "contrast_1", "statea_vs_stateb"}
+
+        def _apply_slice(slice_df: pd.DataFrame, st_slice: pd.DataFrame, out_cid: str | None) -> pd.DataFrame:
+            s_out = slice_df.copy()
+            for src_p, dst_p in (
+                ("dpsi", "pooled_exploratory_dpsi"),
+                ("pvalue", "pooled_exploratory_pvalue"),
+                ("p_value", "pooled_exploratory_pvalue"),
+                ("fdr", "pooled_exploratory_fdr"),
+            ):
+                if src_p in s_out.columns and dst_p not in s_out.columns:
+                    s_out[dst_p] = pd.to_numeric(s_out[src_p], errors="coerce")
+            base_clean = s_out.drop(columns=[c for c in _primary_stat_cols if c in s_out.columns])
             base_clean["event_id"] = base_clean["event_id"].astype(str)
-            dpsi_col = next((c for c in ("raw_dpsi", "dpsi") if c in st_ev.columns), None)
-            p_col = next((c for c in ("p_value", "pvalue") if c in st_ev.columns), None)
-            q_col = next((c for c in ("fdr", "FDR", "q_value", "padj") if c in st_ev.columns), None)
-            has_elig = "eligible" in st_ev.columns
-            schema_complete = (not st_ev.empty) and ("event_id" in st_ev.columns) and bool(dpsi_col and p_col and q_col and has_elig)
+            dpsi_col = next((c for c in ("raw_dpsi", "dpsi") if c in st_slice.columns), None)
+            p_col = next((c for c in ("p_value", "pvalue") if c in st_slice.columns), None)
+            q_col = next((c for c in ("fdr", "FDR", "q_value", "padj") if c in st_slice.columns), None)
+            has_elig = "eligible" in st_slice.columns
+            schema_complete = (not st_slice.empty) and ("event_id" in st_slice.columns) and bool(dpsi_col and p_col and q_col and has_elig)
             if not schema_complete:
-                # Incomplete Trace output must never backfill cell-pooled stats into primary donor columns
                 ev_m = base_clean.copy()
                 ev_m["dpsi"] = np.nan
                 ev_m["pvalue"] = np.nan
                 ev_m["fdr"] = np.nan
                 ev_m["eligible"] = False
                 ev_m["event_inference_unit"] = "incomplete_donor_schema"
-                if st_cmp:
-                    ev_m["comparison_id"] = st_cmp
-                return ev_m, st_cmp
-            st_ev["event_id"] = st_ev["event_id"].astype(str)
+                if out_cid:
+                    ev_m["comparison_id"] = out_cid
+                return ev_m
+            st_loc = st_slice.copy()
+            st_loc["event_id"] = st_loc["event_id"].astype(str)
             m_cols = [c for c in (
-                "event_id", "raw_dpsi", "dpsi", "z_shift", "p_value", "pvalue", "fdr", "FDR", "q_value", "padj",
+                "event_id", "raw_dpsi", "dpsi", "z_shift", "se_dpsi", "p_value", "pvalue", "fdr", "FDR", "q_value", "padj",
                 "eligible", "event_inference_unit", "n_donors_used",
+                "n_paired_donors", "contributing_donors", "n_donors_numerator", "n_donors_denominator", "donor_sign_agreement",
                 "donor_n_paired", "donor_n_unpaired_fg", "donor_n_unpaired_bg",
-            ) if c in st_ev.columns]
-            st_sub = st_ev[m_cols].drop_duplicates("event_id")
+            ) if c in st_loc.columns]
+            st_sub = st_loc[m_cols].drop_duplicates("event_id")
             ev_m = base_clean.merge(st_sub, on="event_id", how="left")
             ev_m["dpsi"] = pd.to_numeric(ev_m[dpsi_col], errors="coerce")
             ev_m["pvalue"] = pd.to_numeric(ev_m[p_col], errors="coerce")
@@ -1805,19 +1943,94 @@ def run_single_cell(
                 ev_m["event_inference_unit"] = np.where(elig_b, "donor_aware", "missing_or_ineligible")
             else:
                 ev_m["event_inference_unit"] = ev_m["event_inference_unit"].fillna("missing_or_ineligible").astype(str)
-            # Quarantined invariant: ineligible events NEVER carry backfilled pooled statistics into primary columns
             ev_m.loc[~elig_b, ["dpsi", "pvalue", "fdr"]] = np.nan
-            if st_cmp:
-                ev_m["comparison_id"] = st_cmp
-            return ev_m, st_cmp
+            if out_cid:
+                ev_m["comparison_id"] = out_cid
+            return ev_m
+
+        ev_trace_p = trace_dir / "scsplicetrace_event_contrasts.tsv"
+        base_cmp_col = next((c for c in ("comparison_id", "contrast_id", "contrast") if c in base_ev.columns), None)
+        base_cids = (
+            [c for c in dict.fromkeys(base_ev[base_cmp_col].fillna("").astype(str).str.strip()) if c]
+            if base_cmp_col is not None
+            else []
+        )
+
+        if ev_trace_p.is_file() and "event_id" in base_ev.columns:
+            st_ev = _safe_read_csv(
+                ev_trace_p,
+                sep="\t",
+                dtype={"event_id": str, "comparison_id": str, "contrast_id": str, "contrast": str},
+            )
+            st_cmp_col = next((c for c in ("comparison_id", "contrast_id", "contrast") if c in st_ev.columns), None)
+            if base_cmp_col is not None and len(base_cids) > 1:
+                cmp_series = base_ev[base_cmp_col].fillna("").astype(str).str.strip()
+                if st_cmp_col is not None:
+                    st_c_series = st_ev[st_cmp_col].fillna("").astype(str).str.strip()
+                    st_cids = [forced_cid] if forced_cid else [c for c in dict.fromkeys(st_c_series) if c]
+                    matched_pairs: list[tuple[str, str]] = []
+                    for sc_c in st_cids:
+                        m_b = _match_cid_in_list(sc_c, base_cids)
+                        if m_b is not None:
+                            matched_pairs.append((sc_c, m_b))
+                    if not matched_pairs:
+                        raise ValueError(
+                            f"scSpliceTrace contrast(s) {st_cids} do not match any events comparison_id in {base_cids}."
+                        )
+                    matched_base_set = {m_b for _, m_b in matched_pairs}
+                    parts: list[pd.DataFrame] = []
+                    for sc_c, m_b in matched_pairs:
+                        parts.append(_apply_slice(base_ev.loc[cmp_series == m_b], st_ev.loc[st_c_series == sc_c], m_b))
+                    untouched = base_ev.loc[~cmp_series.isin(matched_base_set)].copy()
+                    if not untouched.empty:
+                        parts.append(untouched)
+                    return pd.concat(parts, ignore_index=True), [m_b for _, m_b in matched_pairs], True
+
+                target_q = forced_cid or st_cmp
+                if not target_q:
+                    raise ValueError(
+                        f"Multi-contrast events table ({base_cids}) requires an unambiguous scSpliceTrace comparison_id or summary contrast."
+                    )
+                matched_cid = _match_cid_in_list(target_q, base_cids)
+                if matched_cid is None:
+                    raise ValueError(
+                        f"scSpliceTrace contrast {target_q!r} does not match any events comparison_id in {base_cids}."
+                    )
+                t_mask = cmp_series == matched_cid
+                merged_t = _apply_slice(base_ev.loc[t_mask], st_ev, matched_cid)
+                other_df = base_ev.loc[~t_mask].copy()
+                recombined = pd.concat([merged_t, other_df], ignore_index=True) if not other_df.empty else merged_t
+                return recombined, [matched_cid], True
+
+            eff_out_cid: str | None
+            if forced_cid is not None:
+                eff_out_cid = forced_cid
+            elif len(base_cids) == 1 and base_cids[0].lower() not in _placeholders:
+                if st_cmp is not None and _match_cid_in_list(st_cmp, base_cids) is None:
+                    raise ValueError(
+                        f"scSpliceTrace contrast {st_cmp!r} does not match events comparison_id {base_cids[0]!r}."
+                    )
+                eff_out_cid = base_cids[0]
+            else:
+                eff_out_cid = st_cmp or (base_cids[0] if base_cids else None)
+            merged_single = _apply_slice(base_ev, st_ev, eff_out_cid)
+            return merged_single, ([eff_out_cid] if eff_out_cid else []), True
+
         if st_cmp:
-            base_ev["comparison_id"] = st_cmp
-        return base_ev, st_cmp
+            if len(base_cids) == 1 and forced_cid is None and base_cids[0].lower() not in _placeholders:
+                eff_keep = base_cids[0]
+            else:
+                eff_keep = st_cmp
+                base_ev["comparison_id"] = eff_keep
+            return base_ev, [eff_keep], False
+        return base_ev, base_cids[:1], False
 
     if st_dir is not None:
-        ev_df, primary_cid = _merge_st_events(ev_df, st_dir)
-        if primary_cid:
-            st_dirs_by_contrast[primary_cid] = st_dir
+        ev_df, matched_st_cids, has_ev_trace = _merge_st_events(ev_df, st_dir)
+        for mc_id in matched_st_cids:
+            st_dirs_by_contrast[mc_id] = st_dir
+            if has_ev_trace:
+                event_trace_cids.add(mc_id)
 
     cmp_col = next((c for c in ("comparison_id", "contrast_id", "contrast") if c in ev_df.columns), None)
     if cmp_col is None or ev_df[cmp_col].astype(str).eq("Cohort_All").all():
@@ -1825,7 +2038,7 @@ def run_single_cell(
         default_cid = f"{cond_vals[0]}_vs_{cond_vals[1]}" if len(cond_vals) >= 2 else "StateA_vs_StateB"
         ev_df["comparison_id"] = default_cid
         cmp_col = "comparison_id"
-    if st_dir is not None and not st_dirs_by_contrast:
+    if st_dir is not None and not st_dirs_by_contrast and ev_df[cmp_col].astype(str).nunique() == 1:
         first_cid = str(ev_df[cmp_col].astype(str).iloc[0])
         st_dirs_by_contrast[first_cid] = st_dir
 
@@ -1859,8 +2072,10 @@ def run_single_cell(
                 s_ev = _safe_read_csv(sub_ev_f, sep="\t", dtype={"event_id": str, "gene_id": str, "gene_symbol": str})
                 if not s_ev.empty:
                     if sub_st_d.is_dir():
-                        s_ev, _ = _merge_st_events(s_ev, sub_st_d, forced_cid=sub_cid)
+                        s_ev, _, sub_has_ev_trace = _merge_st_events(s_ev, sub_st_d, forced_cid=sub_cid)
                         st_dirs_by_contrast[sub_cid] = sub_st_d
+                        if sub_has_ev_trace:
+                            event_trace_cids.add(sub_cid)
                     else:
                         s_ev["comparison_id"] = sub_cid
                     s_ev[cmp_col] = sub_cid
@@ -2062,18 +2277,49 @@ def run_single_cell(
     res_dir.mkdir(parents=True, exist_ok=True)
     if cmp_col != "comparison_id" and "comparison_id" not in ev_df.columns:
         ev_df["comparison_id"] = ev_df[cmp_col].astype(str)
+    donor_eval_by_cid: dict[str, bool] = {}
+    for c_spec in contrasts_list:
+        cid_k = c_spec["contrast_id"]
+        c_mask = ev_df[cmp_col].astype(str) == cid_k
+        donor_eval_by_cid[cid_k] = _is_donor_aware_sc_frame(ev_df.loc[c_mask], has_event_trace=(cid_k in event_trace_cids))
+
     dpsi_tmp_c = next((c for c in ("dpsi", "delta_psi", "raw_dpsi", "effect") if c in ev_df.columns), None)
+    dpsi_vals_tmp = pd.to_numeric(ev_df[dpsi_tmp_c], errors="coerce") if dpsi_tmp_c else pd.Series(np.nan, index=ev_df.index)
+    is_donor_row = ev_df[cmp_col].astype(str).map(lambda c: bool(donor_eval_by_cid.get(c, False)))
     if "eligible" in ev_df.columns:
-        elig_ok = _coerce_bool_series(ev_df["eligible"])
-        ev_df["eligible"] = elig_ok
-        dpsi_vals_tmp = pd.to_numeric(ev_df[dpsi_tmp_c], errors="coerce") if dpsi_tmp_c else pd.Series(np.nan, index=ev_df.index)
-        ev_df["passes_read_support"] = (elig_ok & dpsi_vals_tmp.notna() & np.isfinite(dpsi_vals_tmp)).astype(bool)
+        elig_raw_ok = _coerce_bool_series(ev_df["eligible"])
+        ev_df.loc[is_donor_row, "eligible"] = elig_raw_ok.loc[is_donor_row]
+        if "passes_read_support" not in ev_df.columns:
+            ev_df["passes_read_support"] = np.where(
+                is_donor_row,
+                elig_raw_ok & dpsi_vals_tmp.notna() & np.isfinite(dpsi_vals_tmp),
+                dpsi_vals_tmp.notna() & np.isfinite(dpsi_vals_tmp),
+            ).astype(bool)
+        else:
+            ev_df.loc[is_donor_row, "passes_read_support"] = (elig_raw_ok & dpsi_vals_tmp.notna() & np.isfinite(dpsi_vals_tmp)).loc[is_donor_row].astype(bool)
     elif "passes_read_support" not in ev_df.columns:
         dpsi_vals_tmp = pd.to_numeric(ev_df[dpsi_tmp_c], errors="coerce") if dpsi_tmp_c else pd.Series(True, index=ev_df.index)
         ev_df["passes_read_support"] = dpsi_vals_tmp.notna().astype(bool)
+
+    eff_donor_cnt = pd.Series(np.nan, index=ev_df.index, dtype=float)
+    for dcnt_col in ("contributing_donors", "n_paired_donors", "n_donors_used", "donor_n_paired"):
+        if dcnt_col in ev_df.columns:
+            cand_dc = pd.to_numeric(ev_df[dcnt_col], errors="coerce")
+            eff_donor_cnt = eff_donor_cnt.where(eff_donor_cnt.notna(), cand_dc)
+    row_elig_eff = _coerce_bool_series(ev_df["eligible"]) if "eligible" in ev_df.columns else pd.Series(True, index=ev_df.index)
+    ev_df["donor_inference_scope"] = np.where(
+        ~is_donor_row,
+        "exploratory_cell_pooled",
+        np.where(
+            ~row_elig_eff,
+            "ineligible",
+            np.where(eff_donor_cnt.notna() & (eff_donor_cnt <= 1.0), "single_donor_conditional", "multi_donor_replicated"),
+        ),
+    )
+
     ev_pq = res_dir / "sc_differential_splicing.parquet"
     ev_df.to_parquet(ev_pq, index=False, compression="zstd")
-    any_donor_eval = ("eligible" in ev_df.columns) and (bool(st_dirs_by_contrast) or st_dir is not None or ev_df["eligible"].notna().any())
+    any_donor_eval = any(donor_eval_by_cid.values())
     tables.append({
         "name": (
             "Single-cell donor-aware differential splicing events"
@@ -2106,7 +2352,7 @@ def run_single_cell(
         cid = c_spec["contrast_id"]
         sub = ev_df[ev_df[cmp_col].astype(str) == cid].copy()
         if d_c and (q_c or p_c):
-            sub_has_donor_eval = ("eligible" in sub.columns) and (cid in st_dirs_by_contrast or st_dir is not None or sub["eligible"].notna().any())
+            sub_has_donor_eval = donor_eval_by_cid.get(cid, False)
             elig_mask = _coerce_bool_series(sub["eligible"]) if sub_has_donor_eval else pd.Series(True, index=sub.index, dtype=bool)
             d_num = pd.to_numeric(sub[d_c], errors="coerce")
             q_num = pd.to_numeric(sub[q_c], errors="coerce") if q_c else pd.Series(np.nan, index=sub.index)
@@ -2130,6 +2376,11 @@ def run_single_cell(
             sub["fdr"] = np.where(elig_mask, q_num if q_c else pd.to_numeric(sub[plot_q_col], errors="coerce"), np.nan)
             if p_c:
                 sub["pvalue"] = np.where(elig_mask, p_num, np.nan)
+            is_cond_1d = sub["donor_inference_scope"].astype(str).eq("single_donor_conditional")
+            n_multi_sig = int((sub["_sig_fdr"] & (~is_cond_1d)).sum())
+            n_cond_sig = int((sub["_sig_fdr"] & is_cond_1d).sum())
+            n_multi_elig = int((elig_mask & (~is_cond_1d)).sum())
+            n_cond_elig = int((elig_mask & is_cond_1d).sum())
             sub["report_rs_das"] = sub["_sig"].astype(bool)
             sc_das_by_contrast[cid] = sub
             sc_das_genes[cid] = set(sub.loc[sub["_sig"], "gene_symbol"].dropna().astype(str))
@@ -2137,16 +2388,37 @@ def run_single_cell(
             v_png = out / "figures/comparisons" / f"{cid}-sc-as-volcano.png"
             if sub_has_donor_eval:
                 plot_df = sub[elig_mask & valid_d & pd.to_numeric(sub[plot_q_col], errors="coerce").notna()].copy()
-                v_caption = "Donor-aware single-cell differential splicing preserving biological replicate degrees of freedom."
                 if n_elig == 0 or plot_df.empty:
+                    v_caption = "Donor-aware single-cell differential splicing preserving biological replicate degrees of freedom."
                     v_title = f"Donor-Aware DAS Volcano (0 donor-eligible events; ineligible pooled excluded) | {cid}"
                     v_banner = "0 donor-eligible events (ineligible pooled ratios excluded)"
-                elif not use_nom_axis:
-                    v_title = f"Donor-Aware DAS Volcano ({n_fdr_sig:,} FDR ≤ {fdr_cutoff:g} events) | {cid}"
+                elif n_multi_elig == 0 and n_cond_elig > 0:
+                    v_caption = (
+                        "Within-donor conditional single-cell differential splicing (1 contributing donor passed support; "
+                        "P/q-values are conditional on the measured donor rather than multi-donor population replication)."
+                    )
                     v_banner = None
+                    if not use_nom_axis:
+                        v_title = f"Conditional Single-Donor Splicing Volcano ({n_cond_sig:,} FDR ≤ {fdr_cutoff:g}; 1 contributing donor) | {cid}"
+                    else:
+                        v_title = f"Conditional Single-Donor Splicing Volcano ({n_nom_sig:,} nominal P ≤ 0.05; 1 contributing donor) | {cid}"
+                elif n_cond_elig > 0:
+                    v_caption = (
+                        f"Donor-aware single-cell differential splicing ({n_multi_sig:,} multi-donor replicated; "
+                        f"{n_cond_sig:,} single-donor conditional)."
+                    )
+                    v_banner = None
+                    if not use_nom_axis:
+                        v_title = f"Donor-Aware DAS Volcano ({n_multi_sig:,} multi-donor + {n_cond_sig:,} 1-donor conditional FDR ≤ {fdr_cutoff:g}) | {cid}"
+                    else:
+                        v_title = f"Donor-Aware DAS Volcano ({n_nom_sig:,} nominal P ≤ 0.05, |ΔPSI| ≥ {dpsi_cutoff:g}; 0 BH-FDR) | {cid}"
                 else:
-                    v_title = f"Donor-Aware DAS Volcano ({n_nom_sig:,} nominal P ≤ 0.05, |ΔPSI| ≥ {dpsi_cutoff:g}; 0 BH-FDR) | {cid}"
+                    v_caption = "Donor-aware single-cell differential splicing preserving biological replicate degrees of freedom."
                     v_banner = None
+                    if not use_nom_axis:
+                        v_title = f"Donor-Aware DAS Volcano ({n_fdr_sig:,} FDR ≤ {fdr_cutoff:g} events) | {cid}"
+                    else:
+                        v_title = f"Donor-Aware DAS Volcano ({n_nom_sig:,} nominal P ≤ 0.05, |ΔPSI| ≥ {dpsi_cutoff:g}; 0 BH-FDR) | {cid}"
             else:
                 plot_df = sub
                 v_banner = None
@@ -2162,7 +2434,9 @@ def run_single_cell(
             keep_v_cols = list(dict.fromkeys([
                 c for c in (
                     "event_id", "event_type", g_c, d_c, p_c, q_c, "_sig",
-                    "eligible", "event_inference_unit", "pooled_exploratory_dpsi", "pooled_exploratory_fdr",
+                    "eligible", "event_inference_unit", "donor_inference_scope",
+                    "n_paired_donors", "contributing_donors",
+                    "pooled_exploratory_dpsi", "pooled_exploratory_fdr",
                 )
                 if c and c in sub.columns
             ]))
@@ -2178,13 +2452,45 @@ def run_single_cell(
                 "svg": v_png.with_suffix(".svg").relative_to(out).as_posix(),
                 "data_links": [{"role": "plot_data", "label": "Volcano data (TSV)", "path": v_tsv.relative_to(out).as_posix(), "unit": "splicing_event", "contrast_id": cid, "policy": None}],
             })
-            _render_das_class_direction_bar(sub, "_sig", "Single-Cell DAS" if sub_has_donor_eval else "Exploratory Cell-Pooled Splicing", cid, None, out, panels)
+            _render_das_class_direction_bar(
+                sub,
+                "_sig",
+                (
+                    "Conditional Single-Donor Splicing"
+                    if (sub_has_donor_eval and n_multi_elig == 0 and n_cond_elig > 0)
+                    else ("Single-Cell DAS" if sub_has_donor_eval else "Exploratory Cell-Pooled Splicing")
+                ),
+                cid,
+                None,
+                out,
+                panels,
+            )
             if sub_has_donor_eval:
-                policy_data["stable_significant"][cid] = {
-                    "available": bool(n_elig > 0),
-                    "events": n_fdr_sig,
-                    "genes": int(sub.loc[sub["_sig_fdr"], g_c].nunique()) if n_fdr_sig else 0,
-                }
+                if n_multi_elig == 0 and n_cond_elig > 0:
+                    policy_data["stable_significant"][cid] = {
+                        "available": False,
+                        "events": 0,
+                        "genes": 0,
+                        "conditional_single_donor_events": n_cond_sig,
+                    }
+                    policy_data.setdefault("conditional_single_donor", {})[cid] = {
+                        "available": True,
+                        "events": n_cond_sig,
+                        "genes": int(sub.loc[sub["_sig_fdr"] & is_cond_1d, g_c].nunique()) if n_cond_sig else 0,
+                    }
+                else:
+                    policy_data["stable_significant"][cid] = {
+                        "available": bool(n_multi_elig > 0),
+                        "events": n_multi_sig,
+                        "genes": int(sub.loc[sub["_sig_fdr"] & (~is_cond_1d), g_c].nunique()) if n_multi_sig else 0,
+                        **({"conditional_single_donor_events": n_cond_sig} if n_cond_elig > 0 else {}),
+                    }
+                    if n_cond_elig > 0:
+                        policy_data.setdefault("conditional_single_donor", {})[cid] = {
+                            "available": True,
+                            "events": n_cond_sig,
+                            "genes": int(sub.loc[sub["_sig_fdr"] & is_cond_1d, g_c].nunique()) if n_cond_sig else 0,
+                        }
             else:
                 policy_data["stable_significant"][cid] = {"available": False, "events": 0, "genes": 0}
                 policy_data.setdefault("exploratory_cell_pooled", {})[cid] = {
@@ -2198,14 +2504,31 @@ def run_single_cell(
                 sort_p = p_c if (p_c and p_c in cand_top.columns) else plot_q_col
                 cand_top["_abs_d"] = pd.to_numeric(cand_top[d_c], errors="coerce").abs().fillna(0.0)
                 cand_top = cand_top.sort_values([sort_p, "_abs_d"], ascending=[True, False]).head(10)
-                t_cols = [c for c in ("gene_symbol", "event_type", "event_id", "dpsi", "pvalue", "fdr") if c in cand_top.columns]
+                t_cols = [
+                    c for c in (
+                        "gene_symbol", "event_type", "event_id", "dpsi", "pvalue", "fdr",
+                        "n_paired_donors", "contributing_donors", "donor_inference_scope",
+                    ) if c in cand_top.columns
+                ]
                 top10.append({
                     "id": f"{cid}-sc-top10",
                     "chapter": 3,
                     "contrast_id": cid,
-                    "analysis": "DAS" if sub_has_donor_eval else "EXPLORATORY_DAS",
+                    "analysis": (
+                        "CONDITIONAL_1DONOR_DAS"
+                        if (sub_has_donor_eval and n_multi_elig == 0 and n_cond_elig > 0)
+                        else ("DAS" if sub_has_donor_eval else "EXPLORATORY_DAS")
+                    ),
                     "kind": (
-                        ("Single-Cell Differential Splicing (FDR ≤ 0.05)" if n_fdr_sig > 0 else "Single-Cell Candidate DAS Events (Nominal P ≤ 0.05)")
+                        (
+                            f"Conditional Single-Donor Splicing (1 contributing donor; FDR ≤ {fdr_cutoff:g})"
+                            if (n_multi_elig == 0 and n_cond_elig > 0 and n_fdr_sig > 0)
+                            else (
+                                "Single-Cell Differential Splicing (FDR ≤ 0.05)"
+                                if n_fdr_sig > 0
+                                else "Single-Cell Candidate DAS Events (Nominal P ≤ 0.05)"
+                            )
+                        )
                         if sub_has_donor_eval
                         else "Exploratory Cell-Pooled Splicing (scSpliceTrace not run)"
                     ),

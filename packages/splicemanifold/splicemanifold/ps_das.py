@@ -104,6 +104,37 @@ def _coordinate_keys(frame: pd.DataFrame, event_type: str) -> pd.Series:
     return canonical_event_ids(frame, event_type)
 
 
+def _dir_contrast_label(cand: Path) -> str:
+    return cand.parent.name if cand.name.lower() == "rmats_post" else cand.name
+
+
+def _validate_bare_dir_contrast(
+    cand: Path,
+    *,
+    cid: str,
+    num_lbl: str,
+    den_lbl: str,
+    fwd_low: set[str],
+    rev_low: set[str],
+    explicit_arm_order: bool,
+) -> tuple[Path, bool]:
+    dir_label = _dir_contrast_label(cand)
+    dl_low = dir_label.lower()
+    if (not explicit_arm_order) and dl_low in rev_low:
+        return cand, True
+    if dl_low in fwd_low:
+        return cand, False
+    if (not explicit_arm_order) and num_lbl and den_lbl and ("_vs_" in dl_low or "-" in dl_low):
+        parts = dl_low.split("_vs_") if "_vs_" in dl_low else dl_low.split("-")
+        toks = {p.strip() for p in parts if p.strip()}
+        if toks & {num_lbl.lower(), den_lbl.lower()}:
+            raise ValueError(
+                f"Bare rMATS directory {cand} ('{dir_label}') conflicts with declared contrast "
+                f"'{cid}' ({num_lbl} vs {den_lbl})."
+            )
+    return cand, False
+
+
 def _resolve_contrast_rmats_dir(
     search_roots: list[Path],
     *,
@@ -132,10 +163,7 @@ def _resolve_contrast_rmats_dir(
             raise FileNotFoundError(f"Declared manifest rmats_dir for '{cid}' lacks *.MATS.{mode.upper()}.txt files: {explicit_dir}")
         if explicit_arm_order:
             return explicit_dir, False
-        rev_name = explicit_dir.name.lower() in rev_conflict_set or (
-            explicit_dir.name == "rmats_post"
-            and explicit_dir.parent.name.lower() in rev_conflict_set
-        )
+        rev_name = _dir_contrast_label(explicit_dir).lower() in rev_conflict_set
         return explicit_dir, rev_name
 
     fwd_names = tuple(dict.fromkeys(k for k in (cid, f"{num_lbl}-{den_lbl}", f"{num_lbl}_vs_{den_lbl}") if k))
@@ -154,7 +182,7 @@ def _resolve_contrast_rmats_dir(
 
     # Case-insensitive fallback across immediate subdirectories of each root
     fwd_low = {k.lower() for k in fwd_names}
-    rev_low = {k.lower() for k in rev_names}
+    rev_low = {k.lower() for k in rev_names} | rev_conflict_set
     available_subs: list[Path] = []
     for root in search_roots:
         if not root.is_dir():
@@ -178,9 +206,25 @@ def _resolve_contrast_rmats_dir(
 
     if n_contrasts == 1:
         if allow_bare_root is not None and _has_rmats_files(allow_bare_root, mode):
-            return allow_bare_root, False
+            return _validate_bare_dir_contrast(
+                allow_bare_root,
+                cid=cid,
+                num_lbl=num_lbl,
+                den_lbl=den_lbl,
+                fwd_low=fwd_low,
+                rev_low=rev_low,
+                explicit_arm_order=explicit_arm_order,
+            )
         if len(available_subs) == 1:
-            return available_subs[0], False
+            return _validate_bare_dir_contrast(
+                available_subs[0],
+                cid=cid,
+                num_lbl=num_lbl,
+                den_lbl=den_lbl,
+                fwd_low=fwd_low,
+                rev_low=rev_low,
+                explicit_arm_order=explicit_arm_order,
+            )
 
     raise FileNotFoundError(
         f"No rMATS contrast directory matched '{cid}' "
@@ -488,14 +532,22 @@ def _parse_manifest_rmats(bdir: Path) -> tuple[dict[str, list[str]], dict[str, d
             for k, v in top_ord.items():
                 if not isinstance(v, list):
                     raise ValueError(f"'rmats_sample_order[{k!r}]' must be a list of sample identifiers")
-                manifest_order[str(k).strip()] = [str(x).strip() for x in v]
+                k_s = str(k).strip()
+                if k_s in manifest_order:
+                    raise ValueError(f"Duplicate group key {k_s!r} in rmats_sample_order.")
+                manifest_order[k_s] = [str(x).strip() for x in v]
         comps_raw = bm.get("comparisons", [])
         if comps_raw is not None and not isinstance(comps_raw, list):
             raise ValueError("'comparisons' must be a list")
+        seen_cids: set[str] = set()
         for cm in comps_raw or []:
             if not isinstance(cm, dict) or not cm.get("comparison_id"):
                 continue
             cid_m = str(cm["comparison_id"]).strip()
+            cid_low = cid_m.lower()
+            if cid_low in seen_cids:
+                raise ValueError(f"Duplicate normalized comparison_id {cid_m!r} in manifest.json comparisons.")
+            seen_cids.add(cid_low)
             cm_ord_raw = cm.get("rmats_sample_order")
             cm_ord: dict[str, list[str]] = {}
             if cm_ord_raw is not None:
@@ -504,7 +556,10 @@ def _parse_manifest_rmats(bdir: Path) -> tuple[dict[str, list[str]], dict[str, d
                 for k, v in cm_ord_raw.items():
                     if not isinstance(v, list):
                         raise ValueError(f"comparisons[{cid_m!r}].rmats_sample_order[{k!r}] must be a list")
-                    cm_ord[str(k).strip()] = [str(x).strip() for x in v]
+                    k_s = str(k).strip()
+                    if k_s in cm_ord:
+                        raise ValueError(f"Duplicate group key {k_s!r} in comparisons[{cid_m!r}].rmats_sample_order.")
+                    cm_ord[k_s] = [str(x).strip() for x in v]
             comp_rec = {
                 "rmats_group1": str(cm["rmats_group1"]).strip() if cm.get("rmats_group1") else None,
                 "rmats_group2": str(cm["rmats_group2"]).strip() if cm.get("rmats_group2") else None,
@@ -512,7 +567,7 @@ def _parse_manifest_rmats(bdir: Path) -> tuple[dict[str, list[str]], dict[str, d
                 "rmats_sample_order": cm_ord,
             }
             manifest_comps[cid_m] = comp_rec
-            manifest_comps.setdefault(cid_m.lower(), comp_rec)
+            manifest_comps.setdefault(cid_low, comp_rec)
     except (_json.JSONDecodeError, ValueError, TypeError) as exc:
         raise ValueError(f"Malformed manifest.json in {mpath}: {exc}") from exc
     return manifest_order, manifest_comps
@@ -561,8 +616,12 @@ def load_rmats_study(
             manifest_order, manifest_comps = _parse_manifest_rmats(bdir)
             c_df = _read_delimited(c_path)
             n_contrasts = max(1, len(c_df))
+            seen_cids: set[str] = set()
             for _, r in c_df.iterrows():
                 cid = str(r.get("contrast") or r.get("contrast_id") or r.get("comparison_id")).strip()
+                if cid.lower() in seen_cids:
+                    raise ValueError(f"Duplicate normalized contrast_id {cid!r} in contrastsheet ({c_path}).")
+                seen_cids.add(cid.lower())
                 num_lbl = str(r.get("treatment") or r.get("numerator") or r.get("group_a")).strip()
                 den_lbl = str(r.get("control") or r.get("denominator") or r.get("group_b")).strip()
                 mc = manifest_comps.get(cid) or manifest_comps.get(cid.lower()) or {}
@@ -623,8 +682,12 @@ def load_rmats_study(
         if contrasts_file is not None and Path(contrasts_file).is_file() and sample_meta:
             c_df = _read_delimited(Path(contrasts_file))
             n_contrasts = max(1, len(c_df))
+            seen_cids_r: set[str] = set()
             for _, r in c_df.iterrows():
                 cid = str(r.get("contrast") or r.get("contrast_id") or r.get("comparison_id") or contrast_id).strip()
+                if cid.lower() in seen_cids_r:
+                    raise ValueError(f"Duplicate normalized contrast_id {cid!r} in contrasts file ({contrasts_file}).")
+                seen_cids_r.add(cid.lower())
                 num_lbl = str(r.get("treatment") or r.get("numerator") or r.get("group_a")).strip()
                 den_lbl = str(r.get("control") or r.get("denominator") or r.get("group_b")).strip()
                 cand, rev_dir = _resolve_contrast_rmats_dir(
@@ -645,21 +708,57 @@ def load_rmats_study(
                     "explicit_order": False,
                 })
         else:
-            # Single rMATS directory mode (infer sample counts from first non-empty table if needed)
+            # Single rMATS directory mode (lock arm order from directory contrast label when available)
             conds = list(dict.fromkeys(s["condition"] for s in sample_meta))
             if len(conds) >= 2:
-                num_lbl, den_lbl = conds[0], conds[1]
+                dir_label = _dir_contrast_label(rdir)
+                dl_low = dir_label.lower()
+                matched_pairs = [
+                    (ca, cb)
+                    for i, ca in enumerate(conds)
+                    for j, cb in enumerate(conds)
+                    if i != j and dl_low in {f"{ca}-{cb}".lower(), f"{ca}_vs_{cb}".lower(), f"{ca}_{cb}".lower()}
+                ]
+                cid_low = contrast_id.strip().lower()
+                cid_pairs = [
+                    (ca, cb)
+                    for i, ca in enumerate(conds)
+                    for j, cb in enumerate(conds)
+                    if i != j and cid_low in {f"{ca}-{cb}".lower(), f"{ca}_vs_{cb}".lower(), f"{ca}_{cb}".lower()}
+                ]
+                rev_dir = False
+                if len(cid_pairs) == 1:
+                    num_lbl, den_lbl = cid_pairs[0]
+                    if len(matched_pairs) == 1:
+                        if matched_pairs[0] == (den_lbl, num_lbl):
+                            rev_dir = True
+                        elif matched_pairs[0] != (num_lbl, den_lbl):
+                            raise ValueError(f"rMATS directory {rdir} matches {matched_pairs[0]} conflicting with contrast_id={contrast_id!r}.")
+                elif len(matched_pairs) == 1:
+                    if len(conds) == 2:
+                        num_lbl, den_lbl = conds[0], conds[1]
+                        rev_dir = (matched_pairs[0] == (den_lbl, num_lbl))
+                    else:
+                        num_lbl, den_lbl = matched_pairs[0]
+                elif len(matched_pairs) > 1 or len(cid_pairs) > 1:
+                    raise ValueError(f"Ambiguous condition matching in {rdir} for contrast_id={contrast_id!r}.")
+                elif len(conds) == 2:
+                    num_lbl, den_lbl = conds[0], conds[1]
+                else:
+                    raise ValueError(f"Samplesheet has >2 conditions ({conds}) without contrasts file or matching rMATS directory {rdir}.")
                 num_s = [s["sample_id"] for s in sample_meta if s["condition"] == num_lbl]
                 den_s = [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl]
             else:
-                num_lbl, den_lbl, num_s, den_s = "Group1", "Group2", [], []
+                num_lbl, den_lbl, num_s, den_s, rev_dir = "Group1", "Group2", [], [], False
             contrast_specs.append({
                 "contrast_id": contrast_id, "numerator": num_lbl, "denominator": den_lbl,
                 "rmats_dir": rdir, "num_samples": num_s, "den_samples": den_s,
-                "reverse_direction": False, "explicit_order": False,
+                "reverse_direction": rev_dir, "explicit_order": False,
             })
     else:
         raise ValueError("Either bundle_dir or rmats_dir must be supplied.")
+
+    has_declared_samples = bool(sample_meta)
 
     psi_obs: dict[tuple[str, str], list[float]] = {}
     sup_obs: dict[tuple[str, str], list[float]] = {}
@@ -699,12 +798,12 @@ def load_rmats_study(
             arm2_s = spec["num_samples"] if rev_d else spec["den_samples"]
             arm1_lbl = spec["denominator"] if rev_d else spec["numerator"]
             arm2_lbl = spec["numerator"] if rev_d else spec["denominator"]
-            if spec.get("explicit_order") and (
+            if (spec.get("explicit_order") or has_declared_samples) and (
                 len(arm1_s) != len(p1_first) or len(arm2_s) != len(p2_first)
             ):
                 raise ValueError(
-                    f"manifest.json rmats_sample_order length mismatch for contrast '{spec['contrast_id']}': "
-                    f"group1={len(arm1_s)} vs rMATS={len(p1_first)}, group2={len(arm2_s)} vs rMATS={len(p2_first)}"
+                    f"Declared sample count mismatch in {fpath.name} ({cdir}) for contrast '{spec['contrast_id']}': "
+                    f"{arm1_lbl}={len(arm1_s)} vs rMATS={len(p1_first)}, {arm2_lbl}={len(arm2_s)} vs rMATS={len(p2_first)}."
                 )
             n1_names = arm1_s if len(arm1_s) == len(p1_first) else [f"{arm1_lbl}_rep{i+1}" for i in range(len(p1_first))]
             n2_names = arm2_s if len(arm2_s) == len(p2_first) else [f"{arm2_lbl}_rep{i+1}" for i in range(len(p2_first))]

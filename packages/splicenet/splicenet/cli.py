@@ -1,4 +1,4 @@
-"""Standalone CLI for splicenet (1.0.4) — pure Python out-of-the-box, nf-core compatible."""
+"""Standalone CLI for splicenet (1.0.5) — pure Python out-of-the-box, nf-core compatible."""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,7 @@ from splicenet.evaluation import enrich_module_genes, score_modules
 from splicenet.network import consensus_core_audit, fit_splicenet
 from splicenet.qc_and_selection import select_events, unit_robust_audit
 
-__version__ = "1.0.4"
+__version__ = "1.0.5"
 def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SPLICENET") -> None:
     """Emit standard nf-core `versions.yml` recording tool and Python versions."""
     import platform
@@ -19,7 +19,7 @@ def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SPLI
     p.parent.mkdir(parents=True, exist_ok=True)
     yml = (
         f'"{process_name}":\n'
-        f'    splicenet: "1.0.4"\n'
+        f'    splicenet: "1.0.5"\n'
         f'    python: "{platform.python_version()}"\n'
     )
     p.write_text(yml, encoding="utf-8")
@@ -28,7 +28,7 @@ def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SPLI
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="splicenet",
-        description="SpliceNet 1.0.4: Excess-BioVar debiased signed TOM co-splicing network & module discovery.",
+        description="SpliceNet 1.0.5: Excess-BioVar debiased signed TOM co-splicing network & module discovery.",
     )
     parser.add_argument("--version", action="version", version=f"splicenet {__version__}")
     parser.add_argument("--bundle", type=Path, default=None, help="Katana upstream bundle directory (auto-extracts PSI & support matrices)")

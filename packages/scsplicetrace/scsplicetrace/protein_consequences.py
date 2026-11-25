@@ -861,8 +861,10 @@ def trace_protein_and_nmd_consequences(
                     adj_by_gene.setdefault(m.gene_id, set()).update(zip(m.exons, m.exons[1:]))
                 valid_pair_gids = {g for g, pairs in adj_by_gene.items() if (pair_l in pairs) and (pair_s in pairs)}
                 has_annotated_pair = bool(valid_pair_gids)
-                if has_annotated_pair and host is not None and host.gene_id not in valid_pair_gids:
-                    host = next(m for m in ranked_hosts if m.gene_id in valid_pair_gids)
+                if has_annotated_pair:
+                    ranked_hosts = [m for m in ranked_hosts if m.gene_id in valid_pair_gids]
+                    if host is None or host.gene_id not in valid_pair_gids:
+                        host = ranked_hosts[0]
                 if not has_annotated_pair:
                     if require_annotated_a3_a5_pair:
                         rows.append({
@@ -912,7 +914,7 @@ def trace_protein_and_nmd_consequences(
                 })
                 continue
 
-            coding_pool = [m for m in ranked_hosts if m.cds_blocks][:6]
+            coding_pool = [m for m in ranked_hosts if m.cds_blocks and m.gene_id == host.gene_id][:6]
             # Gene-wide furthest 3' coding/UTR boundary to heal clipped 3'-terminal exon annotations (e.g. ENST00000538290 vs ENST00000302035)
             gene_3p_min = min(m.exons[0][0] for m in coding_pool)
             gene_3p_max = max(m.exons[-1][1] for m in coding_pool)

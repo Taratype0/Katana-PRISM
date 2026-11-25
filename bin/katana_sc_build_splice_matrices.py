@@ -356,21 +356,26 @@ def standardize_metadata(
         bad_cids = md.loc[dup_cid, "cell_id"].drop_duplicates().head(5).tolist()
         raise ValueError(f"Duplicate physical cell_id entries in metadata (e.g. {bad_cids}).")
 
-    # Match barcodes cleanly per cell even when some STARsolo barcodes carry `-1` suffixes and others do not
+    # Match barcodes cleanly per cell: prefer exact match, otherwise allow terminal `-<digits>` STARsolo suffix equivalence only
+    _star_suffix_re = re.compile(r"-\d+$")
     obs_set = set(observed_cells)
-    base_to_obs: dict[str, list[str]] = defaultdict(list)
+    suffixed_to_obs: dict[str, list[str]] = defaultdict(list)
     for c_obs in observed_cells:
-        base_to_obs[c_obs.split("-")[0]].append(c_obs)
+        if _star_suffix_re.search(c_obs):
+            suffixed_to_obs[_star_suffix_re.sub("", c_obs)].append(c_obs)
 
     resolved_cids: list[str] = []
     for cid_raw in md["cell_id"]:
         if cid_raw in obs_set:
             resolved_cids.append(cid_raw)
+        elif _star_suffix_re.search(cid_raw):
+            bare = _star_suffix_re.sub("", cid_raw)
+            resolved_cids.append(bare if bare in obs_set else cid_raw)
         else:
-            cands = base_to_obs.get(cid_raw.split("-")[0], [])
+            cands = suffixed_to_obs.get(cid_raw, [])
             if len(cands) > 1:
                 raise ValueError(
-                    f"Duplicate observed cell barcodes after `-1` suffix normalization for {cid_raw!r}: {cands[:5]}."
+                    f"Duplicate observed cell barcodes after terminal `-<digits>` suffix normalization for {cid_raw!r}: {cands[:5]}."
                 )
             resolved_cids.append(cands[0] if len(cands) == 1 else cid_raw)
     md["cell_id"] = resolved_cids

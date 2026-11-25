@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import tarfile
 import numpy as np
 import pandas as pd
@@ -102,11 +103,15 @@ def _resolve_bundle_context(
     if c_path is not None:
         sep = "\t" if c_path.suffix.lower() in {".tsv", ".txt"} else ","
         c_df = pd.read_csv(c_path, sep=sep, dtype=str, keep_default_na=False)
+        seen_cids: set[str] = set()
         for _, r in c_df.iterrows():
             cid = str(r.get("contrast") or r.get("contrast_id") or r.get("comparison_id") or "").strip()
             num_l = str(r.get("treatment") or r.get("numerator") or r.get("group_a") or "").strip()
             den_l = str(r.get("control") or r.get("denominator") or r.get("group_b") or "").strip()
             if cid:
+                if cid.lower() in seen_cids:
+                    raise ValueError(f"Duplicate normalized contrast_id {cid!r} in contrastsheet ({c_path}).")
+                seen_cids.add(cid.lower())
                 contrasts.append((cid, num_l, den_l))
 
     manifest_comps: dict[str, dict[str, str]] = {}
@@ -119,19 +124,24 @@ def _resolve_bundle_context(
             comps_raw = bm.get("comparisons", [])
             if comps_raw is not None and not isinstance(comps_raw, list):
                 raise ValueError("'comparisons' must be a list")
+            seen_manifest_cids: set[str] = set()
+            for cm in comps_raw or []:
+                if not isinstance(cm, dict) or not cm.get("comparison_id"):
+                    continue
+                c_key = str(cm["comparison_id"]).strip()
+                c_low = c_key.lower()
+                if c_low in seen_manifest_cids:
+                    raise ValueError(f"Duplicate normalized comparison_id {c_key!r} in manifest.json comparisons.")
+                seen_manifest_cids.add(c_low)
+                rec = {
+                    "rmats_group1": str(cm.get("rmats_group1") or "").strip(),
+                    "rmats_group2": str(cm.get("rmats_group2") or "").strip(),
+                    "rmats_dir": str(cm.get("rmats_dir") or "").strip(),
+                }
+                manifest_comps[c_key] = rec
+                manifest_comps.setdefault(c_low, rec)
         except (json.JSONDecodeError, ValueError, TypeError) as exc:
             raise ValueError(f"Malformed manifest.json in {mpath}: {exc}") from exc
-        for cm in comps_raw or []:
-            if not isinstance(cm, dict) or not cm.get("comparison_id"):
-                continue
-            c_key = str(cm["comparison_id"]).strip()
-            rec = {
-                "rmats_group1": str(cm.get("rmats_group1") or "").strip(),
-                "rmats_group2": str(cm.get("rmats_group2") or "").strip(),
-                "rmats_dir": str(cm.get("rmats_dir") or "").strip(),
-            }
-            manifest_comps[c_key] = rec
-            manifest_comps.setdefault(c_key.lower(), rec)
 
     target_cid = contrast_id.strip() if (contrast_id is not None and contrast_id.strip()) else None
     matched_c: tuple[str, str, str] | None = None
@@ -291,45 +301,44 @@ def _select_tar_contrast_members(
     eff_cid_query: str | None,
     src: Path,
 ) -> dict[str, tarfile.TarInfo]:
-    """Select rMATS files from a single unambiguous contrast directory inside a `.tar`/`.tar.gz` archive."""
-    groups: dict[str, dict[str, tuple[int, tarfile.TarInfo]]] = {}
+    """Select rMATS files from a single contrast directory locked BEFORE mode validation inside `.tar`/`.tar.gz`."""
+    all_groups: dict[str, dict[str, dict[str, tarfile.TarInfo]]] = {}
+    mode_sufs = (("JCEC", ".MATS.JCEC.txt"), ("JC", ".MATS.JC.txt"))
     for member in tar:
         norm_name = member.name.replace("\\", "/").lstrip("./")
         base = norm_name.rsplit("/", 1)[-1]
         if not member.isfile() or base.startswith("._"):
             continue
         parent_parts = [p for p in norm_name.split("/")[:-1] if p and p != "."]
-        if parent_parts and parent_parts[-1] == "rmats_post":
+        if parent_parts and parent_parts[-1].lower() == "rmats_post":
             parent_parts = parent_parts[:-1]
         group_key = "/".join(parent_parts)
         for kind in EVENT_COORD_COLS:
-            for rank_p, suf in enumerate(prio_sufs):
+            for m_name, suf in mode_sufs:
                 if base == f"{kind}{suf}":
-                    g_bucket = groups.setdefault(group_key, {})
-                    prev = g_bucket.get(kind)
-                    if prev is not None and rank_p == prev[0]:
+                    g_mode = all_groups.setdefault(group_key, {}).setdefault(m_name, {})
+                    if kind in g_mode:
                         raise ValueError(
                             f"Duplicate rMATS '{kind}{suf}' entries in archive contrast directory {group_key or '.'!r} of {src}."
                         )
-                    if prev is None or rank_p < prev[0]:
-                        g_bucket[kind] = (rank_p, member)
+                    g_mode[kind] = member
 
-    if not groups:
+    if not all_groups:
         return {}
-    if len(groups) > 1:
+    if len(all_groups) > 1:
         if not eff_cid_query:
             raise ValueError(
-                f"Archive {src} contains multiple rMATS contrast directories ({sorted(groups)}); "
+                f"Archive {src} contains multiple rMATS contrast directories ({sorted(all_groups)}); "
                 "pass explicit --contrast-id / contrast_id= to select one unambiguously."
             )
         q_exact = eff_cid_query.strip()
         q_low = q_exact.lower()
-        matches = [k for k in groups if k == q_exact or Path(k).name == q_exact]
+        matches = [k for k in all_groups if k == q_exact or Path(k).name == q_exact]
         if not matches:
-            matches = [k for k in groups if k.lower() == q_low or Path(k).name.lower() == q_low]
+            matches = [k for k in all_groups if k.lower() == q_low or Path(k).name.lower() == q_low]
         if not matches:
             raise ValueError(
-                f"Requested contrast_id {eff_cid_query!r} not found among archive contrast directories {sorted(groups)} in {src}."
+                f"Requested contrast_id {eff_cid_query!r} not found among archive contrast directories {sorted(all_groups)} in {src}."
             )
         if len(matches) > 1:
             raise ValueError(
@@ -337,14 +346,24 @@ def _select_tar_contrast_members(
             )
         chosen = matches[0]
     else:
-        chosen = next(iter(groups))
+        chosen = next(iter(all_groups))
         if eff_cid_query and chosen:
             leaf = Path(chosen).name
-            if ("_vs_" in leaf or "-" in leaf) and leaf.lower() != eff_cid_query.strip().lower():
+            generic_names = {"rmats", "rmats_post", "rmats_out", "output", "outputs", "results"}
+            q_low = eff_cid_query.strip().lower()
+            if leaf.lower() not in generic_names and chosen.lower() != q_low and leaf.lower() != q_low:
                 raise ValueError(
                     f"Requested contrast_id {eff_cid_query!r} does not match archive contrast directory {chosen!r} in {src}."
                 )
-    return {kind: pair[1] for kind, pair in groups[chosen].items()}
+
+    req_mode = "JCEC" if ".MATS.JCEC.txt" in prio_sufs else "JC"
+    mode_bucket = all_groups[chosen].get(req_mode, {})
+    if not mode_bucket:
+        raise ValueError(
+            f"Archive contrast directory {chosen or '.'!r} in {src} lacks rMATS {req_mode} files "
+            f"(available modes: {sorted(all_groups[chosen])})."
+        )
+    return mode_bucket
 
 
 def _filter_precomputed_contrast(
@@ -357,7 +376,9 @@ def _filter_precomputed_contrast(
     c_col = next((c for c in ("comparison_id", "contrast_id", "contrast") if c in df.columns), None)
     if c_col is None or df.empty:
         return df
-    vals = df[c_col].astype(str).str.strip()
+    out_df = df.copy()
+    vals = out_df[c_col].fillna("").astype(str).str.strip()
+    out_df[c_col] = vals
     uniq_c = [v for v in dict.fromkeys(vals) if v and v.lower() != "nan"]
     if eff_cid_query is not None:
         q_s = eff_cid_query.strip()
@@ -368,13 +389,13 @@ def _filter_precomputed_contrast(
             raise ValueError(
                 f"Requested contrast_id {eff_cid_query!r} not found in {src} column '{c_col}' (available: {uniq_c})."
             )
-        return df.loc[mask].reset_index(drop=True)
+        return out_df.loc[mask].reset_index(drop=True)
     if len(uniq_c) > 1:
         raise ValueError(
             f"Precomputed event table {src} contains multiple contrasts in '{c_col}': {uniq_c}; "
             "specify explicit --contrast-id / contrast_id=."
         )
-    return df
+    return out_df
 
 
 def load_rmats_measurable_events(
@@ -419,6 +440,20 @@ def load_rmats_measurable_events(
             eff_rev = bundle_rev
         if comparison_id == "rmats_contrast" and bundle_cid:
             eff_comp_id = bundle_cid
+    elif src.is_dir() and reverse_direction is None and eff_cid_query:
+        dir_label = src.parent.name if src.name.lower() == "rmats_post" else src.name
+        q_str = eff_cid_query.strip()
+        q_parts = re.split(r"_vs_", q_str, maxsplit=1, flags=re.IGNORECASE)
+        if len(q_parts) != 2 and q_str.count("-") == 1:
+            q_parts = q_str.split("-", 1)
+        if len(q_parts) == 2:
+            num_q, den_q = q_parts[0].strip(), q_parts[1].strip()
+            if num_q and den_q and dir_label.lower() in {
+                f"{den_q}-{num_q}".lower(),
+                f"{den_q}_vs_{num_q}".lower(),
+                f"{den_q}_{num_q}".lower(),
+            }:
+                eff_rev = True
 
     frames: list[pd.DataFrame] = []
     found_any_rmats_file = False
@@ -449,7 +484,15 @@ def load_rmats_measurable_events(
         else:
             return raw_p
     else:
-        raw_t = _filter_precomputed_contrast(pd.read_csv(src, sep="\t", low_memory=False), eff_cid_query=eff_cid_query, src=src)
+        _pre_str_dtypes = {
+            "comparison_id": str, "contrast_id": str, "contrast": str,
+            "event_id": str, "gene_id": str, "gene_symbol": str,
+        }
+        raw_t = _filter_precomputed_contrast(
+            pd.read_csv(src, sep="\t", dtype=_pre_str_dtypes, low_memory=False),
+            eff_cid_query=eff_cid_query,
+            src=src,
+        )
         if "IncLevelDifference" in raw_t.columns and "dpsi" not in raw_t.columns and "event_type" in raw_t.columns:
             for kind, grp in raw_t.groupby("event_type"):
                 if str(kind) in EVENT_COORD_COLS:
