@@ -14,6 +14,31 @@ import re
 import pandas as pd
 
 
+_DONOR_COL_ALIASES = (
+    "donor_id",
+    "mouse_id",
+    "biological_sample_id",
+    "donor",
+    "subject",
+    "mouse",
+    "patient",
+    "individual",
+    "animal_id",
+)
+_MISSING_DONOR_TOKENS = {"", "nan", "none", "na", "null", "n/a"}
+
+
+def _valid_donors(series: pd.Series) -> list[str]:
+    out: list[str] = []
+    for v in series.tolist():
+        if pd.isna(v):
+            continue
+        s = str(v).strip()
+        if s.lower() not in _MISSING_DONOR_TOKENS:
+            out.append(s)
+    return out
+
+
 def slugify(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", str(text).strip()).strip("_")
 
@@ -23,6 +48,7 @@ def main() -> int:
     ap.add_argument("--metadata", type=Path, required=True)
     ap.add_argument("--celltype-cols", required=True, help="Comma-separated metadata columns (e.g., cell_type,atlas_subclass)")
     ap.add_argument("--group-col", default="condition")
+    ap.add_argument("--donor-col", default=None, help="Explicit donor/animal column name (auto-detects canonical aliases if omitted).")
     ap.add_argument("--numerator", default="")
     ap.add_argument("--denominator", default="")
     ap.add_argument("--condition-pairs", default="", help="Optional comma-separated NUM:DEN pairs (e.g., KO_Stim:WT_Stim,KO_Basal:WT_Basal)")
@@ -38,9 +64,24 @@ def main() -> int:
             md = md[md[qc_col].astype(str).str.lower().isin(("true", "1", "yes", "pass"))].copy()
             break
 
-    donor_col = next((c for c in ("donor_id", "mouse_id", "biological_sample_id", "donor", "subject") if c in md.columns), None)
-    if donor_col is None:
-        raise ValueError(f"Metadata {args.metadata} requires a donor/animal identifier column (donor_id or mouse_id).")
+    cols_l = {str(c).strip().lower(): str(c) for c in md.columns}
+    cid_col = next((cols_l[k] for k in ("cell_id", "cell_barcode", "barcode", "sample_id", "sample.id") if k in cols_l), None)
+    if cid_col is not None:
+        cids_clean = md[cid_col].astype(str).str.strip()
+        dup_cid = cids_clean.duplicated(keep=False)
+        if dup_cid.any():
+            bad_ids = cids_clean[dup_cid].drop_duplicates().head(5).tolist()
+            raise ValueError(f"Duplicate physical cell_id entries in metadata (e.g. {bad_ids}).")
+
+    if args.donor_col:
+        req_d = str(args.donor_col).strip()
+        donor_col = req_d if req_d in md.columns else cols_l.get(req_d.lower())
+        if donor_col is None:
+            raise ValueError(f"Donor column {args.donor_col!r} not found in metadata columns: {list(md.columns)}")
+    else:
+        donor_col = next((cols_l[k] for k in _DONOR_COL_ALIASES if k in cols_l), None)
+        if donor_col is None:
+            raise ValueError(f"Metadata {args.metadata} requires a donor/animal identifier column (donor_id or mouse_id).")
     if args.group_col not in md.columns:
         raise ValueError(f"Group column {args.group_col!r} not found in metadata columns: {list(md.columns)}")
 
@@ -75,8 +116,10 @@ def main() -> int:
         for num, den in pairs:
             s_num = sub[sub[args.group_col].astype(str).eq(num)]
             s_den = sub[sub[args.group_col].astype(str).eq(den)]
-            d_num = int(s_num[donor_col].astype(str).nunique())
-            d_den = int(s_den[donor_col].astype(str).nunique())
+            valid_num = _valid_donors(s_num[donor_col])
+            valid_den = _valid_donors(s_den[donor_col])
+            d_num = len(set(valid_num))
+            d_den = len(set(valid_den))
             testable = (d_num >= args.min_donors_per_arm) and (d_den >= args.min_donors_per_arm)
             cid = f"{pop_slug}__{slugify(num)}_vs_{slugify(den)}"
             if cid in seen_cids:

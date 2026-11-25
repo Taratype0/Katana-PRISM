@@ -37,7 +37,11 @@ def main() -> int:
         sup.index = sup.index.astype(str)
 
     md["cell_id"] = md["cell_id"].astype(str).str.strip()
-    md = md[md["cell_id"].isin(psi.index)].drop_duplicates("cell_id").reset_index(drop=True)
+    dup_cid = md["cell_id"].duplicated(keep=False)
+    if dup_cid.any():
+        bad_cids = md.loc[dup_cid, "cell_id"].drop_duplicates().head(5).tolist()
+        raise ValueError(f"Duplicate physical cell_id entries in metadata (e.g. {bad_cids}).")
+    md = md[md["cell_id"].isin(psi.index)].reset_index(drop=True)
 
     pcol = str(args.population_col).strip()
     pval = str(args.population_value).strip()

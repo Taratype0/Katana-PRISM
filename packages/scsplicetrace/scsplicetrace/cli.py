@@ -132,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--numerator", default=None)
     p.add_argument("--denominator", default=None)
     p.add_argument("--donor-col", default="donor_id")
+    p.add_argument("--allow-single-donor", action="store_true", help="Explicitly allow single-donor exploratory analysis when metadata lacks a donor column")
     p.add_argument(
         "--design-mode",
         choices=["auto", "paired", "unpaired", "stratified_meta"],
@@ -206,7 +207,8 @@ def main(argv: list[str] | None = None) -> int:
         contrast_df, donor_deltas, c_info = compute_sc_splicing_contrast(
             u_aligned, md, eg, support=s_aligned, group_col=args.group_col,
             numerator_group=args.numerator, denominator_group=args.denominator,
-            donor_col=args.donor_col, design_mode=args.design_mode, seed=args.seed,
+            donor_col=args.donor_col, allow_single_donor=args.allow_single_donor,
+            design_mode=args.design_mode, seed=args.seed,
         )
         summary["numerator_group"] = str(args.numerator)
         summary["denominator_group"] = str(args.denominator)

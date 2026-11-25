@@ -264,6 +264,13 @@ def fit_splicenet(
     rscript: Path | str | None = None,
 ) -> pd.DataFrame | tuple[pd.DataFrame, np.ndarray, np.ndarray]:
     """Fit single-block signed bicor TOM co-splicing network in pure Python (default) or via R WGCNA (`backend='r-wgcna'`)."""
+    raw_vals = selected_usage.to_numpy(dtype=float)
+    fin_mask = np.isfinite(raw_vals)
+    if fin_mask.any():
+        bad = (raw_vals[fin_mask] < -1e-9) | (raw_vals[fin_mask] > 1.0 + 1e-9)
+        if np.any(bad):
+            raise ValueError("selected_usage must contain finite PSI values within [0, 1].")
+
     means = selected_usage.mean(axis=1)
     complete = selected_usage.T.fillna(means).T
 
@@ -282,6 +289,7 @@ def fit_splicenet(
             bc_tmp = compute_tukey_bicor_matrix(X, max_p_outliers=max_p_outliers)
             eff_r_power = pick_soft_threshold(bc_tmp)
         max_block = int(len(complete)) if single_block else 2000
+        export_mats_flag = "1" if return_matrices else "0"
         r_body = f"""
         set.seed({int(seed)})
         suppressPackageStartupMessages(library(WGCNA))
@@ -294,13 +302,22 @@ def fit_splicenet(
         km <- signedKME(dat, net$MEs, corFnc='cor', corOptions="use = 'p'")
         own <- rep(NA_real_, ncol(dat))
         for(i in seq_along(own)) if(net$colors[i] != 0) {{ cname <- paste0('kME', net$colors[i]); if(cname %in% colnames(km)) own[i] <- km[i, cname] }}
-        write.table(data.frame(event_key=colnames(dat), module=as.integer(net$colors), block=as.integer(net$blocks), kME=own), args[2], sep='\t', quote=FALSE, row.names=FALSE)
+        write.table(data.frame(event_key=colnames(dat), module=as.integer(net$colors), block=as.integer(net$blocks), kME=own), args[2], sep='\\t', quote=FALSE, row.names=FALSE)
+        if ({export_mats_flag} == 1) {{
+          bc_r <- WGCNA::bicor(dat, maxPOutliers={float(max_p_outliers)})
+          tom_r <- WGCNA::TOMsimilarityFromExpr(dat, corType='bicor', networkType='signed', TOMType='signed', power={eff_r_power}, maxPOutliers={float(max_p_outliers)}, verbose=0)
+          write.table(bc_r, args[3], sep='\\t', quote=FALSE, row.names=FALSE, col.names=FALSE)
+          write.table(tom_r, args[4], sep='\\t', quote=FALSE, row.names=FALSE, col.names=FALSE)
+        }}
         """
         with tempfile.TemporaryDirectory(prefix="kcs_r_") as tmp:
             tp = Path(tmp)
             complete.to_csv(tp / "in.tsv", sep="\t", index_label="event_key")
             (tp / "run.R").write_text(r_body, encoding="utf-8")
-            proc = subprocess.run([r_bin, "--vanilla", str(tp / "run.R"), str(tp / "in.tsv"), str(tp / "out.tsv")], capture_output=True, text=True)
+            proc = subprocess.run(
+                [r_bin, "--vanilla", str(tp / "run.R"), str(tp / "in.tsv"), str(tp / "out.tsv"), str(tp / "bicor.tsv"), str(tp / "tom.tsv")],
+                capture_output=True, text=True,
+            )
             if proc.returncode != 0 or not (tp / "out.tsv").is_file():
                 err_msg = (proc.stderr or proc.stdout or "unknown R error").strip()[:400]
                 raise RuntimeError(f"R WGCNA backend failed (exit {proc.returncode}): {err_msg}")
@@ -310,8 +327,10 @@ def fit_splicenet(
                 Path(out_dir).mkdir(parents=True, exist_ok=True)
                 df_r.to_csv(Path(out_dir) / "assignments.tsv", sep="\t", index=False)
             if return_matrices:
-                bc_r = compute_tukey_bicor_matrix(X, max_p_outliers=max_p_outliers)
-                tom_r = compute_signed_tom_from_bicor(bc_r, power=eff_r_power)
+                if not ((tp / "bicor.tsv").is_file() and (tp / "tom.tsv").is_file()):
+                    raise RuntimeError("R WGCNA backend did not export native bicor/TOM matrices.")
+                bc_r = np.loadtxt(tp / "bicor.tsv", delimiter="\t", dtype=float)
+                tom_r = np.loadtxt(tp / "tom.tsv", delimiter="\t", dtype=float)
                 return df_r, bc_r, tom_r
             return df_r
 

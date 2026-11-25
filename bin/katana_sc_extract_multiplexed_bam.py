@@ -35,7 +35,11 @@ def load_qc_cells_and_aliases(
             break
     cid_col = next((c for c in ("cell_id", "cell_barcode", "barcode", "sample.id") if c in md.columns), md.columns[0])
     md["cell_id"] = md[cid_col].astype(str).str.strip()
-    md = md.drop_duplicates("cell_id").reset_index(drop=True)
+    dup_cid = md["cell_id"].duplicated(keep=False)
+    if dup_cid.any():
+        bad_cids = md.loc[dup_cid, "cell_id"].drop_duplicates().head(5).tolist()
+        raise ValueError(f"Duplicate physical cell_id entries in metadata (e.g. {bad_cids}).")
+    md = md.reset_index(drop=True)
     qc_set = set(md["cell_id"])
     if not qc_set:
         raise RuntimeError(f"Zero QC-passed cells found in {annotations_path}")

@@ -82,6 +82,7 @@ process SPLICETRACE {
     path fasta
     path gtf
     val  species
+    val  rmats_mode
     path splicenet_dir
     path bundle
 
@@ -92,6 +93,8 @@ process SPLICETRACE {
     script:
     def net_arg = splicenet_dir.name != 'NO_SPLICENET' ? "--splicenet-modules \"${splicenet_dir}/module_assignments.tsv\" --splicenet-scores \"${splicenet_dir}/module_scores.tsv\"" : ''
     def sp_val  = (species in ['human', 'mouse']) ? species : 'mouse'
+    def mode_val = (rmats_mode ?: 'JCEC').toString().toUpperCase()
+    def rmats_arg = rmats_dir.name != 'NO_RMATS_DIR' ? "--rmats \"${rmats_dir}\"" : ''
     """
     ${prismPythonPathBlock(projectDir)}
     fasta_ref="${fasta}"
@@ -104,7 +107,9 @@ process SPLICETRACE {
         EXPR_ARG="--rbp-expression ${bundle}/DEG/all.normalised_counts.tsv"
     fi
     splicetrace \
-        --rmats "${rmats_dir}" \
+        ${rmats_arg} \
+        --bundle "${bundle}" \
+        --rmats-mode "${mode_val}" \
         --fasta "\${fasta_ref}" \
         --gtf "\${gtf_ref}" \
         --species "${sp_val}" \
@@ -296,6 +301,7 @@ process SCSPLICETRACE {
     path gtf
     val  species
     val  group_col
+    val  donor_col
     val  numerator
     val  denominator
     path scsplicenet_dir
@@ -308,6 +314,7 @@ process SCSPLICETRACE {
     def sup_arg  = support_matrix.name != 'NO_SUPPORT' ? "--support ${support_matrix}" : ''
     def expr_arg = host_expression.name != 'NO_EXPRESSION' ? "--expression ${host_expression}" : ''
     def net_arg  = scsplicenet_dir.name != 'NO_SCSPLICENET' ? "--splicenet-modules ${scsplicenet_dir}/scsplicenet_modules.tsv" : ''
+    def don_arg  = donor_col ? "--donor-col \"${donor_col}\"" : ''
     def sp_val   = (species in ['human', 'mouse']) ? species : 'human'
     """
     ${prismPythonPathBlock(projectDir)}
@@ -324,6 +331,7 @@ process SCSPLICETRACE {
         --gtf "\${gtf_ref}" \
         --species "${sp_val}" \
         --group-col "${group_col}" \
+        ${don_arg} \
         --numerator "${numerator}" \
         --denominator "${denominator}" \
         ${sup_arg} \
@@ -454,6 +462,7 @@ process SC_BUILD_SPLICE_MATRICES {
     path cell_metadata
     path gtf
     val  group_col
+    val  donor_col
     val  numerator
     val  denominator
     val  min_cells
@@ -478,6 +487,7 @@ process SC_BUILD_SPLICE_MATRICES {
     def sj_arg  = specs.collect { "\"${it}\"" }.join(' ')
     def num_arg = numerator ? "--numerator \"${numerator}\"" : ''
     def den_arg = denominator ? "--denominator \"${denominator}\"" : ''
+    def don_arg = donor_col ? "--donor-col \"${donor_col}\"" : ''
     def pb_arg  = pseudobulk_by ? "--pseudobulk-by \"${pseudobulk_by}\"" : ''
     """
     katana_sc_build_splice_matrices.py \
@@ -485,6 +495,7 @@ process SC_BUILD_SPLICE_MATRICES {
         --sj-dirs ${sj_arg} \
         --metadata "${cell_metadata}" \
         --group-col "${group_col}" \
+        ${don_arg} \
         ${num_arg} \
         ${den_arg} \
         --min-cells ${min_cells} \
@@ -737,6 +748,7 @@ process SC_SUBTYPE_DOWNSTREAM {
     path gtf
     val  species
     val  group_col
+    val  donor_col
     val  min_cells
     val  das_fdr
     val  das_dpsi
@@ -755,6 +767,7 @@ process SC_SUBTYPE_DOWNSTREAM {
     def sp_val  = (species in ['human', 'mouse']) ? species : 'human'
     def do_net  = skip_network ? '0' : '1'
     def do_trc  = skip_splicetrace ? '0' : '1'
+    def don_arg = donor_col ? "--donor-col \"${donor_col}\"" : ''
     """
     ${prismPythonPathBlock(projectDir)}
     mkdir -p "${contrast_id}"
@@ -826,6 +839,7 @@ process SC_SUBTYPE_DOWNSTREAM {
             --gtf "\${gtf_ref}" \
             --species "${sp_val}" \
             --group-col "${group_col}" \
+            ${don_arg} \
             --numerator "${numerator}" \
             --denominator "${denominator}" \
             --support "\${SM_DIR}/sc_support.tsv.gz" \
@@ -914,6 +928,7 @@ process SC_ENUMERATE_TESTABLE_SUBTYPES {
     path cell_metadata
     val  celltype_cols
     val  group_col
+    val  donor_col
     val  numerator
     val  denominator
     val  condition_pairs
@@ -927,12 +942,14 @@ process SC_ENUMERATE_TESTABLE_SUBTYPES {
     script:
     def num_arg  = numerator ? "--numerator \"${numerator}\"" : ''
     def den_arg  = denominator ? "--denominator \"${denominator}\"" : ''
+    def don_arg  = donor_col ? "--donor-col \"${donor_col}\"" : ''
     def pair_arg = condition_pairs ? "--condition-pairs \"${condition_pairs}\"" : ''
     """
     python3 "${projectDir}/bin/katana_sc_enumerate_testable_subtypes.py" \
         --metadata "${cell_metadata}" \
         --celltype-cols "${celltype_cols}" \
         --group-col "${group_col}" \
+        ${don_arg} \
         ${num_arg} \
         ${den_arg} \
         ${pair_arg} \

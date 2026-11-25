@@ -163,6 +163,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--version", action="version", version=f"splicetrace {__version__}")
     parser.add_argument("--rmats", type=Path, default=None, help="rMATS directory, .tar.gz archive, or measurable events table")
+    parser.add_argument("--bundle", type=Path, default=None, help="Optional Katana bundle directory for contrast/manifest orientation resolution")
+    parser.add_argument("--rmats-mode", choices=["JCEC", "JC"], default="JCEC", help="rMATS count mode (default: JCEC)")
+    parser.add_argument("--reverse-direction", action="store_true", help="Explicitly flip rMATS group1/group2 orientation into numerator - denominator")
     parser.add_argument("--foreground", type=Path, default=None, help="Discrete foreground event table (.tsv[.gz]/.csv/.parquet)")
     parser.add_argument("--background", type=Path, default=None, help="Discrete background pool event table (.tsv[.gz]/.csv/.parquet)")
     parser.add_argument("--events", type=Path, default=None, help="Standalone event coordinate table for --gtf or --splicenet-modules runs")
@@ -212,14 +215,24 @@ def main(argv: list[str] | None = None) -> int:
     rbp_expr_df = _read_table(args.rbp_expression) if args.rbp_expression is not None else None
     mod_scores_df = _read_table(args.splicenet_scores) if args.splicenet_scores is not None else None
 
-    if args.rmats is not None and (args.mode in {"auto", "rescue"} and args.foreground is None):
-        meas_df = load_rmats_measurable_events(args.rmats, args.fasta)
+    if (args.rmats is not None or args.bundle is not None) and (args.mode in {"auto", "rescue"} and args.foreground is None):
+        rmats_in = args.rmats if args.rmats is not None else args.bundle
+        meas_df = load_rmats_measurable_events(
+            rmats_in,
+            args.fasta,
+            comparison_id=str(args.contrast_id or "rmats_contrast"),
+            rmats_mode=args.rmats_mode,
+            reverse_direction=True if args.reverse_direction else None,
+            bundle_dir=args.bundle,
+            contrast_id=args.contrast_id,
+        )
         bridge_pool_df = meas_df
+        dir_inv = bool(meas_df["reverse_direction"].iloc[0]) if ("reverse_direction" in meas_df.columns and not meas_df.empty) else bool(args.reverse_direction)
         if len(meas_df) < 10:
             pd.DataFrame(columns=["RBP", "best_channel", "stat_Z", "rbp_P_FWER"]).to_csv(out_dir / "rbp_ranking.tsv", sep="\t", index=False)
             pd.DataFrame(columns=["RBP", "region", "stat_Z", "P_FWER"]).to_csv(out_dir / "region_tests.tsv", sep="\t", index=False)
             meas_df.to_csv(out_dir / "evaluated_events.tsv", sep="\t", index=False)
-            receipt = {"version": __version__, "library": lib.name, "status": "insufficient_events_for_rescue", "evaluated_events": int(len(meas_df)), "active_threads": int(active_threads), "elapsed_seconds": round(time.monotonic() - t0, 2)}
+            receipt = {"version": __version__, "library": lib.name, "status": "insufficient_events_for_rescue", "evaluated_events": int(len(meas_df)), "rmats_mode": args.rmats_mode, "direction_inverted": dir_inv, "active_threads": int(active_threads), "elapsed_seconds": round(time.monotonic() - t0, 2)}
             (out_dir / "run_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
             if args.emit_versions_yml is not None:
                 write_nfcore_versions_yml(args.emit_versions_yml, args.process_name)
@@ -242,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
         rescue_res.event_contrasts.to_csv(out_dir / "evaluated_events.tsv", sep="\t", index=False)
         if not rescue_res.mature_consequences.empty:
             rescue_res.mature_consequences.to_csv(out_dir / "motif_consequence_changes.tsv", sep="\t", index=False)
-        receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "n_models": lib.n_models, "mode": "continuous_rescue", "active_threads": int(active_threads), **rescue_res.diagnostics}
+        receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "n_models": lib.n_models, "mode": "continuous_rescue", "rmats_mode": args.rmats_mode, "direction_inverted": dir_inv, "active_threads": int(active_threads), **rescue_res.diagnostics}
         if args.gtf is not None:
             fg_prot_ev = rescue_res.event_contrasts[rescue_res.event_contrasts["_is_fg"]]
             c_lbl = str(args.contrast_id or out_dir.name or "contrast")

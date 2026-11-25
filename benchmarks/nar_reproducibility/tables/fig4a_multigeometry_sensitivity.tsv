@@ -1,0 +1,6 @@
+regime	evaluated_junctions	M1_events	M2_events	M3_events	M4_events	study_fwer05_pairs	study_fwer05_rbps	cardiac_families_detected	ptbp_detected	rbfox_detected	mbnl_detected	notes
+Full_strict_GENCODE_representative	4310	311	290	208	165	15	12	3	True	True	True	Primary Table S4 / Fig 4A panel (deterministic representative coordinate for 720 SE + 30 A3/A5 multi-geometry junctions; 4,999 perms)
+Unique_GENCODE_geometry_only	3560	248	228	179	140	6	5	1	True	False	False	Drops all 750 multi-geometry junctions; PTBP remains study-FWER <= 0.05 whereas RBFOX/MBNL fall below study-FWER <= 0.05
+Size_matched_random_drop_seed1	3560	248	228	179	140	11	10	3	True	True	True	Randomly drops 750 junctions stratified identically by (module x event_type)
+Size_matched_random_drop_seed2	3560	248	228	179	140	16	13	3	True	True	True	Randomly drops 750 junctions stratified identically by (module x event_type)
+Size_matched_random_drop_seed3	3560	248	228	179	140	9	8	2	True	True	False	Randomly drops 750 junctions stratified identically by (module x event_type)

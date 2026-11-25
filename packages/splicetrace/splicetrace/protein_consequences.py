@@ -768,6 +768,7 @@ def trace_protein_and_nmd_consequences(
     *,
     indexed_fasta_cls: type,
     species: str = "auto",
+    require_annotated_a3_a5_pair: bool = True,
 ) -> pd.DataFrame:
     """Deterministic GTF + FASTA + Curated UniProt/Pfam ORF, reading-frame, NMD, and protein-domain consequence engine."""
     if events_df.empty:
@@ -804,6 +805,43 @@ def trace_protein_and_nmd_consequences(
             host = ranked_hosts[0] if ranked_hosts else None
             if host is not None and (gsym == gid or gsym.startswith(("ENSG", "ENSMUSG"))) and host.gene_name:
                 gsym = host.gene_name
+
+            conditional_novel_a3_a5 = False
+            if etype in ("A3SS", "A5SS"):
+                try:
+                    l0_a, l1_a = int(rec["longExonStart_0base"]), int(rec["longExonEnd"])
+                    s0_a, s1_a = int(rec["shortES"]), int(rec["shortEE"])
+                    valid_geom = (l0_a <= s0_a < s1_a <= l1_a) and (l0_a == s0_a or l1_a == s1_a) and ((l1_a - l0_a) > (s1_a - s0_a))
+                    gene_exons = {ex for m in (ranked_hosts or candidates) for ex in m.exons}
+                    has_annotated_pair = bool(valid_geom and ((l0_a, l1_a) in gene_exons) and ((s0_a, s1_a) in gene_exons))
+                except (KeyError, TypeError, ValueError):
+                    has_annotated_pair = False
+                if not has_annotated_pair:
+                    if require_annotated_a3_a5_pair:
+                        rows.append({
+                            "event_id": eid,
+                            "gene_id": gid,
+                            "gene_symbol": gsym,
+                            "event_type": etype,
+                            "dpsi": dpsi,
+                            "host_transcript_id": host.transcript_id if host else "unmatched",
+                            "uniprot_acc": "NA",
+                            "coding_region_location": "complex_junction_usage",
+                            "frame_status": "complex_junction_usage",
+                            "nmd_switch_class": "complex_junction_usage",
+                            "aa_len_inclusion": 0,
+                            "aa_len_exclusion": 0,
+                            "delta_aa": 0,
+                            "ptc_to_last_ejc_nt": 0,
+                            "disrupted_protein_features": "none",
+                            "functional_consequence_summary": (
+                                "Excluded: A3SS/A5SS coordinates lack an annotated shared-boundary exon pair in GTF "
+                                "(pass require_annotated_a3_a5_pair=False for conditional novel-site modeling)"
+                            ),
+                            "architecture_json": "{}",
+                        })
+                        continue
+                    conditional_novel_a3_a5 = True
 
             if host is None or not host.cds_blocks:
                 rows.append({
@@ -997,6 +1035,8 @@ def trace_protein_and_nmd_consequences(
                 else:
                     dom_note = f"; remodels {feat_str}" if feat_str != "none" else ""
                     summary = f"Productive {f_status}: {t_inc['aa_len']} vs {t_exc['aa_len']} aa ({delta_aa:+d} aa){dom_note}"
+            if conditional_novel_a3_a5:
+                summary = f"[Conditional novel-site model] {summary}"
 
             rows.append({
                 "event_id": eid,

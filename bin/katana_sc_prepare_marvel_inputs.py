@@ -418,7 +418,12 @@ def main() -> int:
     args.outdir.mkdir(parents=True, exist_ok=True)
     md = pd.read_csv(args.metadata, sep="," if args.metadata.suffix.lower() == ".csv" else "\t")
     cid_col = next((c for c in ("cell_id", "cell_barcode", "barcode", "sample.id", "sample_id") if c in md.columns), md.columns[0])
-    keep_cells = md[cid_col].astype(str).str.strip().drop_duplicates().tolist()
+    cid_series = md[cid_col].astype(str).str.strip()
+    dup_cid = cid_series.duplicated(keep=False)
+    if dup_cid.any():
+        bad_cids = cid_series[dup_cid].drop_duplicates().head(5).tolist()
+        raise ValueError(f"Duplicate physical cell_id entries in metadata (e.g. {bad_cids}).")
+    keep_cells = cid_series.tolist()
 
     bc_to_cell = {c: c for c in keep_cells}
     if args.barcode_shares and args.barcode_shares.is_file():

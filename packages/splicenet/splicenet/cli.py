@@ -87,9 +87,10 @@ def main(argv: list[str] | None = None) -> int:
         receipt = {
             "version": __version__,
             "status": "insufficient_events_for_network",
-            "backend": args.backend,
+            "skip_reason": "insufficient_events",
+            "backend": "none",
             "requested_backend": args.backend,
-            "effective_backend": args.backend,
+            "effective_backend": "none",
             "input_events": int(len(usage)),
             "qc_eligible_events": int(audit["eligible"].sum()) if not audit.empty else 0,
             "selected_events": int(len(selected)),

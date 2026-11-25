@@ -50,8 +50,18 @@ workflow KATANA_MODULAR_DOWNSTREAM {
             .splitCsv(header: true)
             .combine(ch_bundle)
             .map { row, bundle ->
-                def cid = row.contrast ?: row.contrast_id
-                tuple(cid, bundle.resolve("rmats/${cid}/rmats_post"))
+                def cid = (row.contrast ?: row.contrast_id ?: row.comparison_id)?.toString()?.trim()
+                def treat = (row.treatment ?: row.numerator ?: '')?.toString()?.trim()
+                def ctrl = (row.control ?: row.denominator ?: '')?.toString()?.trim()
+                def cands = [
+                    "rmats/${cid}/rmats_post",
+                    "rmats/${cid}",
+                    "rnasplicing/rmats/${cid}/rmats_post",
+                    treat && ctrl ? "rnasplicing/rmats/${treat}-${ctrl}/rmats_post" : null,
+                    treat && ctrl ? "rnasplicing/rmats/${ctrl}-${treat}/rmats_post" : null,
+                ].findAll { it != null }.collect { bundle.resolve(it) }
+                def chosen = cands.find { java.nio.file.Files.isDirectory(it) } ?: cands[0]
+                tuple(cid, chosen)
             }
 
         SPLICETRACE(
@@ -59,6 +69,7 @@ workflow KATANA_MODULAR_DOWNSTREAM {
             ch_fasta,
             ch_gtf,
             params.species ?: 'mouse',
+            params.rmats_mode ?: 'JCEC',
             ch_splicenet,
             ch_bundle
         )

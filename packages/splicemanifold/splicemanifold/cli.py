@@ -134,16 +134,20 @@ def _run_single_cell(args: argparse.Namespace) -> int:
                         return s_val
         return default
 
+    seen_cids: set[str] = set()
     sample_meta = []
     for _, r in md_df.iterrows():
         cid = _meta_str(r, "cell_id", "sample_id")
         if not cid:
             continue
+        if cid in seen_cids:
+            raise ValueError(f"Duplicate physical cell_id entry in single-cell metadata: {cid!r}")
+        seen_cids.add(cid)
         sample_meta.append({
             "sample_id": cid,
             "condition": _meta_str(r, "condition", "cell_type", default="State"),
             "cell_type": _meta_str(r, "cell_type", "condition", default="Cell"),
-            "donor_id": _meta_str(r, "donor_id", "donor", default=""),
+            "donor_id": _meta_str(r, "donor_id", "mouse_id", "biological_sample_id", "donor", "subject", "mouse", "patient", "individual", "animal_id", default=""),
         })
 
     event_meta = {}

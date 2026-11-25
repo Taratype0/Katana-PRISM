@@ -763,7 +763,7 @@ def run_bulk(
     s_df = samples.copy() if isinstance(samples, pd.DataFrame) else _read_tabular(Path(samples))
     sid_col = next((c for c in ("sample_id", "sample", "id") if c in s_df.columns), s_df.columns[0])
     cond_col = next((c for c in ("condition", "group") if c in s_df.columns), s_df.columns[1])
-    bio_col = next((c for c in ("biological_sample_id", "subject", "donor_id") if c in s_df.columns), None)
+    bio_col = next((c for c in ("biological_sample_id", "donor_id", "donor", "mouse_id", "subject", "patient", "individual", "animal_id") if c in s_df.columns), None)
     samples_list = [
         {
             "sample_id": str(r[sid_col]).strip(),

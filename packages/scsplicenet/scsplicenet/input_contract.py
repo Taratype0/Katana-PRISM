@@ -91,7 +91,14 @@ def validate_sc_usage_input(
         raise ValueError("Duplicate cell_id entries in metadata")
 
     required_cols = {"cell_id", "donor_id", "cell_type", "condition"}
-    for alias_src, alias_dst in (("donor", "donor_id"), ("animal_ID", "donor_id"), ("treatment", "condition")):
+    cols_lower = {str(c).strip().lower(): str(c) for c in md.columns}
+    if "donor_id" not in md.columns:
+        for d_alias in ("mouse_id", "biological_sample_id", "donor", "subject", "mouse", "patient", "individual", "animal_id"):
+            orig_d = cols_lower.get(d_alias)
+            if orig_d is not None:
+                md["donor_id"] = md[orig_d]
+                break
+    for alias_src, alias_dst in (("treatment", "condition"),):
         if alias_dst not in md.columns and alias_src in md.columns:
             md[alias_dst] = md[alias_src]
     if not required_cols <= set(md.columns):

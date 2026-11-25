@@ -289,23 +289,83 @@ def load_junction_counts(sj_specs: list[str], junc_to_idx: dict[tuple[str, int, 
     return full_mat, all_cells
 
 
-def standardize_metadata(meta_path: Path, observed_cells: list[str], group_col: str, numerator: str | None, denominator: str | None) -> pd.DataFrame:
+_DONOR_ID_ALIASES = (
+    "donor_id",
+    "mouse_id",
+    "biological_sample_id",
+    "donor",
+    "subject",
+    "mouse",
+    "patient",
+    "individual",
+    "animal_id",
+)
+_MISSING_DONOR_TOKENS = {"", "nan", "none", "na", "null", "n/a"}
+
+
+def _sanitize_donor_values(series: pd.Series) -> pd.Series:
+    return pd.Series(
+        [
+            "" if (pd.isna(v) or str(v).strip().lower() in _MISSING_DONOR_TOKENS) else str(v).strip()
+            for v in series.tolist()
+        ],
+        index=series.index,
+        dtype="object",
+    )
+
+
+def standardize_metadata(
+    meta_path: Path,
+    observed_cells: list[str],
+    group_col: str,
+    numerator: str | None,
+    denominator: str | None,
+    *,
+    donor_col: str | None = None,
+    allow_single_donor: bool = False,
+) -> pd.DataFrame:
     sep = "," if meta_path.suffix.lower() == ".csv" else "\t"
     md = pd.read_csv(meta_path, sep=sep)
-    cols_l = {str(c).lower(): c for c in md.columns}
+    cols_l = {str(c).strip().lower(): str(c) for c in md.columns}
     cid_c = next((cols_l[k] for k in ("cell_id", "cell", "barcode", "sample_id", "sample", "id") if k in cols_l), md.columns[0])
     md = md.rename(columns={cid_c: "cell_id"})
     md["cell_id"] = md["cell_id"].astype(str).str.strip()
+    dup_cid = md["cell_id"].duplicated(keep=False)
+    if dup_cid.any():
+        bad_cids = md.loc[dup_cid, "cell_id"].drop_duplicates().head(5).tolist()
+        raise ValueError(f"Duplicate physical cell_id entries in metadata (e.g. {bad_cids}).")
 
     # Match barcodes cleanly even if `-1` suffix differs between expression/metadata and STARsolo
     obs_set = set(observed_cells)
     if len(set(md["cell_id"]) & obs_set) == 0:
         stripped_map = {c.split("-")[0]: c for c in observed_cells}
         md["cell_id"] = [stripped_map.get(c.split("-")[0], c) for c in md["cell_id"]]
+        dup_stripped = md["cell_id"].duplicated(keep=False)
+        if dup_stripped.any():
+            bad_s = md.loc[dup_stripped, "cell_id"].drop_duplicates().head(5).tolist()
+            raise ValueError(f"Duplicate cell_id entries after barcode suffix normalization (e.g. {bad_s}).")
 
-    if "donor_id" not in md.columns:
-        don_c = next((cols_l[k] for k in ("donor", "donor_id", "biological_sample_id", "subject", "mouse", "patient", "individual") if k in cols_l), None)
-        md["donor_id"] = md[don_c].astype(str) if don_c else "Donor1"
+    cols_l = {str(c).strip().lower(): str(c) for c in md.columns}
+    if donor_col is not None and str(donor_col).strip():
+        req_d = str(donor_col).strip()
+        resolved_don = req_d if req_d in md.columns else cols_l.get(req_d.lower())
+        if resolved_don is None:
+            raise ValueError(f"Donor column {donor_col!r} not found in metadata columns: {list(md.columns)}")
+        md["donor_id"] = _sanitize_donor_values(md[resolved_don])
+    elif "donor_id" in md.columns:
+        md["donor_id"] = _sanitize_donor_values(md["donor_id"])
+    else:
+        don_c = next((cols_l[k] for k in _DONOR_ID_ALIASES if k in cols_l), None)
+        if don_c is not None:
+            md["donor_id"] = _sanitize_donor_values(md[don_c])
+        elif allow_single_donor:
+            md["donor_id"] = "Donor1"
+        else:
+            raise ValueError(
+                f"Metadata {meta_path} requires a donor/animal identifier column (e.g., donor_id, mouse_id, biological_sample_id). "
+                "Pass --allow-single-donor only for single-donor exploratory analysis."
+            )
+
     if "cell_type" not in md.columns:
         ct_c = next((cols_l[k] for k in ("cell_type", "celltype", "cluster", "annotation", "lineage") if k in cols_l), None)
         md["cell_type"] = md[ct_c].astype(str) if ct_c else md.get("condition", "Cell")
@@ -326,7 +386,7 @@ def standardize_metadata(meta_path: Path, observed_cells: list[str], group_col: 
     if "qc_pass" not in md.columns:
         md["qc_pass"] = True
 
-    md = md[md["cell_id"].isin(obs_set)].drop_duplicates("cell_id").reset_index(drop=True)
+    md = md[md["cell_id"].isin(obs_set)].reset_index(drop=True)
     if md.empty:
         raise ValueError("Zero overlapping cell_ids between --metadata and STAR splice junction barcodes.")
     return md
@@ -338,6 +398,8 @@ def main() -> int:
     ap.add_argument("--sj-dirs", nargs="+", required=True, help="STARsolo SJ/raw dirs (optional prefix::path) or *.SJ.out.tab dirs.")
     ap.add_argument("--metadata", type=Path, required=True)
     ap.add_argument("--outdir", type=Path, required=True)
+    ap.add_argument("--donor-col", default=None, help="Explicit donor/animal column name (auto-detects donor_id/mouse_id/biological_sample_id if omitted).")
+    ap.add_argument("--allow-single-donor", action="store_true", help="Allow single-donor fallback when metadata lacks a donor column.")
     ap.add_argument("--group-col", default="condition", help="Metadata column for contrast (e.g., condition or cell_type).")
     ap.add_argument("--numerator", default=None)
     ap.add_argument("--denominator", default=None)
@@ -351,7 +413,15 @@ def main() -> int:
         raise RuntimeError(f"No alternative splicing events constructed from GTF: {args.gtf}")
 
     j_mat, obs_cells = load_junction_counts(args.sj_dirs, junc_to_idx)
-    md = standardize_metadata(args.metadata, obs_cells, args.group_col, args.numerator, args.denominator)
+    md = standardize_metadata(
+        args.metadata,
+        obs_cells,
+        args.group_col,
+        args.numerator,
+        args.denominator,
+        donor_col=args.donor_col,
+        allow_single_donor=args.allow_single_donor,
+    )
 
     cell_to_col = {c: i for i, c in enumerate(obs_cells)}
     keep_cols = [cell_to_col[c] for c in md["cell_id"]]

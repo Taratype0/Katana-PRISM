@@ -35,6 +35,27 @@ EVENT_COORDINATES = (
 )
 
 
+_DONOR_ID_ALIASES = (
+    "biological_sample_id",
+    "donor_id",
+    "donor",
+    "mouse_id",
+    "subject",
+    "patient",
+    "individual",
+    "animal_id",
+)
+_BLANK_DONOR_TOKENS = {"", "nan", "none", "na", "null", "n/a"}
+
+_COORD_KEY_COLS = {
+    "SE": ("exonStart_0base", "exonEnd", "upstreamES", "upstreamEE", "downstreamES", "downstreamEE"),
+    "A3SS": ("longExonStart_0base", "longExonEnd", "shortES", "shortEE", "flankingES", "flankingEE"),
+    "A5SS": ("longExonStart_0base", "longExonEnd", "shortES", "shortEE", "flankingES", "flankingEE"),
+    "MXE": ("1stExonStart_0base", "1stExonEnd", "2ndExonStart_0base", "2ndExonEnd", "upstreamES", "upstreamEE", "downstreamES", "downstreamEE"),
+    "RI": ("riExonStart_0base", "riExonEnd", "upstreamES", "upstreamEE", "downstreamES", "downstreamEE"),
+}
+
+
 def _clean_id(val: object) -> str:
     if val is None:
         return ""
@@ -44,6 +65,113 @@ def _clean_id(val: object) -> str:
     except (TypeError, ValueError):
         pass
     return str(val).strip().strip('"').strip("'")
+
+
+def _extract_donor_id(row: pd.Series | dict[str, Any], fallback_sid: str) -> str:
+    """Resolve biological donor identity across canonical metadata aliases, falling back to sample_id."""
+    col_map = {str(k).strip().lower(): k for k in row.keys()}
+    for alias in _DONOR_ID_ALIASES:
+        orig_col = col_map.get(alias)
+        if orig_col is None:
+            continue
+        raw_val = row[orig_col]
+        try:
+            if pd.isna(raw_val):
+                continue
+        except (TypeError, ValueError):
+            pass
+        cleaned = str(raw_val).strip().strip('"').strip("'")
+        if cleaned.lower() not in _BLANK_DONOR_TOKENS:
+            return cleaned
+    return fallback_sid
+
+
+def _has_rmats_files(d: Path, mode: str = "JCEC") -> bool:
+    if not d.is_dir():
+        return False
+    modes = tuple(dict.fromkeys((mode.upper(), "JCEC", "JC")))
+    return any((d / f"{et}.MATS.{m}.txt").is_file() for et in EVENT_TYPES for m in modes)
+
+
+def _coordinate_keys(frame: pd.DataFrame, event_type: str) -> pd.Series:
+    """Colon-delimited event key matching splicenet/splicetrace (`SE:chr:strand:...`)."""
+    cols = _COORD_KEY_COLS.get(event_type, ())
+    if cols and {"chr", "strand", *cols}.issubset(frame.columns):
+        return (
+            event_type + ":" + frame["chr"].map(_clean_id) + ":" + frame["strand"].map(_clean_id) + ":"
+            + frame[list(cols)].apply(lambda c: c.map(_clean_id)).agg(":".join, axis=1)
+        )
+    return canonical_event_ids(frame, event_type)
+
+
+def _resolve_contrast_rmats_dir(
+    search_roots: list[Path],
+    *,
+    cid: str,
+    num_lbl: str,
+    den_lbl: str,
+    n_contrasts: int,
+    mode: str,
+    explicit_dir: Path | None = None,
+    allow_bare_root: Path | None = None,
+) -> tuple[Path, bool]:
+    """Strictly match a declared contrast to its rMATS directory without multi-contrast bare reuse."""
+    if explicit_dir is not None and _has_rmats_files(explicit_dir, mode):
+        rev_name = explicit_dir.name in {f"{den_lbl}-{num_lbl}", f"{den_lbl}_vs_{num_lbl}"} or (
+            explicit_dir.name == "rmats_post"
+            and explicit_dir.parent.name in {f"{den_lbl}-{num_lbl}", f"{den_lbl}_vs_{num_lbl}"}
+        )
+        return explicit_dir, rev_name
+
+    fwd_names = tuple(dict.fromkeys(k for k in (cid, f"{num_lbl}-{den_lbl}", f"{num_lbl}_vs_{den_lbl}") if k))
+    rev_names = tuple(dict.fromkeys(k for k in (f"{den_lbl}-{num_lbl}", f"{den_lbl}_vs_{num_lbl}") if k))
+
+    for root in search_roots:
+        if not root.is_dir():
+            continue
+        for k in fwd_names:
+            for cand in (root / k / "rmats_post", root / k):
+                if _has_rmats_files(cand, mode):
+                    return cand, False
+        for k in rev_names:
+            for cand in (root / k / "rmats_post", root / k):
+                if _has_rmats_files(cand, mode):
+                    return cand, True
+
+    # Case-insensitive fallback across immediate subdirectories of each root
+    fwd_low = {k.lower() for k in fwd_names}
+    rev_low = {k.lower() for k in rev_names}
+    available_subs: list[Path] = []
+    for root in search_roots:
+        if not root.is_dir():
+            continue
+        for sub in sorted(root.iterdir()):
+            if not sub.is_dir():
+                continue
+            target = (
+                sub / "rmats_post"
+                if _has_rmats_files(sub / "rmats_post", mode)
+                else (sub if _has_rmats_files(sub, mode) else None)
+            )
+            if target is None:
+                continue
+            available_subs.append(target)
+            low_name = sub.name.lower()
+            if low_name in fwd_low:
+                return target, False
+            if low_name in rev_low:
+                return target, True
+
+    if n_contrasts == 1:
+        if allow_bare_root is not None and _has_rmats_files(allow_bare_root, mode):
+            return allow_bare_root, False
+        if len(available_subs) == 1:
+            return available_subs[0], False
+
+    raise FileNotFoundError(
+        f"No rMATS contrast directory matched '{cid}' "
+        f"(tried {list(fwd_names) + list(rev_names)}) under {[str(r) for r in search_roots]}"
+    )
 
 
 def normalize_gene_id(val: object) -> str:
@@ -294,6 +422,44 @@ def _read_delimited(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, sep=sep)
 
 
+def _parse_manifest_rmats(bdir: Path) -> tuple[dict[str, list[str]], dict[str, dict[str, Any]]]:
+    """Read `manifest.json` sample order and per-contrast rMATS group/dir declarations."""
+    import json as _json
+
+    manifest_order: dict[str, list[str]] = {}
+    manifest_comps: dict[str, dict[str, Any]] = {}
+    mpath = bdir / "manifest.json"
+    if not mpath.is_file():
+        return manifest_order, manifest_comps
+    try:
+        bm = _json.loads(mpath.read_text(encoding="utf-8"))
+        if isinstance(bm.get("rmats_sample_order"), dict):
+            manifest_order = {
+                str(k): [str(x) for x in v]
+                for k, v in bm["rmats_sample_order"].items()
+                if isinstance(v, list)
+            }
+        for cm in bm.get("comparisons", []):
+            if not isinstance(cm, dict) or not cm.get("comparison_id"):
+                continue
+            cid_m = str(cm["comparison_id"]).strip()
+            comp_rec = {
+                "rmats_group1": str(cm["rmats_group1"]).strip() if cm.get("rmats_group1") else None,
+                "rmats_group2": str(cm["rmats_group2"]).strip() if cm.get("rmats_group2") else None,
+                "rmats_dir": str(cm["rmats_dir"]).strip() if cm.get("rmats_dir") else None,
+                "rmats_sample_order": (
+                    {str(k): [str(x) for x in v] for k, v in cm["rmats_sample_order"].items() if isinstance(v, list)}
+                    if isinstance(cm.get("rmats_sample_order"), dict)
+                    else {}
+                ),
+            }
+            manifest_comps[cid_m] = comp_rec
+            manifest_comps.setdefault(cid_m.lower(), comp_rec)
+    except Exception:
+        pass
+    return manifest_order, manifest_comps
+
+
 def load_rmats_study(
     *,
     bundle_dir: Path | None = None,
@@ -330,46 +496,47 @@ def load_rmats_study(
         for _, r in s_df.iterrows():
             sid = str(r.get("sample") or r.get("sample_id")).strip()
             cond = str(r.get("condition") or r.get("group") or "Group").strip()
+            bio = _extract_donor_id(r, sid)
             if sid and not any(x["sample_id"] == sid for x in sample_meta):
-                sample_meta.append({"sample_id": sid, "biological_sample_id": sid, "condition": cond})
+                sample_meta.append({"sample_id": sid, "biological_sample_id": bio, "condition": cond})
         if c_path is not None and c_path.is_file():
-            import json as _json
-            manifest_order: dict[str, list[str]] = {}
-            manifest_arms: dict[str, tuple[str, str]] = {}
-            if (bdir / "manifest.json").is_file():
-                try:
-                    bm = _json.loads((bdir / "manifest.json").read_text(encoding="utf-8"))
-                    if isinstance(bm.get("rmats_sample_order"), dict):
-                        manifest_order = {str(k): [str(x) for x in v] for k, v in bm["rmats_sample_order"].items() if isinstance(v, list)}
-                    for cm in bm.get("comparisons", []):
-                        if isinstance(cm, dict) and cm.get("comparison_id") and cm.get("rmats_group1") and cm.get("rmats_group2"):
-                            manifest_arms[str(cm["comparison_id"])] = (str(cm["rmats_group1"]), str(cm["rmats_group2"]))
-                except Exception:
-                    pass
+            manifest_order, manifest_comps = _parse_manifest_rmats(bdir)
             c_df = _read_delimited(c_path)
+            n_contrasts = max(1, len(c_df))
             for _, r in c_df.iterrows():
-                cid = str(r.get("contrast") or r.get("contrast_id")).strip()
-                num_lbl = str(r.get("treatment") or r.get("numerator")).strip()
-                den_lbl = str(r.get("control") or r.get("denominator")).strip()
-                rdir_candidates = (
-                    (bdir / "rmats" / cid / "rmats_post", False),
-                    (bdir / "rmats" / cid, False),
-                    (bdir / "rnasplicing/rmats" / f"{num_lbl}-{den_lbl}" / "rmats_post", False),
-                    (bdir / "rnasplicing/rmats" / cid / "rmats_post", False),
-                    (bdir / "rnasplicing/rmats" / f"{den_lbl}-{num_lbl}" / "rmats_post", True),
+                cid = str(r.get("contrast") or r.get("contrast_id") or r.get("comparison_id")).strip()
+                num_lbl = str(r.get("treatment") or r.get("numerator") or r.get("group_a")).strip()
+                den_lbl = str(r.get("control") or r.get("denominator") or r.get("group_b")).strip()
+                mc = manifest_comps.get(cid) or manifest_comps.get(cid.lower()) or {}
+                exp_dir = None
+                if mc.get("rmats_dir"):
+                    raw_d = Path(mc["rmats_dir"])
+                    exp_dir = raw_d if raw_d.is_absolute() else (bdir / raw_d)
+                rdir, path_inverted = _resolve_contrast_rmats_dir(
+                    [bdir / "rmats", bdir / "rnasplicing/rmats"],
+                    cid=cid,
+                    num_lbl=num_lbl,
+                    den_lbl=den_lbl,
+                    n_contrasts=n_contrasts,
+                    mode=mode,
+                    explicit_dir=exp_dir,
+                    allow_bare_root=None,
                 )
-                rdir, path_inverted = next(
-                    ((p, inv) for p, inv in rdir_candidates if p.is_dir()),
-                    (bdir / "rmats" / cid / "rmats_post", False),
-                )
-                g1_lbl, g2_lbl = manifest_arms.get(cid, (num_lbl, den_lbl))
-                rev_dir = (g1_lbl == den_lbl and g2_lbl == num_lbl) if cid in manifest_arms else path_inverted
-                num_s = manifest_order.get(num_lbl) or [s["sample_id"] for s in sample_meta if s["condition"] == num_lbl]
-                den_s = manifest_order.get(den_lbl) or [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl]
+                g1_lbl = mc.get("rmats_group1") or num_lbl
+                g2_lbl = mc.get("rmats_group2") or den_lbl
+                has_manifest_arms = bool(mc.get("rmats_group1") and mc.get("rmats_group2"))
+                rev_dir = (g1_lbl == den_lbl and g2_lbl == num_lbl) if has_manifest_arms else path_inverted
+                cm_order = mc.get("rmats_sample_order") or {}
+                num_ord = cm_order.get(num_lbl) or manifest_order.get(num_lbl)
+                den_ord = cm_order.get(den_lbl) or manifest_order.get(den_lbl)
+                num_s = num_ord or [s["sample_id"] for s in sample_meta if s["condition"] == num_lbl]
+                den_s = den_ord or [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl]
+                explicit_order = bool(num_ord or den_ord)
                 contrast_specs.append({
                     "contrast_id": cid, "numerator": num_lbl, "denominator": den_lbl,
                     "rmats_dir": rdir, "num_samples": num_s, "den_samples": den_s,
                     "reverse_direction": rev_dir,
+                    "explicit_order": explicit_order,
                 })
     elif rmats_dir is not None:
         rdir = Path(rmats_dir)
@@ -378,30 +545,32 @@ def load_rmats_study(
             for _, r in s_df.iterrows():
                 sid = str(r.get("sample_id") or r.get("sample")).strip()
                 cond = str(r.get("condition") or r.get("group") or "Group").strip()
-                bio = str(r.get("biological_sample_id") or sid).strip()
+                bio = _extract_donor_id(r, sid)
                 if sid and not any(x["sample_id"] == sid for x in sample_meta):
                     sample_meta.append({"sample_id": sid, "biological_sample_id": bio, "condition": cond})
         if contrasts_file is not None and Path(contrasts_file).is_file() and sample_meta:
             c_df = _read_delimited(Path(contrasts_file))
+            n_contrasts = max(1, len(c_df))
             for _, r in c_df.iterrows():
-                cid = str(r.get("contrast") or r.get("contrast_id") or contrast_id).strip()
-                num_lbl = str(r.get("treatment") or r.get("numerator")).strip()
-                den_lbl = str(r.get("control") or r.get("denominator")).strip()
-                cand_options = (
-                    (rdir / cid / "rmats_post", False),
-                    (rdir / cid, False),
-                    (rdir / f"{num_lbl}-{den_lbl}" / "rmats_post", False),
-                    (rdir / f"{num_lbl}-{den_lbl}", False),
-                    (rdir / f"{den_lbl}-{num_lbl}" / "rmats_post", True),
-                    (rdir / f"{den_lbl}-{num_lbl}", True),
+                cid = str(r.get("contrast") or r.get("contrast_id") or r.get("comparison_id") or contrast_id).strip()
+                num_lbl = str(r.get("treatment") or r.get("numerator") or r.get("group_a")).strip()
+                den_lbl = str(r.get("control") or r.get("denominator") or r.get("group_b")).strip()
+                cand, rev_dir = _resolve_contrast_rmats_dir(
+                    [rdir],
+                    cid=cid,
+                    num_lbl=num_lbl,
+                    den_lbl=den_lbl,
+                    n_contrasts=n_contrasts,
+                    mode=mode,
+                    allow_bare_root=rdir,
                 )
-                cand, rev_dir = next(((p, inv) for p, inv in cand_options if p.is_dir()), (rdir, False))
                 contrast_specs.append({
                     "contrast_id": cid, "numerator": num_lbl, "denominator": den_lbl,
                     "rmats_dir": cand,
                     "num_samples": [s["sample_id"] for s in sample_meta if s["condition"] == num_lbl],
                     "den_samples": [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl],
                     "reverse_direction": rev_dir,
+                    "explicit_order": False,
                 })
         else:
             # Single rMATS directory mode (infer sample counts from first non-empty table if needed)
@@ -415,6 +584,7 @@ def load_rmats_study(
             contrast_specs.append({
                 "contrast_id": contrast_id, "numerator": num_lbl, "denominator": den_lbl,
                 "rmats_dir": rdir, "num_samples": num_s, "den_samples": den_s,
+                "reverse_direction": False, "explicit_order": False,
             })
     else:
         raise ValueError("Either bundle_dir or rmats_dir must be supplied.")
@@ -426,8 +596,13 @@ def load_rmats_study(
 
     for spec in contrast_specs:
         cdir = Path(spec["rmats_dir"])
+        eff_mode = (
+            mode
+            if any((cdir / f"{et}.MATS.{mode}.txt").is_file() for et in EVENT_TYPES)
+            else next((m for m in ("JCEC", "JC") if any((cdir / f"{et}.MATS.{m}.txt").is_file() for et in EVENT_TYPES)), mode)
+        )
         for et in EVENT_TYPES:
-            fpath = cdir / f"{et}.MATS.{mode}.txt"
+            fpath = cdir / f"{et}.MATS.{eff_mode}.txt"
             if not fpath.is_file():
                 continue
             _str_cols = {
@@ -440,11 +615,13 @@ def load_rmats_study(
             df = df.copy()
             df["event_type"] = et
             df["event_id"] = canonical_event_ids(df, et)
+            df["coordinate_key"] = _coordinate_keys(df, et)
             rev_d = bool(spec.get("reverse_direction", False))
             df["comparison_id"] = spec["contrast_id"]
             df["numerator"] = spec["numerator"]
             df["denominator"] = spec["denominator"]
             df["reverse_direction"] = rev_d
+            df["rmats_mode"] = eff_mode
             df["gene_id"] = df["GeneID"].map(normalize_gene_id) if "GeneID" in df.columns else ""
             df["gene_symbol"] = df["geneSymbol"].map(_clean_id) if "geneSymbol" in df.columns else df["gene_id"]
 
@@ -454,6 +631,13 @@ def load_rmats_study(
             arm2_s = spec["num_samples"] if rev_d else spec["den_samples"]
             arm1_lbl = spec["denominator"] if rev_d else spec["numerator"]
             arm2_lbl = spec["numerator"] if rev_d else spec["denominator"]
+            if spec.get("explicit_order") and (
+                (arm1_s and len(arm1_s) != len(p1_first)) or (arm2_s and len(arm2_s) != len(p2_first))
+            ):
+                raise ValueError(
+                    f"manifest.json rmats_sample_order length mismatch for contrast '{spec['contrast_id']}': "
+                    f"group1={len(arm1_s)} vs rMATS={len(p1_first)}, group2={len(arm2_s)} vs rMATS={len(p2_first)}"
+                )
             n1_names = arm1_s if len(arm1_s) == len(p1_first) else [f"{arm1_lbl}_rep{i+1}" for i in range(len(p1_first))]
             n2_names = arm2_s if len(arm2_s) == len(p2_first) else [f"{arm2_lbl}_rep{i+1}" for i in range(len(p2_first))]
             for s in n1_names:

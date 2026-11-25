@@ -25,6 +25,17 @@ def _bh_fdr_mask(p_vals: np.ndarray, mask: np.ndarray) -> np.ndarray:
 
 
 _MISSING_DONOR_TOKENS = {"", "nan", "none", "na", "null", "n/a"}
+_DONOR_COL_ALIASES = (
+    "donor_id",
+    "mouse_id",
+    "biological_sample_id",
+    "donor",
+    "subject",
+    "mouse",
+    "patient",
+    "individual",
+    "animal_id",
+)
 
 
 def _valid_donor_mask(series: pd.Series) -> np.ndarray:
@@ -34,6 +45,27 @@ def _valid_donor_mask(series: pd.Series) -> np.ndarray:
         [(not pd.isna(v)) and (str(v).strip().lower() not in _MISSING_DONOR_TOKENS) for v in vals],
         dtype=bool,
     )
+
+
+def _resolve_sc_donor_col(md: pd.DataFrame, donor_col: str | None, *, allow_single_donor: bool) -> str | None:
+    """Resolve donor identifier column consistently across canonical aliases, failing loudly if absent."""
+    req = str(donor_col).strip() if donor_col is not None else "donor_id"
+    if req in md.columns:
+        return req
+    cols_l = {str(c).strip().lower(): str(c) for c in md.columns}
+    if req.lower() in cols_l:
+        return cols_l[req.lower()]
+    if donor_col is None or req == "donor_id":
+        for alias in _DONOR_COL_ALIASES:
+            if alias in cols_l:
+                return cols_l[alias]
+        if allow_single_donor:
+            return None
+        raise ValueError(
+            "Metadata requires a donor/animal identifier column (e.g., donor_id, mouse_id, biological_sample_id). "
+            "Pass allow_single_donor=True / --allow-single-donor only for an explicit single-donor exploratory analysis."
+        )
+    raise ValueError(f"Donor column {donor_col!r} not found in metadata columns: {list(md.columns)}")
 
 
 @dataclass(frozen=True)
@@ -56,7 +88,8 @@ def compute_sc_splicing_contrast(
     group_col: str = "condition",
     numerator_group: str,
     denominator_group: str,
-    donor_col: str = "donor_id",
+    donor_col: str | None = "donor_id",
+    allow_single_donor: bool = False,
     min_cells_per_group: int = 8,
     min_support_per_group: float = 10.0,
     min_paired_donors: int = 3,
@@ -90,29 +123,45 @@ def compute_sc_splicing_contrast(
     md = metadata.copy()
     if "qc_pass" in md.columns:
         md = md.loc[md["qc_pass"].astype(str).str.lower().isin(("true", "1", "yes", "pass"))].copy()
+    if "cell_id" not in md.columns:
+        raise ValueError("Metadata must include explicit 'cell_id' column")
+    md["cell_id"] = md["cell_id"].astype(str).str.strip()
+    dup_md = md["cell_id"].duplicated(keep=False)
+    if dup_md.any():
+        bad_ids = md.loc[dup_md, "cell_id"].drop_duplicates().head(5).tolist()
+        raise ValueError(
+            f"Duplicate physical cell_id entries in metadata (e.g. {bad_ids}); "
+            "each physical cell must appear once with an unambiguous donor and condition assignment."
+        )
+
+    eff_donor_col = _resolve_sc_donor_col(md, donor_col, allow_single_donor=allow_single_donor)
     cells_excluded_missing_donor_id = 0
-    if donor_col not in md.columns and "donor" in md.columns:
-        md[donor_col] = md["donor"]
-    if donor_col in md.columns:
-        valid_dn = _valid_donor_mask(md[donor_col])
+    if eff_donor_col is not None:
+        valid_dn = _valid_donor_mask(md[eff_donor_col])
         cells_excluded_missing_donor_id = int((~valid_dn).sum())
         md = md.loc[valid_dn].copy()
         if md.empty:
             raise ValueError("Zero cells remain after excluding missing or blank donor IDs")
-        md[donor_col] = md[donor_col].astype(str).str.strip()
+        donor_series = md[eff_donor_col].astype(str).str.strip()
     else:
-        md[donor_col] = "single_cohort"
-    md["cell_id"] = md["cell_id"].astype(str)
+        donor_series = pd.Series("single_cohort", index=md.index)
+    canonical_donor_col = "_resolved_donor_id"
+    md[canonical_donor_col] = donor_series
+
     md = md.loc[md[group_col].astype(str).isin([str(numerator_group), str(denominator_group)])].copy()
     if md.empty:
         raise ValueError("Zero cells match numerator_group / denominator_group")
 
     u_df = usage.copy()
-    u_df.index = u_df.index.astype(str)
+    u_df.index = u_df.index.astype(str).str.strip()
+    if u_df.index.has_duplicates:
+        raise ValueError("Duplicate cell_id rows in usage matrix")
     valid_cells = set(u_df.index)
     if support is not None:
         s_df = support.copy()
-        s_df.index = s_df.index.astype(str)
+        s_df.index = s_df.index.astype(str).str.strip()
+        if s_df.index.has_duplicates:
+            raise ValueError("Duplicate cell_id rows in support matrix")
         valid_cells &= set(s_df.index)
     else:
         s_df = None
@@ -128,7 +177,7 @@ def compute_sc_splicing_contrast(
         t = finite.astype(float)
 
     g_vec = md[group_col].astype(str).to_numpy()
-    d_vec = md[donor_col].astype(str).to_numpy()
+    d_vec = md[canonical_donor_col].astype(str).to_numpy()
     is_num = g_vec == str(numerator_group)
     is_den = g_vec == str(denominator_group)
 
