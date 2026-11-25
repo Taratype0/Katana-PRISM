@@ -1,4 +1,4 @@
-# Katana-PRISM (`v1.0.2` Candidate) — Public Benchmark Reproducibility Suite
+# Katana-PRISM (`v1.0.2`) — Public Benchmark Reproducibility Suite
 
 This directory provides the standalone benchmark driver (`reproduce_nar_benchmarks.py`) and verified summary tables (`tables/*.tsv`) accompanying the *Nucleic Acids Research* manuscript:
 
