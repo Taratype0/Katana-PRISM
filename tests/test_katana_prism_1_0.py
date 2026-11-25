@@ -308,7 +308,7 @@ def test_all_six_standalone_packages_end_to_end(tmp_path: Path) -> None:
     assert (sm_bulk_out / "ps_das_events.tsv").is_file()
     assert (sm_bulk_out / "figures" / "psi_clustermap.png").is_file()
     assert (sm_bulk_out / "figures" / "psi_pca.png").is_file()
-    assert 'splicemanifold: "1.0.2"' in (sm_bulk_out / "versions.yml").read_text(encoding="utf-8")
+    assert 'splicemanifold: "1.0.3"' in (sm_bulk_out / "versions.yml").read_text(encoding="utf-8")
 
     sm_sc_out = tmp_path / "out_splicemanifold_sc"
     rc = sm_main([
@@ -338,7 +338,7 @@ def test_all_six_standalone_packages_end_to_end(tmp_path: Path) -> None:
     assert rc == 0
     assert (sn_out / "module_assignments.tsv").is_file()
     assert (sn_out / "module_scores.tsv").is_file()
-    assert 'splicenet: "1.0.2"' in (sn_out / "versions.yml").read_text(encoding="utf-8")
+    assert 'splicenet: "1.0.3"' in (sn_out / "versions.yml").read_text(encoding="utf-8")
 
     # 3. SpliceTrace (Bulk: 170-RBP map + SpliceNet bridge + 50-nt EJC NMD & UniProt consequences)
     from splicetrace.cli import main as st_main
@@ -359,7 +359,7 @@ def test_all_six_standalone_packages_end_to_end(tmp_path: Path) -> None:
     assert (st_out / "protein_and_nmd_consequences.tsv").is_file()
     assert (st_out / "module_rbp_bridge.tsv").is_file()
     assert len(pd.read_csv(st_out / "module_rbp_bridge.tsv", sep="\t")) > 0
-    assert 'splicetrace: "1.0.2"' in (st_out / "versions.yml").read_text(encoding="utf-8")
+    assert 'splicetrace: "1.0.3"' in (st_out / "versions.yml").read_text(encoding="utf-8")
 
     # 4. scSpliceNet (Single-Cell)
     from scsplicenet.cli import main as scsn_main
@@ -1816,7 +1816,7 @@ def test_zero_confidential_brand_or_typo_leaks() -> None:
             continue
         if f.resolve() == Path(__file__).resolve():
             continue
-        if any(part in {".git", "__pycache__", ".pytest_cache", "dummy_inspection_reports"} for part in f.parts):
+        if any(part in {".git", "__pycache__", ".pytest_cache", "dummy_inspection_reports", "node_modules", "dist"} for part in f.parts):
             continue
         txt = f.read_text(encoding="utf-8", errors="replace")
         m = forbidden.search(txt)

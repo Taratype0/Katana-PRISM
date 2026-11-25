@@ -11,7 +11,7 @@ from katana_next.workflows.sources import selected_source, selection_rows
 
 
 class BindingEnrichmentWorkflow(WorkflowBase):
-    version = "1.0.2"
+    version = "1.0.3"
     definition = WorkflowDefinition(
         "prioritize.binding_enrichment", "prioritize", "RBP CLIP-site enrichment by comparison",
         "Do selected splice boundaries overlap known experimental RBP binding sites more often than matched measurable events?",

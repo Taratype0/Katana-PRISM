@@ -10,7 +10,7 @@ from katana_next.workflows.bulk import _plot
 
 
 class SingleCellIsoformWorkflow(WorkflowBase):
-    version = "1.0.2"
+    version = "1.0.3"
     definition = WorkflowDefinition(
         workflow_id="single_cell.isoform_usage", workspace_id="single-cell",
         label="Transcript usage and diversity",

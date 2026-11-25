@@ -1,4 +1,4 @@
-"""Portable public benchmark runner for Katana-PRISM v1.0.2 (Nucleic Acids Research).
+"""Portable public benchmark runner for Katana-PRISM v1.0.3 (Nucleic Acids Research).
 
 Reproduces & verifies:
   1. 13-channel (`distal_intron_nt = 500`, mature-RNA path + 12 spatial windows) FWL-orthogonalized `SpliceTrace`
@@ -6,13 +6,17 @@ Reproduces & verifies:
      scans across all `18` untruncated bulk cohorts.
   2. Exact `GRCh38` `HepG2` IDR `eCLIP` and neuronal `PTBP2` `CLIP` whole-event and `+-35 nt` motif-locus
      conditional MLE Fisher odds ratios and exact 95% confidence intervals.
-  3. Real `GSE122380` (`N = 297` libraries, `19` donors x `16` days, `M1–M4`) `SpliceNet -> SpliceTrace` `12`-channel
-     module-to-RBP regulatory bridge (`676` rows), `6`-method `50`-trial matched study-wide `Holm <= 0.05` null calibration
-     (`4.0%` vs `34.0%–48.0%`), and `978` coding alluvial flows (`612` bridged + `366` `M3/M4` orphan).
+  3. Real `GSE122380` (`N = 297` libraries, `19` donors x `16` days, strict GENCODE v28 paired `M1–M4`)
+     `SpliceNet -> SpliceTrace` `12`-channel module-to-RBP regulatory bridge (`676` rows across `4,310` valid
+     junctions; `15` study-FWER hits across `12` dev RBPs / `3` families; `0` M3/M4 FPs), `6`-method `50`-trial matched
+     study-wide `Holm <= 0.05` null calibration (`0.0%` vs `22.0%–52.0%`), `625` coding proteome/NMD candidates
+     (`354` bridged + `271` `M3/M4` orphan), and unified `128`-gene common-control `SpliceNet` evaluation plus
+     `AR(1)`-calibrated paired-donor Early-vs-Late PERMANOVA (`P = 0.0001`).
   4. `GSE270928` Smart-seq3 dual-denominator retention (`0/1,000` shared HVIs; `327/66,391` multi-isoform transcripts via
-     `kallisto v0.46.1`), `7`-mouse `Tabula Muris` `70`-split calibration & real-anchored `sigma_het` sweep, `Tasic` `71`-mouse
-     (`6.3x / 2.9x > acorde`), `GSE270928` usage (`0.00968` virtual tie vs `acorde` `0.00966` / `0.00952`), donor splicing
-     (`-16.1%/-16.3%` vs `CASREL`, tying `MRAS`), `Longcell` `N=1` stress test (`0/12` `FWER`), `SLAMF1`, and dual-background `MSigDB`.
+     `kallisto v0.46.1`), `7`-mouse cross-tissue `Tabula Muris` `70`-split calibration & real-anchored `sigma_het` sweep,
+     `Tasic` `71`-mouse (`6.3x / 2.9x > acorde`), `GSE270928` usage (`0.00968` tie vs `acorde` `0.00966` / `0.00952`),
+     donor splicing (`-16.1%/-16.3%` vs `CASREL`, tying `MRAS`), `Longcell` `N=1` stress test (`0/12` `FWER`), `SLAMF1`,
+     and dual-background `MSigDB`.
 """
 from __future__ import annotations
 
@@ -190,46 +194,59 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert [round(float(x), 2) for x in het_real["perm_exchangeable_FWER05_pct"]] == [5.0, 11.0, 8.0]
     assert [round(float(x), 2) for x in het_real["rademacher_hc_FWER05_pct"]] == [2.25, 5.0, 5.25]
 
-    # 3. Multi-donor GSE122380 SpliceNet, bulk manifold, GEUVADIS, GSE62669, Regulatory Bridge & 50-trial null benchmark
+    # 3. Multi-donor GSE122380 SpliceNet (unified 128-gene common-control pool), bulk manifold, GEUVADIS, GSE62669, Regulatory Bridge & 50-trial null benchmark
     f3d = pd.read_csv(tables_path / "fig3d_gse122380_fair_wgcna_and_djexpress.tsv", sep="\t")
-    assert len(f3d) == 12 and "evaluable_coherence_donors" in f3d.columns
-    r1k = f3d[(f3d["budget"] == 1000) & f3d["method"].eq("Locked_CoSplice_v4_3_3")].iloc[0]
-    r2k = f3d[(f3d["budget"] == 2000) & f3d["method"].eq("Locked_CoSplice_v4_3_3")].iloc[0]
-    r5k = f3d[(f3d["budget"] == 5000) & f3d["method"].eq("Locked_CoSplice_v4_3_3")].iloc[0]
-    assert int(r1k["evaluable_coherence_donors"]) == 0 and pd.isna(r1k["median_coherence_gap"])
-    assert int(r2k["evaluable_coherence_donors"]) == 8 and abs(float(r2k["median_coherence_gap"]) - 0.2764) < 1e-3
-    assert int(r5k["evaluable_coherence_donors"]) == 19 and abs(float(r5k["median_coherence_gap"]) - 0.3467) < 1e-3
-    py_sub = f3d[f3d["method"].eq("CoSplice_v2_Full_ExcessBioVar")].set_index("budget")
+    assert len(f3d) == 14 and "evaluable_coherence_donors" in f3d.columns
+    ref_sub = f3d[f3d["method"].eq("Locked_CoSplice_v4_3_3")].set_index("budget")
+    assert list(ref_sub.loc[[1000, 2000, 5000], "evaluable_coherence_donors"].astype(int)) == [19, 19, 19]
+    assert abs(float(ref_sub.loc[1000, "median_coherence_gap"]) - 0.3834) < 1e-3
+    assert abs(float(ref_sub.loc[2000, "median_coherence_gap"]) - 0.3426) < 1e-3
+    assert abs(float(ref_sub.loc[5000, "median_coherence_gap"]) - 0.3155) < 1e-3
+    py_sub = f3d[f3d["method"].eq("Pure_Python_SpliceNet")].set_index("budget")
     assert list(py_sub.loc[[1000, 2000, 5000], "evaluable_coherence_donors"].astype(int)) == [19, 19, 19]
+    assert abs(float(py_sub.loc[1000, "median_coherence_gap"]) - 0.1470) < 1e-3
+    assert abs(float(py_sub.loc[2000, "median_coherence_gap"]) - 0.0759) < 1e-3
+    assert abs(float(py_sub.loc[5000, "median_coherence_gap"]) - 0.0300) < 1e-3
+    wrap_sub = f3d[f3d["method"].eq("R_Backed_Python_Wrapper_v2")].set_index("budget")
+    assert abs(float(wrap_sub.loc[5000, "median_coherence_gap"]) - 0.3079) < 1e-3
     w5k = f3d[(f3d["budget"] == 5000) & f3d["method"].eq("Standard_WGCNA_SameUsageRatio")].iloc[0]
-    assert abs(float(w5k["median_coherence_gap"]) - 0.0209) < 1e-3
+    assert abs(float(w5k["median_coherence_gap"]) - 0.0159) < 1e-3
     g62 = pd.read_csv(tables_path / "fig2_gse62669_splicenet_vs_wgcna_mantel.tsv", sep="\t").set_index("method")
     assert int(g62.loc["Historical_CoSplice_v1", "non_grey_modules"]) == 2
-    assert len(pd.read_csv(tables_path / "fig3e_gse122380_crossfold_stability.tsv", sep="\t")) == 6
+    cf3e = pd.read_csv(tables_path / "fig3e_gse122380_crossfold_stability.tsv", sep="\t")
+    assert len(cf3e) == 6
+    assert abs(float(cf3e[(cf3e["budget"] == 5000) & cf3e["method"].eq("Katana_PRISM_SpliceNet")]["cross_fold_ARI_median"].iloc[0]) - 0.5753) < 1e-3
     f2m = pd.read_csv(tables_path / "fig2_bulk_manifold_vs_jutils_marvel.tsv", sep="\t")
     assert len(f2m) == 16 and abs(float(f2m.loc[f2m["dropout_rate"].eq(0.45) & f2m["method"].str.contains("SpliceManifold"), "permanova_r2"].iloc[0]) - 0.1992) < 1e-4
+    assert float(f2m.loc[f2m["method"].str.contains("SpliceManifold"), "donor_centroid_signflip_p"].max()) <= 0.0001 + 1e-9
+    ar_cal = pd.read_csv(tables_path / "fig3f_longitudinal_ar_calibration.tsv", sep="\t")
+    assert len(ar_cal) == 3 and (ar_cal["observed_fpr"] <= 0.07).all()
 
     b_df = pd.read_csv(tables_path / "fig4a_gse122380_module_rbp_bridge_distal500.tsv", sep="\t")
     assert len(b_df) == 676 and b_df["module"].nunique() == 4 and b_df["RBP"].nunique() == 169
     sig_study = b_df[b_df["study_P_FWER"] <= 0.05]
-    assert len(sig_study) == 9 and set(sig_study["module"].unique()) == {"M1", "M2"}
+    assert len(sig_study) == 15 and sig_study["RBP"].nunique() == 12 and set(sig_study["module"].unique()) == {"M1", "M2"}
     assert float(b_df.loc[b_df["module"].isin(["M3", "M4"]), "study_P_FWER"].min()) > 0.05
+    assert float(b_df.loc[b_df["module"].isin(["M3", "M4"]), "module_P_FWER"].min()) > 0.05
 
     flows = pd.read_csv(tables_path / "fig4_causal_alluvial_flows.tsv", sep="\t")
-    assert len(flows) == 705 and flows["event_id"].nunique() == 705
-    assert int((flows["bridge_tier"] == "Study_FWER<=0.05_Bridged").sum()) == 410
-    assert int((flows["bridge_tier"] == "Orphan_DonorBackground_FWER>0.05").sum()) == 295
-    assert flows["module"].value_counts().to_dict() == {"M1": 206, "M2": 204, "M3": 168, "M4": 127}
+    assert len(flows) == 625 and flows["event_id"].nunique() == 625
+    assert int((flows["bridge_tier"] == "Study_FWER<=0.05_Bridged").sum()) == 354
+    assert int((flows["bridge_tier"] == "Orphan_DonorBackground_FWER>0.05").sum()) == 271
+    assert flows["module"].value_counts().to_dict() == {"M1": 176, "M2": 178, "M3": 154, "M4": 117}
+    assert not flows["gene_symbol"].isin(["SPTBN1", "DCTN1"]).any()
+    assert {"SNRNP70", "SETD5"}.issubset(set(flows["gene_symbol"].unique()))
     assert pd.read_csv(tables_path / "fig4c_bridged_vs_orphan_coding_flows.tsv", sep="\t").equals(flows)
 
     f4d = pd.read_csv(tables_path / "fig4d_deconvolution_vs_competitors.tsv", sep="\t").set_index("method")
     prism_4d = f4d.loc["Katana-PRISM Bridge"]
-    assert int(prism_4d["fwer05_developmental_rbps_called"]) == 8 and int(prism_4d["fwer05_canonical_cardiac_families"]) == 3
-    assert int(prism_4d["fwer05_donor_null_M3_M4_fp_rbps"]) == 0 and abs(float(prism_4d["fwer05_null_50trial_familywise_FPR_pct"]) - 4.0) < 1e-4
-    assert abs(float(f4d.loc["SpliceNet + Unadjusted MWU", "fwer05_null_50trial_familywise_FPR_pct"]) - 34.0) < 1e-4
-    assert abs(float(f4d.loc["Raw-Variance WGCNA + Unadjusted MWU", "fwer05_null_50trial_familywise_FPR_pct"]) - 48.0) < 1e-4
+    assert int(prism_4d["evaluated_events"]) == 4310
+    assert int(prism_4d["fwer05_developmental_rbps_called"]) == 12 and int(prism_4d["fwer05_canonical_cardiac_families"]) == 3
+    assert int(prism_4d["fwer05_donor_null_M3_M4_fp_rbps"]) == 0 and abs(float(prism_4d["fwer05_null_50trial_familywise_FPR_pct"]) - 0.0) < 1e-4
+    assert abs(float(f4d.loc["SpliceNet + Unadjusted MWU", "fwer05_null_50trial_familywise_FPR_pct"]) - 52.0) < 1e-4
+    assert abs(float(f4d.loc["Raw-Variance WGCNA + Unadjusted MWU", "fwer05_null_50trial_familywise_FPR_pct"]) - 22.0) < 1e-4
     for pooled_m in ["Whole-Pool SpliceTrace (No SpliceNet)", "Pooled rMAPS-style Wilcoxon", "Pooled Unmatched MWU (Matt-style)"]:
-        assert int(f4d.loc[pooled_m, "evaluated_events"]) == 3508
+        assert int(f4d.loc[pooled_m, "evaluated_events"]) == 3043
 
     # 4. Single-cell Smart-seq2/3 benchmarks (GSE270928, Tabula Muris, Tasic, Longcell)
     f5a = pd.read_csv(tables_path / "fig5a_sc_manifold_vs_marvel_jutils.tsv", sep="\t").set_index("method")
@@ -328,12 +345,12 @@ def verify_bundled_tables(tables_path: Path) -> None:
     s1_bam = pd.read_csv(tables_path / "tableS1_zero_resort_bam_concordance.tsv", sep="\t")
     assert len(s1_bam) == 11 and float(s1_bam["exact_coordinate_overlap_pct"].min()) == 100.0 and float(s1_bam["max_abs_delta_dpsi"].max()) == 0.0
     s6_map = pd.read_csv(tables_path / "tableS6_event_coordinate_mapping_audit.tsv", sep="\t")
-    assert len(s6_map) == 3 and int(s6_map.iloc[0]["final_evaluated_binary_events"]) == 563 and int(s6_map.iloc[1]["initial_annotated_or_cluster_denominator"]) == 53663 and int(s6_map.iloc[1]["final_evaluated_binary_events"]) == 2169 and int(s6_map.iloc[2]["initial_annotated_or_cluster_denominator"]) == 66391 and int(s6_map.iloc[2]["final_evaluated_binary_events"]) == 1000
+    assert len(s6_map) == 4 and int(s6_map.iloc[0]["final_evaluated_binary_events"]) == 563 and int(s6_map.iloc[1]["initial_annotated_or_cluster_denominator"]) == 53663 and int(s6_map.iloc[1]["final_evaluated_binary_events"]) == 2169 and int(s6_map.iloc[2]["initial_annotated_or_cluster_denominator"]) == 66391 and int(s6_map.iloc[2]["final_evaluated_binary_events"]) == 1000 and int(s6_map.iloc[3]["initial_annotated_or_cluster_denominator"]) == 5000 and int(s6_map.iloc[3]["intermediate_quantified_events"]) == 4310 and int(s6_map.iloc[3]["final_evaluated_binary_events"]) == 707
     print("[OK] All bundled NAR benchmark table invariants (including untruncated peer suites and ablations) verified.")
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Reproduce or verify Katana-PRISM v1.0.2 NAR benchmarks.")
+    ap = argparse.ArgumentParser(description="Reproduce or verify Katana-PRISM v1.0.3 NAR benchmarks.")
     ap.add_argument("--verify-bundled", action="store_true", help="Verify bundled summary TSV invariants.")
     ap.add_argument("--splicetools-dir", type=Path, default=None, help="Directory with public ENCODE rMATS tables.")
     ap.add_argument("--hg38-fasta", type=Path, default=None, help="Indexed hg38 FASTA for sequence extraction.")

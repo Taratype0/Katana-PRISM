@@ -1,4 +1,4 @@
-"""SpliceManifold 1.0.2 — PS-DAS Qualification, Empirical-Bayes PSI Clustermap, PERMANOVA PCA & Precision-Kernel Event-PSI UMAP."""
+"""SpliceManifold 1.0.3 — PS-DAS Qualification, Empirical-Bayes PSI Clustermap, PERMANOVA PCA & Precision-Kernel Event-PSI UMAP."""
 from splicemanifold.manifold import (
     compute_dual_expression_vs_psi_umap,
     compute_splicing_manifold,
@@ -13,7 +13,7 @@ from splicemanifold.ps_das import (
     qualify_ps_das_events,
 )
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 
 __all__ = [
     "__version__",

@@ -1,4 +1,4 @@
-"""Standalone CLI for splicemanifold (1.0.2) — Bulk PS-DAS + Manifold & Single-Cell Precision Event-PSI UMAP."""
+"""Standalone CLI for splicemanifold (1.0.3) — Bulk PS-DAS + Manifold & Single-Cell Precision Event-PSI UMAP."""
 from __future__ import annotations
 
 import argparse
@@ -17,7 +17,7 @@ from splicemanifold.manifold import (
 )
 from splicemanifold.ps_das import PS_DAS_POLICY_ID, load_rmats_study, qualify_ps_das_events
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 
 
 def write_nfcore_versions_yml(path: Path | str, process_name: str = "SPLICEMANIFOLD") -> None:
@@ -227,7 +227,7 @@ def _run_single_cell(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="splicemanifold",
-        description="SpliceManifold 1.0.2: PS-DAS qualification, Empirical-Bayes PSI Clustermap, PERMANOVA PCA & Precision-Kernel Event-PSI UMAP.",
+        description="SpliceManifold 1.0.3: PS-DAS qualification, Empirical-Bayes PSI Clustermap, PERMANOVA PCA & Precision-Kernel Event-PSI UMAP.",
     )
     p.add_argument("--version", action="version", version=f"splicemanifold {__version__}")
     p.add_argument("--emit-versions-yml", type=Path, default=None)

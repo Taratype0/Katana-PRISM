@@ -268,8 +268,15 @@ def fit_splicenet(
     complete = selected_usage.T.fillna(means).T
 
     X = complete.to_numpy(dtype=float)
-    r_bin = str(rscript) if rscript else shutil.which("Rscript")
-    if backend == "r-wgcna" and r_bin:
+    if backend not in {"python", "r-wgcna"}:
+        raise ValueError(f"Unsupported backend: {backend!r}")
+    if backend == "r-wgcna":
+        r_bin = str(rscript) if rscript else shutil.which("Rscript")
+        if not r_bin:
+            raise RuntimeError(
+                "Requested backend='r-wgcna' but Rscript was not found on PATH. "
+                "Install R with WGCNA or specify backend='python'."
+            )
         eff_r_power = int(power)
         if eff_r_power <= 0:
             bc_tmp = compute_tukey_bicor_matrix(X, max_p_outliers=max_p_outliers)
@@ -294,14 +301,19 @@ def fit_splicenet(
             complete.to_csv(tp / "in.tsv", sep="\t", index_label="event_key")
             (tp / "run.R").write_text(r_body, encoding="utf-8")
             proc = subprocess.run([r_bin, "--vanilla", str(tp / "run.R"), str(tp / "in.tsv"), str(tp / "out.tsv")], capture_output=True, text=True)
-            if proc.returncode == 0 and (tp / "out.tsv").is_file():
-                df_r = pd.read_csv(tp / "out.tsv", sep="\t", dtype={"event_key": str})
-                df_r["module"] = df_r["module"].astype(int)
-                if out_dir is not None:
-                    Path(out_dir).mkdir(parents=True, exist_ok=True)
-                    df_r.to_csv(Path(out_dir) / "assignments.tsv", sep="\t", index=False)
-                if not return_matrices:
-                    return df_r
+            if proc.returncode != 0 or not (tp / "out.tsv").is_file():
+                err_msg = (proc.stderr or proc.stdout or "unknown R error").strip()[:400]
+                raise RuntimeError(f"R WGCNA backend failed (exit {proc.returncode}): {err_msg}")
+            df_r = pd.read_csv(tp / "out.tsv", sep="\t", dtype={"event_key": str})
+            df_r["module"] = df_r["module"].astype(int)
+            if out_dir is not None:
+                Path(out_dir).mkdir(parents=True, exist_ok=True)
+                df_r.to_csv(Path(out_dir) / "assignments.tsv", sep="\t", index=False)
+            if return_matrices:
+                bc_r = compute_tukey_bicor_matrix(X, max_p_outliers=max_p_outliers)
+                tom_r = compute_signed_tom_from_bicor(bc_r, power=eff_r_power)
+                return df_r, bc_r, tom_r
+            return df_r
 
     # Pure-Python exact execution (works offline everywhere without R!)
     bc = compute_tukey_bicor_matrix(X, max_p_outliers=max_p_outliers)

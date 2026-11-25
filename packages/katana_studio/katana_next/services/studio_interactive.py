@@ -1174,6 +1174,7 @@ def cross_paradigm_explorer(context, comparison: str = "") -> dict[str, Any]:
 
     summary_c = summary_contrasts.get(cid, {}) if isinstance(summary_contrasts.get(cid), dict) else {}
     tables_out: dict[str, list[dict[str, Any]]] = {}
+    full_dfs: dict[str, pd.DataFrame] = {}
     artifact_ids: dict[str, str] = {}
 
     class_specs = (
@@ -1189,6 +1190,7 @@ def cross_paradigm_explorer(context, comparison: str = "") -> dict[str, Any]:
             df = _filter_comparison_df(_load_artifact_df(art), cid)
             if not df.empty:
                 artifact_ids[key] = art.artifact_id
+                full_dfs[key] = df
                 rows = _clean_records(df.head(300))
                 for row in rows:
                     row["source_artifact_id"] = art.artifact_id
@@ -1220,10 +1222,15 @@ def cross_paradigm_explorer(context, comparison: str = "") -> dict[str, Any]:
 
     counts = dict(summary_c.get("counts") or {})
     if not counts:
-        c1 = tables_out["class1"]
-        c2 = tables_out["class2_af_al"]
-        c3 = tables_out["class3_switches"]
-        c4 = tables_out["class4_dexseq"]
+        def _count_src(k: str) -> list[dict[str, Any]]:
+            if k in full_dfs:
+                return _clean_records(full_dfs[k])
+            return tables_out[k]
+
+        c1 = _count_src("class1")
+        c2 = _count_src("class2_af_al")
+        c3 = _count_src("class3_switches")
+        c4 = _count_src("class4_dexseq")
         c1_conc = sum(1 for r in c1 if bool(r.get("concordant_fixed")))
         counts = {
             "class1_events": len(c1),

@@ -1,4 +1,4 @@
-"""Standalone CLI for scsplicetrace (1.0.2) with Extensible Motif Library, Module Bridge & GTF/UniProt Proteome Viz."""
+"""Standalone CLI for scsplicetrace (1.0.3) with Extensible Motif Library, Module Bridge & GTF/UniProt Proteome Viz."""
 from __future__ import annotations
 
 import argparse
@@ -10,7 +10,6 @@ import pandas as pd
 
 from scsplicetrace.contrast_discovery import (
     compute_sc_splicing_contrast,
-    compute_sc_stratified_meta_contrast,
     discover_sc_rbp_programs,
 )
 from scsplicetrace.fast_accel import configure_server_threads, fast_score_mean_log_odds
@@ -24,13 +23,13 @@ from scsplicetrace.sequence_and_consequence import (
 )
 from scsplicetrace.target_and_psi_models import rank_rbp_target_events
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 
 
 def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SCSPLICETRACE") -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(f'"{process_name}":\n    scsplicetrace: "1.0.2"\n    python: "{platform.python_version()}"\n', encoding="utf-8")
+    p.write_text(f'"{process_name}":\n    scsplicetrace: "1.0.3"\n    python: "{platform.python_version()}"\n', encoding="utf-8")
 
 
 def add_extensible_library_args(parser: argparse.ArgumentParser) -> None:
@@ -114,7 +113,7 @@ def handle_library_management_commands(args: argparse.Namespace) -> tuple[bool, 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="scsplicetrace",
-        description="scSpliceTrace 1.0.2: Smart-seq3 RBP discovery, mature-mRNA motif, Module Bridge & GTF/UniProt Proteome Consequences.",
+        description="scSpliceTrace 1.0.3: Smart-seq3 RBP discovery, mature-mRNA motif, Module Bridge & GTF/UniProt Proteome Consequences.",
     )
     p.add_argument("--version", action="version", version=f"scsplicetrace {__version__}")
     p.add_argument("--events", type=Path, required=False)
@@ -133,6 +132,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--numerator", default=None)
     p.add_argument("--denominator", default=None)
     p.add_argument("--donor-col", default="donor_id")
+    p.add_argument(
+        "--design-mode",
+        choices=["auto", "paired", "unpaired", "stratified_meta"],
+        default="auto",
+        help="Donor contrast dispatch mode (default: auto, unified with Python API)",
+    )
     p.add_argument("--query-rbp", default=None)
     p.add_argument("--models-json", type=Path, default=None)
     p.add_argument("--assignments-tsv", type=Path, default=None)
@@ -198,27 +203,11 @@ def main(argv: list[str] | None = None) -> int:
         u_aligned = psi_df.reindex(columns=events_df["event_id"].astype(str))
         s_aligned = sup_df.reindex(columns=events_df["event_id"].astype(str)) if sup_df is not None else None
 
-        d_col = args.donor_col if args.donor_col in md.columns else ("donor" if "donor" in md.columns else None)
-        md_pair = md.loc[md[args.group_col].astype(str).isin([str(args.numerator), str(args.denominator)])]
-        if "qc_pass" in md_pair.columns:
-            md_pair = md_pair.loc[md_pair["qc_pass"].astype(str).str.lower().isin(("true", "1", "yes", "pass"))]
-        if d_col:
-            d_num_s = set(md_pair.loc[md_pair[args.group_col].astype(str).eq(str(args.numerator)), d_col].astype(str))
-            d_den_s = set(md_pair.loc[md_pair[args.group_col].astype(str).eq(str(args.denominator)), d_col].astype(str))
-            n_paired_donors = len(d_num_s & d_den_s)
-        else:
-            n_paired_donors = 0
-        if 2 <= n_paired_donors < 5:
-            contrast_df, _, c_info = compute_sc_stratified_meta_contrast(
-                u_aligned, md, eg, support=s_aligned, group_col=args.group_col,
-                numerator_group=args.numerator, denominator_group=args.denominator, donor_col=d_col, seed=args.seed,
-            )
-            donor_deltas = None
-        else:
-            contrast_df, donor_deltas, c_info = compute_sc_splicing_contrast(
-                u_aligned, md, eg, support=s_aligned, group_col=args.group_col,
-                numerator_group=args.numerator, denominator_group=args.denominator, donor_col=args.donor_col, seed=args.seed,
-            )
+        contrast_df, donor_deltas, c_info = compute_sc_splicing_contrast(
+            u_aligned, md, eg, support=s_aligned, group_col=args.group_col,
+            numerator_group=args.numerator, denominator_group=args.denominator,
+            donor_col=args.donor_col, design_mode=args.design_mode, seed=args.seed,
+        )
         summary["numerator_group"] = str(args.numerator)
         summary["denominator_group"] = str(args.denominator)
 

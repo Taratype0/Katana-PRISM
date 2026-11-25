@@ -1,17 +1,17 @@
-cohort	dropout_rate	method	candidate_junction_universe	retained_events	permanova_r2	donor_stratified_perm_p	silhouette	distance_fidelity_r
-GSE122380_Cardiogenesis_297_All26583	0.0	Katana-PRISM (SpliceManifold)	26583	2500	0.1852	0.002	0.0689	0.6312
-GSE122380_Cardiogenesis_297_All26583	0.0	Jutils (Complete-Case dropna)	26583	15557	0.0349	0.002	-0.0005	0.9665
-GSE122380_Cardiogenesis_297_All26583	0.0	MARVEL (Mean-Imputed Raw Variance)	26583	2500	0.0989	0.002	0.0221	0.963
-GSE122380_Cardiogenesis_297_All26583	0.0	MARVEL (Mean-Imputed Same-2500 Features)	26583	2500	0.1178	0.002	0.0281	0.9422
-GSE122380_Cardiogenesis_297_All26583	0.15	Katana-PRISM (SpliceManifold)	26583	2500	0.192	0.002	0.0741	0.6046
+cohort	dropout_rate	method	candidate_junction_universe	retained_events	permanova_r2	donor_centroid_signflip_p	silhouette	distance_fidelity_r
+GSE122380_Cardiogenesis_297_All26583	0.0	Katana-PRISM (SpliceManifold)	26583	2500	0.1852	0.0001	0.0689	0.6312
+GSE122380_Cardiogenesis_297_All26583	0.0	Jutils (Complete-Case dropna)	26583	15557	0.0349	0.0001	-0.0005	0.9665
+GSE122380_Cardiogenesis_297_All26583	0.0	MARVEL (Mean-Imputed Raw Variance)	26583	2500	0.0989	0.0001	0.0221	0.963
+GSE122380_Cardiogenesis_297_All26583	0.0	MARVEL (Mean-Imputed Same-2500 Features)	26583	2500	0.1178	0.0001	0.0281	0.9422
+GSE122380_Cardiogenesis_297_All26583	0.15	Katana-PRISM (SpliceManifold)	26583	2500	0.192	0.0001	0.0741	0.6046
 GSE122380_Cardiogenesis_297_All26583	0.15	Jutils (Complete-Case dropna)	26583	0	0.0	1.0	0.0	0.0
-GSE122380_Cardiogenesis_297_All26583	0.15	MARVEL (Mean-Imputed Raw Variance)	26583	2500	0.0869	0.002	0.0172	0.9501
-GSE122380_Cardiogenesis_297_All26583	0.15	MARVEL (Mean-Imputed Same-2500 Features)	26583	2500	0.1021	0.002	0.0209	0.9318
-GSE122380_Cardiogenesis_297_All26583	0.3	Katana-PRISM (SpliceManifold)	26583	2500	0.1979	0.002	0.0787	0.572
+GSE122380_Cardiogenesis_297_All26583	0.15	MARVEL (Mean-Imputed Raw Variance)	26583	2500	0.0869	0.0001	0.0172	0.9501
+GSE122380_Cardiogenesis_297_All26583	0.15	MARVEL (Mean-Imputed Same-2500 Features)	26583	2500	0.1021	0.0001	0.0209	0.9318
+GSE122380_Cardiogenesis_297_All26583	0.3	Katana-PRISM (SpliceManifold)	26583	2500	0.1979	0.0001	0.0787	0.572
 GSE122380_Cardiogenesis_297_All26583	0.3	Jutils (Complete-Case dropna)	26583	0	0.0	1.0	0.0	0.0
-GSE122380_Cardiogenesis_297_All26583	0.3	MARVEL (Mean-Imputed Raw Variance)	26583	2500	0.075	0.002	0.0143	0.8859
-GSE122380_Cardiogenesis_297_All26583	0.3	MARVEL (Mean-Imputed Same-2500 Features)	26583	2500	0.0872	0.002	0.0168	0.878
-GSE122380_Cardiogenesis_297_All26583	0.45	Katana-PRISM (SpliceManifold)	26583	2500	0.1992	0.002	0.0793	0.5605
+GSE122380_Cardiogenesis_297_All26583	0.3	MARVEL (Mean-Imputed Raw Variance)	26583	2500	0.075	0.0001	0.0143	0.8859
+GSE122380_Cardiogenesis_297_All26583	0.3	MARVEL (Mean-Imputed Same-2500 Features)	26583	2500	0.0872	0.0001	0.0168	0.878
+GSE122380_Cardiogenesis_297_All26583	0.45	Katana-PRISM (SpliceManifold)	26583	2500	0.1992	0.0001	0.0793	0.5605
 GSE122380_Cardiogenesis_297_All26583	0.45	Jutils (Complete-Case dropna)	26583	0	0.0	1.0	0.0	0.0
-GSE122380_Cardiogenesis_297_All26583	0.45	MARVEL (Mean-Imputed Raw Variance)	26583	2500	0.0674	0.002	0.0129	0.6733
-GSE122380_Cardiogenesis_297_All26583	0.45	MARVEL (Mean-Imputed Same-2500 Features)	26583	2500	0.0755	0.002	0.0133	0.7532
+GSE122380_Cardiogenesis_297_All26583	0.45	MARVEL (Mean-Imputed Raw Variance)	26583	2500	0.0674	0.0001	0.0129	0.6733
+GSE122380_Cardiogenesis_297_All26583	0.45	MARVEL (Mean-Imputed Same-2500 Features)	26583	2500	0.0755	0.0001	0.0133	0.7532

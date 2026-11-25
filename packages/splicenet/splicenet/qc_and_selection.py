@@ -24,6 +24,11 @@ def unit_robust_audit(
     """Screen events for missingness, read depth, and single-donor dominance, and compute excess bio variance."""
     meta_idx = meta.set_index("sample_id").loc[measured.columns]
     x = measured.copy()
+    m_vals = x.to_numpy(dtype=float)
+    obs_m = m_vals[np.isfinite(m_vals)]
+    if np.isinf(m_vals).any() or (obs_m < -1e-9).any() or (obs_m > 1.0 + 1e-9).any():
+        raise ValueError("Usage/PSI matrix must contain finite values in [0, 1] or NA")
+    x = x.clip(lower=0.0, upper=1.0)
     t_mat: np.ndarray | None = None
     if read_support is not None:
         if not x.index.equals(read_support.index) or not x.columns.equals(read_support.columns):

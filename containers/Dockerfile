@@ -3,7 +3,7 @@ FROM python:3.12-slim
 LABEL org.opencontainers.image.title="Katana-PRISM" \
       org.opencontainers.image.authors="Dhruba Tara Maharjan <dhruba.tara.maharjan@ki.se>" \
       org.opencontainers.image.source="https://github.com/Taratype0/Katana-PRISM" \
-      org.opencontainers.image.version="1.0.1" \
+      org.opencontainers.image.version="1.0.3" \
       org.opencontainers.image.description="Standalone & nf-core downstream runtime for SpliceManifold, SpliceNet, SpliceTrace, scSpliceNet, scSpliceTrace, and Katana Studio"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -20,8 +20,8 @@ COPY packages/ /opt/katana-prism/packages/
 
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
-        numba>=0.59 \
-        umap-learn>=0.5.5 \
+        "numba>=0.59" \
+        "umap-learn>=0.5.5" \
         /opt/katana-prism/packages/splicemanifold \
         /opt/katana-prism/packages/splicenet \
         /opt/katana-prism/packages/splicetrace \
