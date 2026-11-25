@@ -162,9 +162,9 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_NegA") & s1_ds["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "qualified_foreground_events"].iloc[0]) == 1041
     assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_NegA"), "downstream_SpliceTrace_sig_rbps_fwer05"].sum()) == 0
     enc_u = s1_ds[s1_ds["cohort"].str.startswith("ENCODE_")]
-    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "retained_full_ENCODE_UniProt_switches"].sum()) == 3809
-    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Strict All>=10 Filter"), "retained_full_ENCODE_UniProt_switches"].sum()) == 3592
-    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "retained_full_ENCODE_NMD_switches"].sum()) == 2956
+    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "retained_full_ENCODE_UniProt_switches"].sum()) == 3764
+    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Strict All>=10 Filter"), "retained_full_ENCODE_UniProt_switches"].sum()) == 3550
+    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "retained_full_ENCODE_NMD_switches"].sum()) == 2884
 
     # 2. SpliceTrace 18-cohort calibration, ablations, native rMAPS3, and untruncated rMAPS2-style
     f2c = pd.read_csv(tables_path / "fig2c_splicetrace_exact_and_ablations.tsv", sep="\t")

@@ -216,6 +216,20 @@ def load_junction_counts(sj_specs: list[str], junc_to_idx: dict[tuple[str, int, 
     n_j = len(junc_to_idx)
     blocks: list[csr_matrix] = []
     all_cells: list[str] = []
+    seen_cells: dict[str, str] = {}
+
+    def _register_batch_cells(bcs: list[str], source_label: str) -> None:
+        dups: list[str] = []
+        for bc in bcs:
+            if bc in seen_cells:
+                dups.append(f"{bc} ({seen_cells[bc]} vs {source_label})")
+            else:
+                seen_cells[bc] = source_label
+        if dups:
+            raise ValueError(
+                "Duplicate physical cell_id barcodes detected across raw junction inputs: "
+                f"{dups[:5]}; assign unique sj-dir prefixes (`prefix::path`) or deduplicate inputs."
+            )
 
     for spec in sj_specs:
         if "::" in spec:
@@ -236,6 +250,7 @@ def load_junction_counts(sj_specs: list[str], junc_to_idx: dict[tuple[str, int, 
             mat = mmread(str(mtx_f)).tocsr()
             with _open_text(bc_f) as fh:
                 bcs = [prefix + ln.strip().split("\t")[0] for ln in fh if ln.strip()]
+            _register_batch_cells(bcs, spec)
             row_map_src: list[int] = []
             row_map_dst: list[int] = []
             with _open_text(feat_f) as fh:
@@ -269,6 +284,8 @@ def load_junction_counts(sj_specs: list[str], junc_to_idx: dict[tuple[str, int, 
             if cid == "SJ.out.tab" or not cid:
                 cid = sj_f.parent.name
             bcs.append(prefix + cid)
+        _register_batch_cells(bcs, spec)
+        for c_j, sj_f in enumerate(sj_files):
             with _open_text(sj_f) as fh:
                 for ln in fh:
                     pts = ln.rstrip("\n").split("\t")
@@ -294,10 +311,14 @@ _DONOR_ID_ALIASES = (
     "mouse_id",
     "biological_sample_id",
     "donor",
+    "subject_id",
     "subject",
     "mouse",
+    "patient_id",
     "patient",
     "individual",
+    "individual_id",
+    "sample_donor",
     "animal_id",
 )
 _MISSING_DONOR_TOKENS = {"", "nan", "none", "na", "null", "n/a"}
@@ -325,7 +346,7 @@ def standardize_metadata(
     allow_single_donor: bool = False,
 ) -> pd.DataFrame:
     sep = "," if meta_path.suffix.lower() == ".csv" else "\t"
-    md = pd.read_csv(meta_path, sep=sep)
+    md = pd.read_csv(meta_path, sep=sep, dtype=str, keep_default_na=False)
     cols_l = {str(c).strip().lower(): str(c) for c in md.columns}
     cid_c = next((cols_l[k] for k in ("cell_id", "cell", "barcode", "sample_id", "sample", "id") if k in cols_l), md.columns[0])
     md = md.rename(columns={cid_c: "cell_id"})
@@ -338,7 +359,18 @@ def standardize_metadata(
     # Match barcodes cleanly even if `-1` suffix differs between expression/metadata and STARsolo
     obs_set = set(observed_cells)
     if len(set(md["cell_id"]) & obs_set) == 0:
-        stripped_map = {c.split("-")[0]: c for c in observed_cells}
+        stripped_map: dict[str, str] = {}
+        colliding_barcodes: list[str] = []
+        for c in observed_cells:
+            base_c = c.split("-")[0]
+            if base_c in stripped_map:
+                colliding_barcodes.append(f"{base_c} ({stripped_map[base_c]} vs {c})")
+            else:
+                stripped_map[base_c] = c
+        if colliding_barcodes:
+            raise ValueError(
+                f"Duplicate observed cell barcodes after `-1` suffix normalization (e.g. {colliding_barcodes[:5]})."
+            )
         md["cell_id"] = [stripped_map.get(c.split("-")[0], c) for c in md["cell_id"]]
         dup_stripped = md["cell_id"].duplicated(keep=False)
         if dup_stripped.any():
@@ -352,12 +384,30 @@ def standardize_metadata(
         if resolved_don is None:
             raise ValueError(f"Donor column {donor_col!r} not found in metadata columns: {list(md.columns)}")
         md["donor_id"] = _sanitize_donor_values(md[resolved_don])
-    elif "donor_id" in md.columns:
-        md["donor_id"] = _sanitize_donor_values(md["donor_id"])
     else:
-        don_c = next((cols_l[k] for k in _DONOR_ID_ALIASES if k in cols_l), None)
-        if don_c is not None:
-            md["donor_id"] = _sanitize_donor_values(md[don_c])
+        populated_cols: list[str] = []
+        present_cols: list[str] = []
+        norm_by_col: dict[str, list[str]] = {}
+        for d_alias in _DONOR_ID_ALIASES:
+            orig_d = cols_l.get(d_alias)
+            if orig_d is not None and orig_d not in present_cols:
+                present_cols.append(orig_d)
+                san = _sanitize_donor_values(md[orig_d]).tolist()
+                if any(v != "" for v in san):
+                    populated_cols.append(orig_d)
+                    norm_by_col[orig_d] = san
+        if len(populated_cols) >= 2:
+            base_col = populated_cols[0]
+            conflicts = [c for c in populated_cols[1:] if norm_by_col[c] != norm_by_col[base_col]]
+            if conflicts:
+                raise ValueError(
+                    f"Conflicting populated donor identifier columns in metadata: {[base_col, *conflicts]}. "
+                    "Pass explicit --donor-col to disambiguate."
+                )
+        if populated_cols:
+            md["donor_id"] = _sanitize_donor_values(md[populated_cols[0]])
+        elif present_cols:
+            md["donor_id"] = _sanitize_donor_values(md[present_cols[0]])
         elif allow_single_donor:
             md["donor_id"] = "Donor1"
         else:

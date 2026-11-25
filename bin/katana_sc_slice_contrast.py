@@ -28,13 +28,24 @@ def main() -> int:
     args = ap.parse_args()
 
     args.outdir.mkdir(parents=True, exist_ok=True)
-    ev = pd.read_csv(args.events, sep="\t", low_memory=False)
-    md = pd.read_csv(args.metadata, sep="\t")
-    psi = pd.read_csv(args.psi, sep="\t", index_col=0)
-    psi.index = psi.index.astype(str)
-    sup = pd.read_csv(args.support, sep="\t", index_col=0) if (args.support and args.support.is_file()) else None
-    if sup is not None:
-        sup.index = sup.index.astype(str)
+    def _read_id_mat(path: Path) -> pd.DataFrame:
+        df_m = pd.read_csv(path, sep="\t", dtype={0: str})
+        if df_m.shape[1] > 0:
+            df_m[df_m.columns[0]] = df_m[df_m.columns[0]].astype(str).str.strip()
+            df_m = df_m.set_index(df_m.columns[0])
+        df_m.index = df_m.index.astype(str)
+        df_m.columns = df_m.columns.astype(str)
+        return df_m
+
+    ev = pd.read_csv(args.events, sep="\t", dtype={"event_id": str, "gene_id": str, "gene_symbol": str}, low_memory=False)
+    md_sep = "," if str(args.metadata).lower().endswith((".csv", ".csv.gz")) else "\t"
+    md = pd.read_csv(args.metadata, sep=md_sep, dtype=str, keep_default_na=False)
+    psi = _read_id_mat(args.psi)
+    if psi.index.has_duplicates:
+        raise ValueError("Duplicate cell_id rows detected in --psi matrix.")
+    sup = _read_id_mat(args.support) if (args.support and args.support.is_file()) else None
+    if sup is not None and sup.index.has_duplicates:
+        raise ValueError("Duplicate cell_id rows detected in --support matrix.")
 
     md["cell_id"] = md["cell_id"].astype(str).str.strip()
     dup_cid = md["cell_id"].duplicated(keep=False)
@@ -122,8 +133,7 @@ def main() -> int:
     s_k.to_csv(args.outdir / "sc_support.tsv.gz", sep="\t", index_label="cell_id", compression="gzip")
 
     if args.expression and args.expression.is_file() and args.expression.name != "NO_EXPRESSION":
-        expr = pd.read_csv(args.expression, sep="\t", index_col=0)
-        expr.index = expr.index.astype(str)
+        expr = _read_id_mat(args.expression)
         expr.reindex(index=cids).fillna(0.0).to_csv(
             args.outdir / "sc_expression.tsv.gz", sep="\t", index_label="cell_id", compression="gzip"
         )

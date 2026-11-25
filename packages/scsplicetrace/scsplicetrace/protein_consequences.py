@@ -339,15 +339,20 @@ def _rank_host_transcripts(candidates: list[HostTranscriptModel], rec: dict) -> 
         return []
     rec_strand = str(rec.get("strand") or "").strip()
     rec_chr = str(rec.get("chr") or "").strip()
+    if (not rec_strand or not rec_chr) and ":" in str(rec.get("event_id") or ""):
+        id_pts = str(rec["event_id"]).split(":")
+        if len(id_pts) >= 3:
+            rec_chr = rec_chr or id_pts[1].strip()
+            rec_strand = rec_strand or id_pts[2].strip()
     if rec_strand in ("+", "-"):
-        same_st = [m for m in candidates if m.strand == rec_strand]
-        if same_st:
-            candidates = same_st
+        candidates = [m for m in candidates if m.strand == rec_strand]
+        if not candidates:
+            return []
     if rec_chr:
         norm_rc = rec_chr.lower().removeprefix("chr")
-        same_ch = [m for m in candidates if m.chrom.lower().removeprefix("chr") == norm_rc]
-        if same_ch:
-            candidates = same_ch
+        candidates = [m for m in candidates if m.chrom.lower().removeprefix("chr") == norm_rc]
+        if not candidates:
+            return []
     kind = str(rec["event_type"])
     ev_coords = [
         int(rec[c])
@@ -811,11 +816,48 @@ def trace_protein_and_nmd_consequences(
                 try:
                     l0_a, l1_a = int(rec["longExonStart_0base"]), int(rec["longExonEnd"])
                     s0_a, s1_a = int(rec["shortES"]), int(rec["shortEE"])
-                    valid_geom = (l0_a <= s0_a < s1_a <= l1_a) and (l0_a == s0_a or l1_a == s1_a) and ((l1_a - l0_a) > (s1_a - s0_a))
-                    gene_exons = {ex for m in (ranked_hosts or candidates) for ex in m.exons}
-                    has_annotated_pair = bool(valid_geom and ((l0_a, l1_a) in gene_exons) and ((s0_a, s1_a) in gene_exons))
+                    f0_a, f1_a = int(rec["flankingES"]), int(rec["flankingEE"])
+                    if (etype == "A3SS" and strand == "+") or (etype == "A5SS" and strand == "-"):
+                        dir_ok = (l0_a < s0_a < s1_a) and (l1_a == s1_a) and (f0_a < f1_a <= l0_a)
+                        pair_l = ((f0_a, f1_a), (l0_a, l1_a))
+                        pair_s = ((f0_a, f1_a), (s0_a, s1_a))
+                    elif (etype == "A3SS" and strand == "-") or (etype == "A5SS" and strand == "+"):
+                        dir_ok = (l0_a == s0_a) and (l0_a < s1_a < l1_a) and (l1_a <= f0_a < f1_a)
+                        pair_l = ((l0_a, l1_a), (f0_a, f1_a))
+                        pair_s = ((s0_a, s1_a), (f0_a, f1_a))
+                    else:
+                        dir_ok = False
+                        pair_l = pair_s = None
                 except (KeyError, TypeError, ValueError):
-                    has_annotated_pair = False
+                    dir_ok = False
+                    pair_l = pair_s = None
+
+                if (not dir_ok) or (not ranked_hosts):
+                    rows.append({
+                        "event_id": eid,
+                        "gene_id": gid,
+                        "gene_symbol": gsym,
+                        "event_type": etype,
+                        "dpsi": dpsi,
+                        "host_transcript_id": host.transcript_id if host else "unmatched",
+                        "uniprot_acc": "NA",
+                        "coding_region_location": "complex_junction_usage",
+                        "frame_status": "complex_junction_usage",
+                        "nmd_switch_class": "complex_junction_usage",
+                        "aa_len_inclusion": 0,
+                        "aa_len_exclusion": 0,
+                        "delta_aa": 0,
+                        "ptc_to_last_ejc_nt": 0,
+                        "disrupted_protein_features": "none",
+                        "functional_consequence_summary": (
+                            "Excluded: A3SS/A5SS event fails biological contig, strand, or splice-direction geometry"
+                        ),
+                        "architecture_json": "{}",
+                    })
+                    continue
+
+                adj_pairs = {(a, b) for m in ranked_hosts for a, b in zip(m.exons, m.exons[1:])}
+                has_annotated_pair = bool((pair_l in adj_pairs) and (pair_s in adj_pairs))
                 if not has_annotated_pair:
                     if require_annotated_a3_a5_pair:
                         rows.append({
@@ -835,7 +877,7 @@ def trace_protein_and_nmd_consequences(
                             "ptc_to_last_ejc_nt": 0,
                             "disrupted_protein_features": "none",
                             "functional_consequence_summary": (
-                                "Excluded: A3SS/A5SS coordinates lack an annotated shared-boundary exon pair in GTF "
+                                "Excluded: A3SS/A5SS arms lack an annotated adjacent flank-exon pair in GTF "
                                 "(pass require_annotated_a3_a5_pair=False for conditional novel-site modeling)"
                             ),
                             "architecture_json": "{}",

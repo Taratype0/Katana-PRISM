@@ -265,6 +265,8 @@ def fit_splicenet(
 ) -> pd.DataFrame | tuple[pd.DataFrame, np.ndarray, np.ndarray]:
     """Fit single-block signed bicor TOM co-splicing network in pure Python (default) or via R WGCNA (`backend='r-wgcna'`)."""
     raw_vals = selected_usage.to_numpy(dtype=float)
+    if np.isinf(raw_vals).any():
+        raise ValueError("Input usage matrix contains non-finite (+/-inf) values; sanitize inputs before calling fit_splicenet.")
     fin_mask = np.isfinite(raw_vals)
     if fin_mask.any():
         bad = (raw_vals[fin_mask] < -1e-9) | (raw_vals[fin_mask] > 1.0 + 1e-9)

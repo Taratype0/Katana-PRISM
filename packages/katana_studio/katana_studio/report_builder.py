@@ -70,11 +70,15 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _read_tabular(path: Path) -> pd.DataFrame:
+def _read_tabular(path: Path, *, as_metadata: bool = False, string_index: bool = False) -> pd.DataFrame:
     name = path.name.lower()
     if name.endswith(".parquet"):
         return pd.read_parquet(path)
     sep = "," if (name.endswith(".csv") or name.endswith(".csv.gz")) else "\t"
+    if as_metadata:
+        return pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False)
+    if string_index:
+        return pd.read_csv(path, sep=sep, dtype={0: str})
     return pd.read_csv(path, sep=sep)
 
 
@@ -217,6 +221,7 @@ def _render_volcano(
     png_path: Path,
     *,
     is_deg: bool = False,
+    empty_banner: str | None = None,
 ) -> Path:
     """Publication-grade Volcano Plot with top-outside legend and collision-repelled leader-line gene callouts."""
     plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 9.0, "axes.spines.top": False, "axes.spines.right": False})
@@ -235,7 +240,10 @@ def _render_volcano(
     pos_lbl = "Up-regulated" if is_deg else "Included (ΔPSI > 0)"
     neg_lbl = "Down-regulated" if is_deg else "Skipped (ΔPSI < 0)"
 
-    ax.scatter(xv[~sig], yv_disp[~sig], s=13, color="#CBD5E1", alpha=0.52, linewidths=0, label=f"Background ({int((~sig).sum()):,})")
+    if len(xv) > 0:
+        ax.scatter(xv[~sig], yv_disp[~sig], s=13, color="#CBD5E1", alpha=0.52, linewidths=0, label=f"Background ({int((~sig).sum()):,})")
+    else:
+        ax.scatter([], [], s=13, color="#CBD5E1", label="Background (0)")
     up = sig & (xv > 0)
     dn = sig & (xv < 0)
     if up.any():
@@ -244,6 +252,8 @@ def _render_volcano(
         ax.scatter(xv[dn], yv_disp[dn], s=25, color=BLUE, alpha=0.88, edgecolors="white", linewidths=0.35, label=f"{neg_lbl} ({int(dn.sum()):,})", zorder=3)
     ax.axhline(-np.log10(0.05), color=SLATE, linestyle="--", linewidth=0.9, alpha=0.7)
     ax.axvline(0.0, color="#94A3B8", linestyle=":", linewidth=0.8)
+    if len(xv) == 0 and empty_banner:
+        ax.text(0.0, 0.52 * y_top, empty_banner, ha="center", va="center", fontsize=10.0, fontweight="bold", color=SLATE, bbox={"boxstyle": "round,pad=0.35", "fc": "#F8FAFC", "ec": "#CBD5E1"})
 
     if sig.any() and label_col in df.columns:
         sig_indices = np.flatnonzero(sig)
@@ -381,8 +391,8 @@ def _render_das_class_direction_bar(
 
 
 def _has_rmats_files(d: Path, rmats_mode: str = "JCEC") -> bool:
-    modes = (rmats_mode.upper(), "JCEC", "JC")
-    return d.is_dir() and any((d / f"{et}.MATS.{m}.txt").is_file() for et in EVENTS for m in modes)
+    m = str(rmats_mode or "JCEC").upper()
+    return d.is_dir() and any((d / f"{et}.MATS.{m}.txt").is_file() for et in EVENTS)
 
 
 def _discover_rmats_contrasts(rmats_arg: str | Path | dict[str, Path], declared_contrasts: list[dict[str, Any]], rmats_mode: str = "JCEC") -> dict[str, Path]:
@@ -409,7 +419,7 @@ def _discover_rmats_contrasts(rmats_arg: str | Path | dict[str, Path], declared_
         elif _has_rmats_files(sub / "rmats_post", rmats_mode):
             out[sub.name] = sub / "rmats_post"
     if not out:
-        raise FileNotFoundError(f"No *.MATS.(JCEC|JC).txt files found under {base}")
+        raise FileNotFoundError(f"No *.MATS.{str(rmats_mode or 'JCEC').upper()}.txt files found under {base}")
     return out
 
 
@@ -417,14 +427,37 @@ def _resolve_rmats_dir_for_contrast(
     rmats_map: dict[str, Path],
     c_spec: dict[str, Any],
     n_declared_contrasts: int,
+    *,
+    explicit_dir: Path | None = None,
+    rmats_mode: str = "JCEC",
+    explicit_arm_order: bool = False,
 ) -> tuple[Path, bool]:
-    """Match a declared contrast to its exact rMATS directory without silent multi-contrast fallback."""
+    """Match a declared contrast to its exact rMATS directory without silent multi-contrast fallback or reversed-name collision."""
     cid = str(c_spec["contrast_id"]).strip()
     num_lbl = str(c_spec["numerator"]["label"]).strip()
     den_lbl = str(c_spec["denominator"]["label"]).strip()
 
+    reverse_keys = [k for k in (f"{den_lbl}-{num_lbl}", f"{den_lbl}_vs_{num_lbl}") if k and num_lbl and den_lbl]
+    rev_conflict_set = {k.lower() for k in reverse_keys}
+    if num_lbl and den_lbl:
+        rev_conflict_set.add(f"{den_lbl}_{num_lbl}".lower())
+    if (not explicit_arm_order) and cid and cid.lower() in rev_conflict_set:
+        raise ValueError(
+            f"Ambiguous contrast_id {cid!r} matches reversed condition order '{den_lbl}-{num_lbl}' "
+            f"for numerator={num_lbl!r}, denominator={den_lbl!r} without explicit manifest rmats_group1/rmats_group2."
+        )
+
+    if explicit_dir is not None:
+        if not _has_rmats_files(explicit_dir, rmats_mode):
+            raise FileNotFoundError(f"Declared manifest rmats_dir for '{cid}' lacks *.MATS.{rmats_mode.upper()}.txt files: {explicit_dir}")
+        if explicit_arm_order:
+            return explicit_dir, False
+        rev_name = explicit_dir.name.lower() in rev_conflict_set or (
+            explicit_dir.name == "rmats_post" and explicit_dir.parent.name.lower() in rev_conflict_set
+        )
+        return explicit_dir, rev_name
+
     forward_keys = [k for k in (cid, f"{num_lbl}-{den_lbl}", f"{num_lbl}_vs_{den_lbl}") if k]
-    reverse_keys = [k for k in (f"{den_lbl}-{num_lbl}", f"{den_lbl}_vs_{num_lbl}") if k]
 
     for key in forward_keys:
         if key in rmats_map:
@@ -760,7 +793,7 @@ def run_bulk(
     if samples is None or rmats is None:
         raise ValueError("Provide either `--bundle <dir>` or both `--rmats` and `--samples`.")
 
-    s_df = samples.copy() if isinstance(samples, pd.DataFrame) else _read_tabular(Path(samples))
+    s_df = samples.copy() if isinstance(samples, pd.DataFrame) else _read_tabular(Path(samples), as_metadata=True)
     sid_col = next((c for c in ("sample_id", "sample", "id") if c in s_df.columns), s_df.columns[0])
     cond_col = next((c for c in ("condition", "group") if c in s_df.columns), s_df.columns[1])
     bio_col = next((c for c in ("biological_sample_id", "donor_id", "donor", "mouse_id", "subject", "patient", "individual", "animal_id") if c in s_df.columns), None)
@@ -778,7 +811,7 @@ def run_bulk(
         cond_to_sids.setdefault(s["condition"], []).append(s["sample_id"])
 
     if contrasts is not None:
-        c_df = contrasts.copy() if isinstance(contrasts, pd.DataFrame) else _read_tabular(Path(contrasts))
+        c_df = contrasts.copy() if isinstance(contrasts, pd.DataFrame) else _read_tabular(Path(contrasts), as_metadata=True)
         cid_c = next((c for c in ("contrast_id", "contrast", "comparison_id") if c in c_df.columns), c_df.columns[0])
         num_c = next((c for c in ("treatment", "numerator", "group_a") if c in c_df.columns), c_df.columns[1])
         den_c = next((c for c in ("control", "denominator", "group_b") if c in c_df.columns), c_df.columns[2])
@@ -875,45 +908,125 @@ def run_bulk(
                 "view": dst_mqc.relative_to(out).as_posix(),
             })
 
-    # 1. Load rMATS across all contrasts (`JCEC` preferred with fallback to `JC`) & qualify PS-DAS
+    # 1. Load rMATS across all contrasts strictly matching requested `rmats_mode` (`JCEC` or `JC`) & qualify PS-DAS
     psi_sample_accumulator: dict[str, dict[str, float]] = {}
     event_meta: dict[str, dict[str, str]] = {}
     das_by_contrast: dict[str, pd.DataFrame] = {}
-    pref_modes = (rmats_mode.upper(), "JCEC", "JC")
+    eff_mode_req = str(rmats_mode or "JCEC").upper()
+    if eff_mode_req not in {"JCEC", "JC"}:
+        raise ValueError(f"Unsupported rmats_mode: {rmats_mode}")
 
     # Authoritative rMATS sample order & arm orientation from bundle manifest.json (if present)
     manifest_rmats_order: dict[str, list[str]] = {}
-    manifest_comp_arms: dict[str, tuple[str, str]] = {}
+    manifest_comps: dict[str, dict[str, Any]] = {}
     if bundle_path is not None and (bundle_path / "manifest.json").is_file():
-        try:
-            bm = json.loads((bundle_path / "manifest.json").read_text(encoding="utf-8"))
-            if isinstance(bm.get("rmats_sample_order"), dict):
-                manifest_rmats_order = {str(k): [str(x) for x in v] for k, v in bm["rmats_sample_order"].items() if isinstance(v, list)}
-            for comp_m in bm.get("comparisons", []):
-                if isinstance(comp_m, dict) and comp_m.get("comparison_id") and comp_m.get("rmats_group1") and comp_m.get("rmats_group2"):
-                    manifest_comp_arms[str(comp_m["comparison_id"])] = (str(comp_m["rmats_group1"]), str(comp_m["rmats_group2"]))
-        except Exception:
-            pass
+        bm = json.loads((bundle_path / "manifest.json").read_text(encoding="utf-8"))
+        if isinstance(bm.get("rmats_sample_order"), dict):
+            manifest_rmats_order = {str(k): [str(x) for x in v] for k, v in bm["rmats_sample_order"].items() if isinstance(v, list)}
+        for comp_m in bm.get("comparisons", []):
+            if isinstance(comp_m, dict) and comp_m.get("comparison_id"):
+                c_key = str(comp_m["comparison_id"]).strip()
+                comp_rec = {
+                    "rmats_group1": str(comp_m["rmats_group1"]).strip() if comp_m.get("rmats_group1") else None,
+                    "rmats_group2": str(comp_m["rmats_group2"]).strip() if comp_m.get("rmats_group2") else None,
+                    "rmats_dir": str(comp_m["rmats_dir"]).strip() if comp_m.get("rmats_dir") else None,
+                    "rmats_sample_order": (
+                        {str(k): [str(x) for x in v] for k, v in comp_m["rmats_sample_order"].items() if isinstance(v, list)}
+                        if isinstance(comp_m.get("rmats_sample_order"), dict)
+                        else {}
+                    ),
+                }
+                manifest_comps[c_key] = comp_rec
+                manifest_comps.setdefault(c_key.lower(), comp_rec)
 
+    cond_by_sid = {str(s["sample_id"]): str(s["condition"]) for s in samples_list}
     for c_spec in contrasts_list:
         cid = c_spec["contrast_id"]
-        rdir, dir_inverted = _resolve_rmats_dir_for_contrast(rmats_map, c_spec, len(contrasts_list))
+        mc = manifest_comps.get(cid) or manifest_comps.get(cid.lower()) or {}
         num_lbl = str(c_spec["numerator"]["label"])
         den_lbl = str(c_spec["denominator"]["label"])
-        g1_lbl, g2_lbl = manifest_comp_arms.get(cid, (num_lbl, den_lbl))
-        rmats_inverted = (g1_lbl == den_lbl and g2_lbl == num_lbl) if cid in manifest_comp_arms else dir_inverted
-        g1_sids = manifest_rmats_order.get(g1_lbl) or (c_spec["denominator"]["sample_ids"] if rmats_inverted else c_spec["numerator"]["sample_ids"])
-        g2_sids = manifest_rmats_order.get(g2_lbl) or (c_spec["numerator"]["sample_ids"] if rmats_inverted else c_spec["denominator"]["sample_ids"])
+        has_manifest_arms = bool(mc.get("rmats_group1") and mc.get("rmats_group2"))
+        g1_lbl = mc.get("rmats_group1") or num_lbl
+        g2_lbl = mc.get("rmats_group2") or den_lbl
+        if has_manifest_arms and {g1_lbl, g2_lbl} != {num_lbl, den_lbl}:
+            raise ValueError(
+                f"manifest.json rmats_group1/2 ({g1_lbl}, {g2_lbl}) do not match contrast '{cid}' ({num_lbl}, {den_lbl})."
+            )
+        exp_dir = None
+        if mc.get("rmats_dir") and bundle_path is not None:
+            raw_d = Path(mc["rmats_dir"])
+            exp_dir = raw_d if raw_d.is_absolute() else (bundle_path / raw_d)
+        rdir, dir_inverted = _resolve_rmats_dir_for_contrast(
+            rmats_map,
+            c_spec,
+            len(contrasts_list),
+            explicit_dir=exp_dir,
+            rmats_mode=eff_mode_req,
+            explicit_arm_order=has_manifest_arms,
+        )
+        rmats_inverted = (g1_lbl == den_lbl and g2_lbl == num_lbl) if has_manifest_arms else dir_inverted
+        arm1_lbl = den_lbl if rmats_inverted else num_lbl
+        arm2_lbl = num_lbl if rmats_inverted else den_lbl
+        cm_order = mc.get("rmats_sample_order") or {}
+        ord1 = cm_order.get(arm1_lbl) if arm1_lbl in cm_order else manifest_rmats_order.get(arm1_lbl)
+        ord2 = cm_order.get(arm2_lbl) if arm2_lbl in cm_order else manifest_rmats_order.get(arm2_lbl)
+        explicit_order = bool(cm_order or manifest_rmats_order or ord1 is not None or ord2 is not None)
+        if explicit_order:
+            a1 = [str(x).strip() for x in (ord1 or [])]
+            a2 = [str(x).strip() for x in (ord2 or [])]
+            if not a1 or not a2 or any(not x for x in a1 + a2):
+                raise ValueError(f"manifest.json rmats_sample_order for '{cid}' must be non-empty valid sample lists.")
+            if len(set(a1)) != len(a1) or len(set(a2)) != len(a2) or (set(a1) & set(a2)):
+                raise ValueError(f"manifest.json rmats_sample_order for '{cid}' contains duplicate or overlapping samples.")
+            unknown_s = [s for s in a1 + a2 if s not in cond_by_sid]
+            if unknown_s:
+                raise ValueError(f"manifest.json rmats_sample_order for '{cid}' references unknown samples: {unknown_s}")
+            if any(cond_by_sid[s] != arm1_lbl for s in a1) or any(cond_by_sid[s] != arm2_lbl for s in a2):
+                raise ValueError(f"manifest.json rmats_sample_order for '{cid}' violates samplesheet condition labels.")
+            g1_sids, g2_sids = a1, a2
+        else:
+            g1_sids = c_spec["denominator"]["sample_ids"] if rmats_inverted else c_spec["numerator"]["sample_ids"]
+            g2_sids = c_spec["numerator"]["sample_ids"] if rmats_inverted else c_spec["denominator"]["sample_ids"]
         num_sids = g2_sids if rmats_inverted else g1_sids
         den_sids = g1_sids if rmats_inverted else g2_sids
         frames = []
         for et in EVENTS:
-            f_et = next((rdir / f"{et}.MATS.{m}.txt" for m in pref_modes if (rdir / f"{et}.MATS.{m}.txt").is_file()), None)
-            if f_et is None:
+            f_et = rdir / f"{et}.MATS.{eff_mode_req}.txt"
+            if not f_et.is_file():
                 continue
-            raw = pd.read_csv(f_et, sep="\t")
+            _str_cols = {
+                c: str
+                for c in ("IncLevel1", "IncLevel2", "IJC_SAMPLE_1", "IJC_SAMPLE_2", "SJC_SAMPLE_1", "SJC_SAMPLE_2")
+            }
+            raw = pd.read_csv(f_et, sep="\t", converters=_str_cols)
             if raw.empty:
                 continue
+            p1_0 = parse_number_list(raw["IncLevel1"].iloc[0]) or parse_number_list(raw["IJC_SAMPLE_1"].iloc[0])
+            p2_0 = parse_number_list(raw["IncLevel2"].iloc[0]) or parse_number_list(raw["IJC_SAMPLE_2"].iloc[0])
+            exp_g1 = len(g1_sids) if explicit_order else len(p1_0)
+            exp_g2 = len(g2_sids) if explicit_order else len(p2_0)
+            if explicit_order and (len(p1_0) != exp_g1 or len(p2_0) != exp_g2):
+                raise ValueError(
+                    f"manifest.json rmats_sample_order length mismatch in {f_et.name} for '{cid}': "
+                    f"group1={exp_g1} vs rMATS={len(p1_0)}, group2={exp_g2} vs rMATS={len(p2_0)}."
+                )
+            for r_i, (p1s, p2s, i1s, i2s, s1s, s2s) in enumerate(zip(
+                raw["IncLevel1"].map(parse_number_list),
+                raw["IncLevel2"].map(parse_number_list),
+                raw["IJC_SAMPLE_1"].map(parse_number_list),
+                raw["IJC_SAMPLE_2"].map(parse_number_list),
+                raw["SJC_SAMPLE_1"].map(parse_number_list),
+                raw["SJC_SAMPLE_2"].map(parse_number_list),
+            )):
+                if (
+                    len(p1s) != exp_g1 or len(i1s) != exp_g1 or len(s1s) != exp_g1
+                    or len(p2s) != exp_g2 or len(i2s) != exp_g2 or len(s2s) != exp_g2
+                ):
+                    raise ValueError(
+                        f"Malformed rMATS replicate count list at {f_et.name} row {r_i}: "
+                        f"expected (g1={exp_g1}, g2={exp_g2}), got IncLevel=({len(p1s)},{len(p2s)}), "
+                        f"IJC=({len(i1s)},{len(i2s)}), SJC=({len(s1s)},{len(s2s)})."
+                    )
             raw["event_type"] = et
             gid_c = next((c for c in ("GeneID", "gene_id") if c in raw.columns), "ID")
             sym_c = next((c for c in ("geneSymbol", "gene_symbol") if c in raw.columns), gid_c)
@@ -1503,6 +1616,35 @@ def _orient_matrix_events_by_cells(df_in: pd.DataFrame, sample_id_set: set[str],
     return df
 
 
+def _resolve_studio_sc_donor_col(cell_df: pd.DataFrame, donor_col: str | None = None) -> str | None:
+    _aliases = ("donor_id", "mouse_id", "biological_sample_id", "donor", "subject_id", "subject", "mouse", "patient_id", "patient", "individual", "individual_id", "sample_donor", "animal_id")
+    _missing = {"", "nan", "none", "na", "null", "n/a"}
+    cols_l = {str(c).strip().lower(): str(c) for c in cell_df.columns}
+    if donor_col is not None and str(donor_col).strip():
+        req = str(donor_col).strip()
+        resolved = req if req in cell_df.columns else cols_l.get(req.lower())
+        if resolved is None:
+            raise ValueError(f"Donor column {donor_col!r} not found in metadata columns: {list(cell_df.columns)}")
+        return resolved
+    pop: list[str] = []
+    norm_by: dict[str, list[str]] = {}
+    for al in _aliases:
+        oc = cols_l.get(al)
+        if oc is not None and oc not in pop:
+            vals = ["" if (pd.isna(v) or str(v).strip().lower() in _missing) else str(v).strip() for v in cell_df[oc].tolist()]
+            if any(v != "" for v in vals):
+                pop.append(oc)
+                norm_by[oc] = vals
+    if len(pop) >= 2:
+        conflicts = [c for c in pop[1:] if norm_by[c] != norm_by[pop[0]]]
+        if conflicts:
+            raise ValueError(
+                f"Conflicting populated donor identifier columns in metadata: {[pop[0], *conflicts]}. "
+                "Specify an explicit --donor-col / donor_col= to select one column."
+            )
+    return pop[0] if pop else None
+
+
 def run_single_cell(
     *,
     outdir: str | Path,
@@ -1522,6 +1664,7 @@ def run_single_cell(
     subtypes_dirs: list[str | Path] | None = None,
     study_name: str = "Katana Single-Cell Splicing Study",
     species: str = "human",
+    donor_col: str | None = None,
     fdr_cutoff: float = 0.05,
     dpsi_cutoff: float = 0.10,
     dummy: bool = False,
@@ -1538,25 +1681,30 @@ def run_single_cell(
     out = Path(outdir).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
 
-    ev_df = events.copy() if isinstance(events, pd.DataFrame) else _read_tabular(Path(events))
-    cell_df = cells.copy() if isinstance(cells, pd.DataFrame) else _read_tabular(Path(cells))
+    ev_df = events.copy() if isinstance(events, pd.DataFrame) else _read_tabular(Path(events), string_index=False)
+    if "event_id" in ev_df.columns:
+        ev_df["event_id"] = ev_df["event_id"].astype(str)
+    if "gene_id" in ev_df.columns:
+        ev_df["gene_id"] = ev_df["gene_id"].astype(str)
+    cell_df = cells.copy() if isinstance(cells, pd.DataFrame) else _read_tabular(Path(cells), as_metadata=True)
 
     cid_c = next((c for c in ("cell_id", "sample_id", "barcode") if c in cell_df.columns), cell_df.columns[0])
     cond_c = next((c for c in ("condition", "state", "activation_state", "group") if c in cell_df.columns), cell_df.columns[1])
-    donor_c = next((c for c in ("donor_id", "mouse_id", "biological_sample_id", "subject") if c in cell_df.columns), None)
+    donor_c = _resolve_studio_sc_donor_col(cell_df, donor_col=donor_col)
     ct_c = next((c for c in ("atlas_subclass", "cell_type", "cluster", "subset") if c in cell_df.columns), cond_c)
+    _missing_don = {"", "nan", "none", "na", "null", "n/a"}
 
     samples_list = [
         {
             "sample_id": str(r[cid_c]).strip(),
             "condition": str(r[cond_c]).strip(),
-            "biological_sample_id": str(r[donor_c]).strip() if donor_c and pd.notna(r[donor_c]) and str(r[donor_c]).strip() else str(r[cid_c]).strip(),
-            "donor_id": str(r[donor_c]).strip() if donor_c and pd.notna(r[donor_c]) and str(r[donor_c]).strip() else "D1",
+            "biological_sample_id": str(r[donor_c]).strip() if donor_c and pd.notna(r[donor_c]) and str(r[donor_c]).strip().lower() not in _missing_don else str(r[cid_c]).strip(),
+            "donor_id": str(r[donor_c]).strip() if donor_c and pd.notna(r[donor_c]) and str(r[donor_c]).strip().lower() not in _missing_don else "D1",
             "cell_type": str(r[ct_c]).strip(),
             "activation_state": str(r[cond_c]).strip(),
             "attributes": {
                 "cell_type": str(r[ct_c]).strip(),
-                "donor_id": str(r[donor_c]).strip() if donor_c and pd.notna(r[donor_c]) and str(r[donor_c]).strip() else "D1",
+                "donor_id": str(r[donor_c]).strip() if donor_c and pd.notna(r[donor_c]) and str(r[donor_c]).strip().lower() not in _missing_don else "D1",
             },
         }
         for _, r in cell_df.iterrows()
@@ -1566,6 +1714,11 @@ def run_single_cell(
     # Merge primary donor-aware event contrast statistics from scSpliceTrace if available
     st_dir = Path(scsplicetrace_dir) if (scsplicetrace_dir and str(scsplicetrace_dir) != "NO_SCSPLICETRACE" and Path(scsplicetrace_dir).is_dir()) else None
     st_dirs_by_contrast: dict[str, Path] = {}
+
+    def _coerce_bool_series(ser: pd.Series) -> pd.Series:
+        return ser.map(
+            lambda v: False if pd.isna(v) else (v if isinstance(v, bool) else str(v).strip().lower() in {"true", "1", "yes"})
+        ).astype(bool)
 
     def _merge_st_events(base_ev: pd.DataFrame, trace_dir: Path, forced_cid: str | None = None) -> tuple[pd.DataFrame, str | None]:
         st_cmp = forced_cid
@@ -1579,22 +1732,45 @@ def run_single_cell(
                     st_cmp = f"{ng}_vs_{dg}"
             except Exception:
                 pass
+        base_ev = base_ev.copy()
+        for src_p, dst_p in (
+            ("dpsi", "pooled_exploratory_dpsi"),
+            ("pvalue", "pooled_exploratory_pvalue"),
+            ("p_value", "pooled_exploratory_pvalue"),
+            ("fdr", "pooled_exploratory_fdr"),
+        ):
+            if src_p in base_ev.columns and dst_p not in base_ev.columns:
+                base_ev[dst_p] = pd.to_numeric(base_ev[src_p], errors="coerce")
         if (trace_dir / "scsplicetrace_event_contrasts.tsv").is_file() and "event_id" in base_ev.columns:
-            st_ev = _safe_read_csv(trace_dir / "scsplicetrace_event_contrasts.tsv", sep="\t")
+            st_ev = _safe_read_csv(trace_dir / "scsplicetrace_event_contrasts.tsv", sep="\t", dtype={"event_id": str})
             if not st_ev.empty and "event_id" in st_ev.columns:
-                m_cols = [c for c in ("event_id", "raw_dpsi", "z_shift", "p_value", "fdr", "eligible") if c in st_ev.columns]
-                ev_m = base_ev.merge(st_ev[m_cols], on="event_id", how="left", suffixes=("_prelim", ""))
-                if "raw_dpsi" in ev_m.columns:
-                    ev_m["dpsi"] = ev_m["raw_dpsi"].combine_first(ev_m.get("dpsi", pd.Series(dtype=float)))
-                if "p_value" in ev_m.columns:
-                    ev_m["pvalue"] = ev_m["p_value"].combine_first(ev_m.get("pvalue", pd.Series(dtype=float)))
-                if "fdr_prelim" in ev_m.columns and "fdr" in ev_m.columns:
-                    ev_m["fdr"] = ev_m["fdr"].combine_first(ev_m["fdr_prelim"])
+                st_ev["event_id"] = st_ev["event_id"].astype(str)
+                base_ev["event_id"] = base_ev["event_id"].astype(str)
+                m_cols = [c for c in (
+                    "event_id", "raw_dpsi", "dpsi", "z_shift", "p_value", "pvalue", "fdr",
+                    "eligible", "event_inference_unit", "n_donors_used",
+                    "donor_n_paired", "donor_n_unpaired_fg", "donor_n_unpaired_bg",
+                ) if c in st_ev.columns]
+                st_sub = st_ev[m_cols].drop_duplicates("event_id")
+                drop_pre = [c for c in m_cols if c != "event_id" and c in base_ev.columns]
+                ev_m = base_ev.drop(columns=drop_pre).merge(st_sub, on="event_id", how="left")
+                dpsi_src = "raw_dpsi" if "raw_dpsi" in ev_m.columns else ("dpsi" if "dpsi" in ev_m.columns else None)
+                p_src = "p_value" if "p_value" in ev_m.columns else ("pvalue" if "pvalue" in ev_m.columns else None)
+                ev_m["dpsi"] = pd.to_numeric(ev_m[dpsi_src], errors="coerce") if dpsi_src else np.nan
+                ev_m["pvalue"] = pd.to_numeric(ev_m[p_src], errors="coerce") if p_src else np.nan
+                ev_m["fdr"] = pd.to_numeric(ev_m["fdr"], errors="coerce") if "fdr" in ev_m.columns else np.nan
+                elig_b = _coerce_bool_series(ev_m["eligible"]) if "eligible" in ev_m.columns else pd.Series(False, index=ev_m.index, dtype=bool)
+                ev_m["eligible"] = elig_b
+                if "event_inference_unit" not in ev_m.columns:
+                    ev_m["event_inference_unit"] = np.where(elig_b, "donor_aware", "missing_or_ineligible")
+                else:
+                    ev_m["event_inference_unit"] = ev_m["event_inference_unit"].fillna("missing_or_ineligible").astype(str)
+                # Quarantined invariant: ineligible events NEVER carry backfilled pooled statistics into primary columns
+                ev_m.loc[~elig_b, ["dpsi", "pvalue", "fdr"]] = np.nan
                 if st_cmp:
                     ev_m["comparison_id"] = st_cmp
                 return ev_m, st_cmp
         if st_cmp:
-            base_ev = base_ev.copy()
             base_ev["comparison_id"] = st_cmp
         return base_ev, st_cmp
 
@@ -1640,7 +1816,7 @@ def run_single_cell(
             if (sub_sn_d / "scsplicenet_modules.tsv").is_file():
                 sn_dirs_by_contrast[sub_cid] = sub_sn_d
             if sub_ev_f.is_file():
-                s_ev = _safe_read_csv(sub_ev_f, sep="\t")
+                s_ev = _safe_read_csv(sub_ev_f, sep="\t", dtype={"event_id": str, "gene_id": str, "gene_symbol": str})
                 if not s_ev.empty:
                     if sub_st_d.is_dir():
                         s_ev, _ = _merge_st_events(s_ev, sub_st_d, forced_cid=sub_cid)
@@ -1650,7 +1826,7 @@ def run_single_cell(
                     s_ev[cmp_col] = sub_cid
                     sub_frames.append(s_ev)
             if sub_cells_f.is_file():
-                sc_sub = _safe_read_csv(sub_cells_f, sep="\t")
+                sc_sub = _safe_read_csv(sub_cells_f, sep="\t", dtype=str, keep_default_na=False)
                 if not sc_sub.empty:
                     sc_id_c = next((c for c in ("cell_id", "sample_id") if c in sc_sub.columns), sc_sub.columns[0])
                     sc_g_c = next((c for c in ("condition", "group") if c in sc_sub.columns), sc_sub.columns[1])
@@ -1687,10 +1863,16 @@ def run_single_cell(
             "denominator": {"label": d_lbl, "sample_ids": list(dict.fromkeys(d_ids))},
         })
 
-    # Orient optional single-cell matrices to `(features × cells)`
-    p_df = _orient_matrix_events_by_cells(psi_matrix if isinstance(psi_matrix, pd.DataFrame) else _read_tabular(Path(psi_matrix)), sample_id_set, isinstance(psi_matrix, pd.DataFrame)) if psi_matrix is not None else None
-    sup_df = _orient_matrix_events_by_cells(support_matrix if isinstance(support_matrix, pd.DataFrame) else _read_tabular(Path(support_matrix)), sample_id_set, isinstance(support_matrix, pd.DataFrame)) if support_matrix is not None else None
-    expr_df = _orient_matrix_events_by_cells(expression if isinstance(expression, pd.DataFrame) else _read_tabular(Path(expression)), sample_id_set, isinstance(expression, pd.DataFrame)) if expression is not None else None
+    # Orient optional single-cell matrices to `(features × cells)` preserving exact string IDs
+    def _prep_mat_str(m: pd.DataFrame) -> pd.DataFrame:
+        out_m = m.copy()
+        out_m.index = out_m.index.astype(str)
+        out_m.columns = out_m.columns.astype(str)
+        return out_m
+
+    p_df = _orient_matrix_events_by_cells(_prep_mat_str(psi_matrix) if isinstance(psi_matrix, pd.DataFrame) else _read_tabular(Path(psi_matrix), string_index=True), sample_id_set, isinstance(psi_matrix, pd.DataFrame)) if psi_matrix is not None else None
+    sup_df = _orient_matrix_events_by_cells(_prep_mat_str(support_matrix) if isinstance(support_matrix, pd.DataFrame) else _read_tabular(Path(support_matrix), string_index=True), sample_id_set, isinstance(support_matrix, pd.DataFrame)) if support_matrix is not None else None
+    expr_df = _orient_matrix_events_by_cells(_prep_mat_str(expression) if isinstance(expression, pd.DataFrame) else _read_tabular(Path(expression), string_index=True), sample_id_set, isinstance(expression, pd.DataFrame)) if expression is not None else None
 
     panels: list[dict[str, Any]] = []
     tables: list[dict[str, Any]] = []
@@ -1840,11 +2022,15 @@ def run_single_cell(
     res_dir.mkdir(parents=True, exist_ok=True)
     if cmp_col != "comparison_id" and "comparison_id" not in ev_df.columns:
         ev_df["comparison_id"] = ev_df[cmp_col].astype(str)
-    if "passes_read_support" not in ev_df.columns:
-        dpsi_tmp_c = next((c for c in ("dpsi", "delta_psi", "raw_dpsi", "effect") if c in ev_df.columns), None)
-        elig_ok = ev_df["eligible"].astype(str).str.lower().isin({"true", "1"}) if "eligible" in ev_df.columns else pd.Series(True, index=ev_df.index)
-        dpsi_ok = pd.to_numeric(ev_df[dpsi_tmp_c], errors="coerce").notna() if dpsi_tmp_c else pd.Series(True, index=ev_df.index)
-        ev_df["passes_read_support"] = (elig_ok & dpsi_ok).astype(bool)
+    dpsi_tmp_c = next((c for c in ("dpsi", "delta_psi", "raw_dpsi", "effect") if c in ev_df.columns), None)
+    if "eligible" in ev_df.columns:
+        elig_ok = _coerce_bool_series(ev_df["eligible"])
+        ev_df["eligible"] = elig_ok
+        dpsi_vals_tmp = pd.to_numeric(ev_df[dpsi_tmp_c], errors="coerce") if dpsi_tmp_c else pd.Series(np.nan, index=ev_df.index)
+        ev_df["passes_read_support"] = (elig_ok & dpsi_vals_tmp.notna() & np.isfinite(dpsi_vals_tmp)).astype(bool)
+    elif "passes_read_support" not in ev_df.columns:
+        dpsi_vals_tmp = pd.to_numeric(ev_df[dpsi_tmp_c], errors="coerce") if dpsi_tmp_c else pd.Series(True, index=ev_df.index)
+        ev_df["passes_read_support"] = dpsi_vals_tmp.notna().astype(bool)
     ev_pq = res_dir / "sc_differential_splicing.parquet"
     ev_df.to_parquet(ev_pq, index=False, compression="zstd")
     tables.append({
@@ -1875,32 +2061,62 @@ def run_single_cell(
         cid = c_spec["contrast_id"]
         sub = ev_df[ev_df[cmp_col].astype(str) == cid].copy()
         if d_c and (q_c or p_c):
-            eff_col = q_c if (q_c and pd.to_numeric(sub[q_c], errors="coerce").notna().any()) else p_c
-            sub["_sig_fdr"] = (pd.to_numeric(sub[q_c], errors="coerce").fillna(1.0) <= fdr_cutoff) & (pd.to_numeric(sub[d_c], errors="coerce").abs().fillna(0.0) >= dpsi_cutoff) if q_c else False
-            sub["_sig_nom"] = (pd.to_numeric(sub[p_c], errors="coerce").fillna(1.0) <= 0.05) & (pd.to_numeric(sub[d_c], errors="coerce").abs().fillna(0.0) >= dpsi_cutoff) if p_c else sub["_sig_fdr"]
+            sub_has_donor_eval = ("eligible" in sub.columns) and (cid in st_dirs_by_contrast or st_dir is not None or sub["eligible"].notna().any())
+            elig_mask = _coerce_bool_series(sub["eligible"]) if sub_has_donor_eval else pd.Series(True, index=sub.index, dtype=bool)
+            d_num = pd.to_numeric(sub[d_c], errors="coerce")
+            q_num = pd.to_numeric(sub[q_c], errors="coerce") if q_c else pd.Series(np.nan, index=sub.index)
+            p_num = pd.to_numeric(sub[p_c], errors="coerce") if p_c else pd.Series(np.nan, index=sub.index)
+            valid_d = d_num.notna() & np.isfinite(d_num)
+
+            eff_col = q_c if (q_c and q_num[elig_mask].notna().any()) else (p_c or q_c)
+            sub["_sig_fdr"] = (elig_mask & valid_d & q_num.notna() & (q_num <= fdr_cutoff) & (d_num.abs() >= dpsi_cutoff)) if q_c else False
+            sub["_sig_nom"] = (elig_mask & valid_d & p_num.notna() & (p_num <= 0.05) & (d_num.abs() >= dpsi_cutoff)) if p_c else sub["_sig_fdr"]
             n_fdr_sig = int(sub["_sig_fdr"].sum())
             n_nom_sig = int(sub["_sig_nom"].sum())
+            n_elig = int(elig_mask.sum())
 
             use_nom_axis = (n_fdr_sig == 0) and (p_c is not None) and (n_nom_sig > 0)
             plot_q_col = p_c if use_nom_axis else eff_col
             sub["_sig"] = sub["_sig_nom"] if use_nom_axis else sub["_sig_fdr"]
             sub["gene_symbol"] = sub[g_c].astype(str)
-            sub["dpsi"] = pd.to_numeric(sub[d_c], errors="coerce")
-            sub["fdr"] = pd.to_numeric(sub[q_c], errors="coerce") if q_c else pd.to_numeric(sub[plot_q_col], errors="coerce")
+            sub["dpsi"] = np.where(elig_mask, d_num, np.nan)
+            sub["fdr"] = np.where(elig_mask, q_num if q_c else pd.to_numeric(sub[plot_q_col], errors="coerce"), np.nan)
+            if p_c:
+                sub["pvalue"] = np.where(elig_mask, p_num, np.nan)
             sub["report_rs_das"] = sub["_sig"].astype(bool)
             sc_das_by_contrast[cid] = sub
             sc_das_genes[cid] = set(sub.loc[sub["_sig"], "gene_symbol"].dropna().astype(str))
 
             v_png = out / "figures/comparisons" / f"{cid}-sc-as-volcano.png"
-            v_title = (
-                f"Donor-Aware DAS Volcano ({n_fdr_sig:,} FDR ≤ {fdr_cutoff:g} events) | {cid}"
-                if not use_nom_axis else
-                f"Donor-Aware DAS Volcano ({n_nom_sig:,} nominal P ≤ 0.05, |ΔPSI| ≥ {dpsi_cutoff:g}; 0 BH-FDR) | {cid}"
-            )
-            _render_volcano(sub, d_c, plot_q_col, "_sig", g_c, "Single-cell ΔPSI", v_title, v_png, is_deg=False)
+            if sub_has_donor_eval:
+                plot_df = sub[elig_mask & valid_d & pd.to_numeric(sub[plot_q_col], errors="coerce").notna()].copy()
+                if n_elig == 0 or plot_df.empty:
+                    v_title = f"Donor-Aware DAS Volcano (0 donor-eligible events; ineligible pooled excluded) | {cid}"
+                    v_banner = "0 donor-eligible events (ineligible pooled ratios excluded)"
+                elif not use_nom_axis:
+                    v_title = f"Donor-Aware DAS Volcano ({n_fdr_sig:,} FDR ≤ {fdr_cutoff:g} events) | {cid}"
+                    v_banner = None
+                else:
+                    v_title = f"Donor-Aware DAS Volcano ({n_nom_sig:,} nominal P ≤ 0.05, |ΔPSI| ≥ {dpsi_cutoff:g}; 0 BH-FDR) | {cid}"
+                    v_banner = None
+            else:
+                plot_df = sub
+                v_banner = None
+                v_title = (
+                    f"Exploratory Cell-Pooled Splicing Volcano ({n_fdr_sig:,} FDR ≤ {fdr_cutoff:g}; scSpliceTrace not run) | {cid}"
+                    if not use_nom_axis else
+                    f"Exploratory Cell-Pooled Splicing Volcano ({n_nom_sig:,} nominal P ≤ 0.05, |ΔPSI| ≥ {dpsi_cutoff:g}; scSpliceTrace not run) | {cid}"
+                )
+            _render_volcano(plot_df, d_c, plot_q_col, "_sig", g_c, "Single-cell ΔPSI", v_title, v_png, is_deg=False, empty_banner=v_banner)
             v_tsv = out / "outputs/comparisons" / cid / f"{cid}-sc-volcano-plot-data.tsv"
             v_tsv.parent.mkdir(parents=True, exist_ok=True)
-            keep_v_cols = list(dict.fromkeys([c for c in ("event_id", "event_type", g_c, d_c, p_c, q_c, "_sig") if c and c in sub.columns]))
+            keep_v_cols = list(dict.fromkeys([
+                c for c in (
+                    "event_id", "event_type", g_c, d_c, p_c, q_c, "_sig",
+                    "eligible", "event_inference_unit", "pooled_exploratory_dpsi", "pooled_exploratory_fdr",
+                )
+                if c and c in sub.columns
+            ]))
             sub[keep_v_cols].to_csv(v_tsv, sep="\t", index=False)
             panels.append({
                 "id": f"{cid}-sc-volcano",

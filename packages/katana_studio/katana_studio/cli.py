@@ -68,6 +68,7 @@ def report_main(argv: list[str] | None = None) -> int:
     psc.add_argument("--subtypes-dirs", nargs="*", type=Path, default=None, help="Optional per-subtype downstream contrast directories")
     psc.add_argument("--study-name", default="Katana Single-Cell Splicing Study")
     psc.add_argument("--species", choices=["human", "mouse"], default="human")
+    psc.add_argument("--donor-col", default=None, help="Explicit donor/animal metadata column name")
     psc.add_argument("--fdr", type=float, default=0.05)
     psc.add_argument("--dpsi", type=float, default=0.10)
     psc.add_argument("--dummy", action="store_true", help="Mark report header as SYNTHETIC DISPLAY REVIEW (`dummy=true`)")
@@ -147,6 +148,7 @@ def report_main(argv: list[str] | None = None) -> int:
             subtypes_dirs=args.subtypes_dirs,
             study_name=args.study_name,
             species=args.species,
+            donor_col=args.donor_col,
             fdr_cutoff=args.fdr,
             dpsi_cutoff=args.dpsi,
             dummy=args.dummy,

@@ -131,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--group-col", default="condition")
     p.add_argument("--numerator", default=None)
     p.add_argument("--denominator", default=None)
-    p.add_argument("--donor-col", default="donor_id")
+    p.add_argument("--donor-col", default=None, help="Explicit donor/animal column name (auto-detects unambiguous donor aliases if omitted)")
     p.add_argument("--allow-single-donor", action="store_true", help="Explicitly allow single-donor exploratory analysis when metadata lacks a donor column")
     p.add_argument(
         "--design-mode",
@@ -164,7 +164,10 @@ def main(argv: list[str] | None = None) -> int:
     t0 = time.monotonic()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    events_df = pd.read_csv(args.events, sep="\t")
+    events_df = pd.read_csv(args.events, sep="\t", dtype={"event_id": str, "gene_id": str, "gene_symbol": str})
+    events_df["event_id"] = events_df["event_id"].astype(str)
+    if "gene_id" in events_df.columns:
+        events_df["gene_id"] = events_df["gene_id"].astype(str)
     rna_df, cov_df = extract_sc_event_sequences(events_df, Path(args.fasta), distal_intron_nt=args.distal_intron_nt)
     rbp_tensor, ev_ids, rbps, region_names = build_sc_directional_motif_tensor(
         events_df,
@@ -178,7 +181,18 @@ def main(argv: list[str] | None = None) -> int:
         if nm.endswith(".parquet"):
             return pd.read_parquet(path)
         sep = "," if nm.endswith((".csv", ".csv.gz")) else "\t"
-        return pd.read_csv(path, sep=sep)
+        return pd.read_csv(path, sep=sep, dtype={0: str})
+
+    def _read_id_matrix(path: Path) -> pd.DataFrame:
+        nm = path.name.lower()
+        sep = "," if nm.endswith((".csv", ".csv.gz")) else "\t"
+        df_m = pd.read_csv(path, sep=sep, dtype={0: str})
+        if df_m.shape[1] > 0:
+            df_m[df_m.columns[0]] = df_m[df_m.columns[0]].astype(str).str.strip()
+            df_m = df_m.set_index(df_m.columns[0])
+        df_m.index = df_m.index.astype(str)
+        df_m.columns = df_m.columns.astype(str)
+        return df_m
 
     rbp_expr_df = _read_tbl(args.expression) if args.expression is not None else None
 
@@ -193,14 +207,15 @@ def main(argv: list[str] | None = None) -> int:
         summary["ranked_targets_for"] = resolved_q
 
     if args.psi is not None and args.metadata is not None and args.numerator is not None and args.denominator is not None:
-        psi_df = pd.read_csv(args.psi, sep="\t", index_col=0)
-        sup_df = pd.read_csv(args.support, sep="\t", index_col=0) if args.support else None
+        psi_df = _read_id_matrix(args.psi)
+        sup_df = _read_id_matrix(args.support) if args.support else None
         if args.transpose_psi:
             psi_df = psi_df.T
             if sup_df is not None:
                 sup_df = sup_df.T
-        md = pd.read_csv(args.metadata, sep="\t")
-        eg = events_df.assign(event_id=events_df["event_id"].astype(str)).set_index("event_id")["gene_id"]
+        md_sep = "," if str(args.metadata).lower().endswith((".csv", ".csv.gz")) else "\t"
+        md = pd.read_csv(args.metadata, sep=md_sep, dtype=str, keep_default_na=False)
+        eg = events_df.assign(event_id=events_df["event_id"].astype(str)).set_index("event_id")["gene_id"].astype(str)
         u_aligned = psi_df.reindex(columns=events_df["event_id"].astype(str))
         s_aligned = sup_df.reindex(columns=events_df["event_id"].astype(str)) if sup_df is not None else None
 

@@ -19,10 +19,14 @@ _DONOR_COL_ALIASES = (
     "mouse_id",
     "biological_sample_id",
     "donor",
+    "subject_id",
     "subject",
     "mouse",
+    "patient_id",
     "patient",
     "individual",
+    "individual_id",
+    "sample_donor",
     "animal_id",
 )
 _MISSING_DONOR_TOKENS = {"", "nan", "none", "na", "null", "n/a"}
@@ -37,6 +41,13 @@ def _valid_donors(series: pd.Series) -> list[str]:
         if s.lower() not in _MISSING_DONOR_TOKENS:
             out.append(s)
     return out
+
+
+def _norm_donors(series: pd.Series) -> list[str]:
+    return [
+        "" if (pd.isna(v) or str(v).strip().lower() in _MISSING_DONOR_TOKENS) else str(v).strip()
+        for v in series.tolist()
+    ]
 
 
 def slugify(text: str) -> str:
@@ -58,7 +69,7 @@ def main() -> int:
 
     args.outdir.mkdir(parents=True, exist_ok=True)
     sep = "," if args.metadata.suffix.lower() == ".csv" else "\t"
-    md = pd.read_csv(args.metadata, sep=sep)
+    md = pd.read_csv(args.metadata, sep=sep, dtype=str, keep_default_na=False)
     for qc_col in ("qc_pass", "qc_pass_nuclei", "keep"):
         if qc_col in md.columns:
             md = md[md[qc_col].astype(str).str.lower().isin(("true", "1", "yes", "pass"))].copy()
@@ -73,13 +84,32 @@ def main() -> int:
             bad_ids = cids_clean[dup_cid].drop_duplicates().head(5).tolist()
             raise ValueError(f"Duplicate physical cell_id entries in metadata (e.g. {bad_ids}).")
 
-    if args.donor_col:
+    if args.donor_col and str(args.donor_col).strip():
         req_d = str(args.donor_col).strip()
         donor_col = req_d if req_d in md.columns else cols_l.get(req_d.lower())
         if donor_col is None:
             raise ValueError(f"Donor column {args.donor_col!r} not found in metadata columns: {list(md.columns)}")
     else:
-        donor_col = next((cols_l[k] for k in _DONOR_COL_ALIASES if k in cols_l), None)
+        populated_cols: list[str] = []
+        present_cols: list[str] = []
+        norm_by_col: dict[str, list[str]] = {}
+        for d_alias in _DONOR_COL_ALIASES:
+            orig_d = cols_l.get(d_alias)
+            if orig_d is not None and orig_d not in present_cols:
+                present_cols.append(orig_d)
+                norm_v = _norm_donors(md[orig_d])
+                if any(v != "" for v in norm_v):
+                    populated_cols.append(orig_d)
+                    norm_by_col[orig_d] = norm_v
+        if len(populated_cols) >= 2:
+            base_col = populated_cols[0]
+            conflicts = [c for c in populated_cols[1:] if norm_by_col[c] != norm_by_col[base_col]]
+            if conflicts:
+                raise ValueError(
+                    f"Conflicting populated donor identifier columns in metadata: {[base_col, *conflicts]}. "
+                    "Pass explicit --donor-col to disambiguate."
+                )
+        donor_col = populated_cols[0] if populated_cols else (present_cols[0] if present_cols else None)
         if donor_col is None:
             raise ValueError(f"Metadata {args.metadata} requires a donor/animal identifier column (donor_id or mouse_id).")
     if args.group_col not in md.columns:

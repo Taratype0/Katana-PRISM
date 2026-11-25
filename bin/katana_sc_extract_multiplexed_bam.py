@@ -28,7 +28,7 @@ def load_qc_cells_and_aliases(
     barcode_shares_path: Path | None,
 ) -> tuple[pd.DataFrame, dict[str, str]]:
     sep = "," if annotations_path.suffix.lower() == ".csv" else "\t"
-    md = pd.read_csv(annotations_path, sep=sep)
+    md = pd.read_csv(annotations_path, sep=sep, dtype=str, keep_default_na=False)
     for qc_col in ("qc_pass", "qc_pass_nuclei", "keep"):
         if qc_col in md.columns:
             md = md[md[qc_col].astype(str).str.lower().isin(("true", "1", "yes", "pass"))].copy()

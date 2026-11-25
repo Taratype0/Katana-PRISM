@@ -1,16 +1,16 @@
 cohort	knockdown_RBP	upstream_gate	downstream_model	qualified_foreground_events	scannable_primary_chr_events	asymmetric_switches_rescued	downstream_SpliceTrace_sig_rbps_fwer05	exact_target_P_FWER	exact_target_abs_Z	exact_target_rank	retained_full_ENCODE_NMD_switches	retained_full_ENCODE_UniProt_switches
-ENCODE_PTBP1	PTBP1	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	1768	1768	37	26	0.0005	9.128	1.0	632.0	878.0
-ENCODE_PTBP1	PTBP1	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	1653	1653	0	27	0.0005	9.05	1.0	589.0	831.0
-ENCODE_PTBP1	PTBP1	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	1462	1462	0	17	0.0005	8.207	1.0	530.0	740.0
-ENCODE_SRSF1	SRSF1	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	4031	4031	98	50	0.002	5.066	27.0	1535.0	2012.0
-ENCODE_SRSF1	SRSF1	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	3772	3772	0	51	0.001	5.21	20.0	1437.0	1909.0
-ENCODE_SRSF1	SRSF1	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	3343	3343	0	42	0.001	5.221	22.0	1294.0	1749.0
-ENCODE_HNRNPA1	HNRNPA1	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	857	857	18	0	1.0	1.728	156.0	374.0	425.0
-ENCODE_HNRNPA1	HNRNPA1	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	789	789	0	0	1.0	1.633	159.0	344.0	397.0
-ENCODE_HNRNPA1	HNRNPA1	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	680	680	0	0	1.0	1.534	160.0	302.0	354.0
-ENCODE_HNRNPF	HNRNPF	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	935	935	45	13	1.0	2.411	73.0	415.0	494.0
-ENCODE_HNRNPF	HNRNPF	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	847	847	0	13	1.0	2.33	98.0	378.0	455.0
-ENCODE_HNRNPF	HNRNPF	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	718	718	0	12	1.0	2.626	68.0	318.0	385.0
+ENCODE_PTBP1	PTBP1	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	1768	1768	37	26	0.0005	9.128	1.0	621.0	866.0
+ENCODE_PTBP1	PTBP1	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	1653	1653	0	27	0.0005	9.05	1.0	578.0	820.0
+ENCODE_PTBP1	PTBP1	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	1462	1462	0	17	0.0005	8.207	1.0	521.0	730.0
+ENCODE_SRSF1	SRSF1	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	4031	4031	98	50	0.002	5.066	27.0	1492.0	1988.0
+ENCODE_SRSF1	SRSF1	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	3772	3772	0	51	0.001	5.21	20.0	1399.0	1887.0
+ENCODE_SRSF1	SRSF1	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	3343	3343	0	42	0.001	5.221	22.0	1258.0	1728.0
+ENCODE_HNRNPA1	HNRNPA1	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	857	857	18	0	1.0	1.728	156.0	367.0	419.0
+ENCODE_HNRNPA1	HNRNPA1	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	789	789	0	0	1.0	1.633	159.0	337.0	391.0
+ENCODE_HNRNPA1	HNRNPA1	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	680	680	0	0	1.0	1.534	160.0	297.0	350.0
+ENCODE_HNRNPF	HNRNPF	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	935	935	45	13	1.0	2.411	73.0	404.0	491.0
+ENCODE_HNRNPF	HNRNPF	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	847	847	0	13	1.0	2.33	98.0	368.0	452.0
+ENCODE_HNRNPF	HNRNPF	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	718	718	0	12	1.0	2.626	68.0	310.0	383.0
 GSE206660_PTBP2	PTBP2	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	2700	2699	53	61	0.0005	10.76	2.0		
 GSE206660_PTBP2	PTBP2	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	2499	2498	0	54	0.0005	10.571	2.0		
 GSE206660_PTBP2	PTBP2	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	2186	2186	0	62	0.0005	10.746	2.0		

@@ -36,8 +36,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--version", action="version", version=f"scsplicenet {__version__}")
     p.add_argument("--usage", type=Path, required=False, help="TSV(.gz): cell_id rows x event_id columns observed usage")
-    p.add_argument("--metadata", type=Path, required=False, help="TSV: QC-passed cell metadata (cell_id, donor_id, cell_type, condition, qc_pass)")
+    p.add_argument("--metadata", type=Path, required=False, help="TSV/CSV: QC-passed cell metadata (cell_id, donor_id, cell_type, condition, qc_pass)")
     p.add_argument("--event-genes", type=Path, required=False, help="TSV: event_id, gene_id[, gene_symbol]")
+    p.add_argument("--donor-col", default=None, help="Explicit donor/animal column name (auto-detects unambiguous donor aliases if omitted)")
     p.add_argument("--support", type=Path, default=None, help="Optional TSV(.gz): cell_id x event_id count denominators")
     p.add_argument("--host-expr", type=Path, default=None, help="Optional TSV(.gz): cell_id x gene_id log-expression for Hybrid Manifold selector")
     p.add_argument("--select-budget", type=int, default=0, help="If > 0, select top-K splicing events first using --selector")
@@ -76,18 +77,31 @@ def main(argv: list[str] | None = None) -> int:
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    usage = pd.read_csv(args.usage, sep="\t", index_col=0)
-    metadata = pd.read_csv(args.metadata, sep="\t")
-    eg_df = pd.read_csv(args.event_genes, sep="\t")
-    support = pd.read_csv(args.support, sep="\t", index_col=0) if args.support else None
+
+    def _read_id_mat(path: Path) -> pd.DataFrame:
+        df_m = pd.read_csv(path, sep="\t", dtype={0: str})
+        if df_m.shape[1] > 0:
+            df_m[df_m.columns[0]] = df_m[df_m.columns[0]].astype(str).str.strip()
+            df_m = df_m.set_index(df_m.columns[0])
+        df_m.index = df_m.index.astype(str)
+        df_m.columns = df_m.columns.astype(str)
+        return df_m
+
+    usage = _read_id_mat(args.usage)
+    md_sep = "," if str(args.metadata).lower().endswith((".csv", ".csv.gz")) else "\t"
+    metadata = pd.read_csv(args.metadata, sep=md_sep, dtype=str, keep_default_na=False)
+    eg_df = pd.read_csv(args.event_genes, sep="\t", dtype={"event_id": str, "gene_id": str, "gene_symbol": str})
+    eg_df["event_id"] = eg_df["event_id"].astype(str)
+    eg_df["gene_id"] = eg_df["gene_id"].astype(str)
+    support = _read_id_mat(args.support) if args.support else None
     eg_ser = eg_df.set_index("event_id")["gene_id"].astype(str)
 
     if args.select_budget > 0 and usage.shape[1] > args.select_budget:
         from scsplicenet.input_contract import validate_sc_usage_input
         bundle = validate_sc_usage_input(
-            usage, metadata, eg_df, support=support, require_qc_whitelist=("qc_pass" in metadata.columns)
+            usage, metadata, eg_df, support=support, donor_col=args.donor_col, require_qc_whitelist=("qc_pass" in metadata.columns)
         )
-        host_df = pd.read_csv(args.host_expr, sep="\t", index_col=0) if args.host_expr else None
+        host_df = _read_id_mat(args.host_expr) if args.host_expr else None
         n_c = int(bundle.usage.shape[0])
         min_c = max(3, min(15, int(n_c * 0.15)))
         min_sup = max(3.0, min(10.0, float(min_c)))
@@ -112,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
 
     net = fit_scsplicenet(
         usage=usage, metadata=metadata, event_genes=eg_df, support=support,
+        donor_col=args.donor_col,
         level=args.level, top_fraction=args.top_fraction, repeats=args.repeats,
         random_seed=args.seed, min_module_size=args.min_module_size, use_r_dynamic_cut=False,
     )

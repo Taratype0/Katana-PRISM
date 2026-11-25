@@ -30,10 +30,14 @@ _DONOR_COL_ALIASES = (
     "mouse_id",
     "biological_sample_id",
     "donor",
+    "subject_id",
     "subject",
     "mouse",
+    "patient_id",
     "patient",
     "individual",
+    "individual_id",
+    "sample_donor",
     "animal_id",
 )
 
@@ -47,25 +51,54 @@ def _valid_donor_mask(series: pd.Series) -> np.ndarray:
     )
 
 
+def _norm_donor_list(series: pd.Series) -> list[str]:
+    return [
+        "" if (pd.isna(v) or str(v).strip().lower() in _MISSING_DONOR_TOKENS) else str(v).strip()
+        for v in series.tolist()
+    ]
+
+
 def _resolve_sc_donor_col(md: pd.DataFrame, donor_col: str | None, *, allow_single_donor: bool) -> str | None:
-    """Resolve donor identifier column consistently across canonical aliases, failing loudly if absent."""
-    req = str(donor_col).strip() if donor_col is not None else "donor_id"
-    if req in md.columns:
-        return req
+    """Resolve donor identifier column consistently across canonical aliases, failing loudly on conflict or absence."""
     cols_l = {str(c).strip().lower(): str(c) for c in md.columns}
-    if req.lower() in cols_l:
-        return cols_l[req.lower()]
-    if donor_col is None or req == "donor_id":
-        for alias in _DONOR_COL_ALIASES:
-            if alias in cols_l:
-                return cols_l[alias]
-        if allow_single_donor:
-            return None
-        raise ValueError(
-            "Metadata requires a donor/animal identifier column (e.g., donor_id, mouse_id, biological_sample_id). "
-            "Pass allow_single_donor=True / --allow-single-donor only for an explicit single-donor exploratory analysis."
-        )
-    raise ValueError(f"Donor column {donor_col!r} not found in metadata columns: {list(md.columns)}")
+    if donor_col is not None and str(donor_col).strip():
+        req = str(donor_col).strip()
+        if req in md.columns:
+            return req
+        if req.lower() in cols_l:
+            return cols_l[req.lower()]
+        raise ValueError(f"Donor column {donor_col!r} not found in metadata columns: {list(md.columns)}")
+
+    populated_cols: list[str] = []
+    present_cols: list[str] = []
+    for alias in _DONOR_COL_ALIASES:
+        orig_c = cols_l.get(alias)
+        if orig_c is not None and orig_c not in present_cols:
+            present_cols.append(orig_c)
+            if _valid_donor_mask(md[orig_c]).any():
+                populated_cols.append(orig_c)
+
+    if len(populated_cols) >= 2:
+        norm_by_col = {c: _norm_donor_list(md[c]) for c in populated_cols}
+        base_col = populated_cols[0]
+        base_vals = norm_by_col[base_col]
+        conflicts = [c for c in populated_cols[1:] if norm_by_col[c] != base_vals]
+        if conflicts:
+            raise ValueError(
+                f"Conflicting populated donor identifier columns in metadata: {[base_col, *conflicts]}. "
+                "Specify an explicit --donor-col / donor_col= to select the intended biological replicate column."
+            )
+
+    if populated_cols:
+        return populated_cols[0]
+    if present_cols:
+        return present_cols[0]
+    if allow_single_donor:
+        return None
+    raise ValueError(
+        "Metadata requires a donor/animal identifier column (e.g., donor_id, mouse_id, biological_sample_id). "
+        "Pass allow_single_donor=True / --allow-single-donor only for an explicit single-donor exploratory analysis."
+    )
 
 
 @dataclass(frozen=True)
@@ -88,7 +121,7 @@ def compute_sc_splicing_contrast(
     group_col: str = "condition",
     numerator_group: str,
     denominator_group: str,
-    donor_col: str | None = "donor_id",
+    donor_col: str | None = None,
     allow_single_donor: bool = False,
     min_cells_per_group: int = 8,
     min_support_per_group: float = 10.0,
@@ -347,13 +380,13 @@ def compute_sc_splicing_contrast(
         )
 
     def _dispatch_stratified_2donor() -> tuple[pd.DataFrame, None, dict]:
-        md_p = md.loc[md[donor_col].isin(paired_donors)].copy()
+        md_p = md.loc[md[canonical_donor_col].isin(paired_donors)].copy()
         mcd_cells = min(4, max(2, int(min_cells_per_group)))
         mcd_sup = min(6.0, float(min_support_per_group))
         meta_df, _, meta_info = compute_sc_stratified_meta_contrast(
             u_df, md_p, event_genes, support=s_df,
             group_col=group_col, numerator_group=numerator_group, denominator_group=denominator_group,
-            donor_col=donor_col, min_cells_per_donor_group=mcd_cells, min_support_per_donor_group=mcd_sup,
+            donor_col=canonical_donor_col, min_cells_per_donor_group=mcd_cells, min_support_per_donor_group=mcd_sup,
             design_mode="auto", seed=seed,
         )
         el_m = meta_df["eligible"].to_numpy(dtype=bool)
@@ -925,7 +958,7 @@ def compute_sc_stratified_meta_contrast(
     group_col: str = "condition",
     numerator_group: str,
     denominator_group: str,
-    donor_col: str = "donor_id",
+    donor_col: str | None = None,
     min_cells_per_donor_group: int = 4,
     min_support_per_donor_group: float = 6.0,
     design_mode: str = "auto",
@@ -942,19 +975,18 @@ def compute_sc_stratified_meta_contrast(
     md = metadata.copy()
     if "qc_pass" in md.columns:
         md = md.loc[md["qc_pass"].astype(str).str.lower().isin(("true", "1", "yes", "pass"))].copy()
-    if donor_col not in md.columns and "donor" in md.columns:
-        md[donor_col] = md["donor"]
-    if donor_col in md.columns:
-        valid_dn = _valid_donor_mask(md[donor_col])
-        md = md.loc[valid_dn].copy()
-        if md.empty:
-            raise ValueError("Zero cells remain after excluding missing or blank donor IDs")
-        md[donor_col] = md[donor_col].astype(str).str.strip()
-    donors = sorted(md[donor_col].astype(str).unique())
+    eff_donor_col = _resolve_sc_donor_col(md, donor_col, allow_single_donor=False)
+    assert eff_donor_col is not None
+    valid_dn = _valid_donor_mask(md[eff_donor_col])
+    md = md.loc[valid_dn].copy()
+    if md.empty:
+        raise ValueError("Zero cells remain after excluding missing or blank donor IDs")
+    md[eff_donor_col] = md[eff_donor_col].astype(str).str.strip()
+    donors = sorted(md[eff_donor_col].astype(str).unique())
 
     per_donor: dict[str, pd.DataFrame] = {}
     for d_idx, d_id in enumerate(donors):
-        md_d = md.loc[md[donor_col].astype(str).eq(d_id)].copy()
+        md_d = md.loc[md[eff_donor_col].astype(str).eq(d_id)].copy()
         if not ({str(numerator_group), str(denominator_group)} <= set(md_d[group_col].astype(str))):
             continue
         c_d, _, _ = compute_sc_splicing_contrast(
@@ -965,7 +997,7 @@ def compute_sc_stratified_meta_contrast(
             group_col=group_col,
             numerator_group=numerator_group,
             denominator_group=denominator_group,
-            donor_col=donor_col,
+            donor_col=eff_donor_col,
             min_cells_per_group=min_cells_per_donor_group,
             min_support_per_group=min_support_per_donor_group,
             design_mode=design_mode,

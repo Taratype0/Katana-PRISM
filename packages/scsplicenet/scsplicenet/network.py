@@ -521,6 +521,7 @@ def fit_scsplicenet(
     *,
     support: pd.DataFrame | None = None,
     host_log_expr: pd.DataFrame | None = None,
+    donor_col: str | None = None,
     level: str = "cell_state_distribution",
     top_fraction: float = 0.05,
     edge_budget: int | None = None,
@@ -554,6 +555,7 @@ def fit_scsplicenet(
         event_genes,
         support=support,
         host_log_expr=host_log_expr,
+        donor_col=donor_col,
         require_qc_whitelist=require_qc_whitelist,
     )
     md = bundle.metadata

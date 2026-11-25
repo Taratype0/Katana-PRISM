@@ -66,7 +66,8 @@ workflow KATANA_SINGLE_CELL {
             ch_sup_val,
             ch_meta_val,
             ch_eg_val,
-            ch_expr_val
+            ch_expr_val,
+            params.sc_donor_col ?: ''
         )
         ch_sc_net   = SCSPLICENET.out.results.first()
         ch_versions = ch_versions.mix(SCSPLICENET.out.versions)
@@ -180,6 +181,7 @@ workflow KATANA_SINGLE_CELL {
         ch_sc_trace,
         ch_subtypes_all,
         params.species ?: 'human',
+        params.sc_donor_col ?: '',
         params.das_fdr,
         params.das_dpsi,
         ch_sc_bam_val,

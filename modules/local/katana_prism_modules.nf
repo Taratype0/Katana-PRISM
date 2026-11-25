@@ -262,6 +262,7 @@ process SCSPLICENET {
     path cell_metadata
     path event_genes
     path host_expression
+    val  donor_col
 
     output:
     path "scsplicenet_out", emit: results
@@ -270,6 +271,7 @@ process SCSPLICENET {
     script:
     def sup_arg  = support_matrix.name != 'NO_SUPPORT' ? "--support ${support_matrix}" : ''
     def expr_arg = host_expression.name != 'NO_EXPRESSION' ? "--host-expr ${host_expression}" : ''
+    def don_arg  = donor_col ? "--donor-col \"${donor_col}\"" : ''
     """
     ${prismPythonPathBlock(projectDir)}
     export OMP_NUM_THREADS=${task.cpus} OPENBLAS_NUM_THREADS=${task.cpus} MKL_NUM_THREADS=${task.cpus}
@@ -279,6 +281,7 @@ process SCSPLICENET {
         --event-genes "${event_genes}" \
         ${sup_arg} \
         ${expr_arg} \
+        ${don_arg} \
         --select-budget 1500 \
         --threads ${task.cpus} \
         --out scsplicenet_out \
@@ -527,6 +530,7 @@ process KATANA_REPORT_SC {
     path scsplicetrace_dir
     path subtypes_dirs
     val  species
+    val  donor_col
     val  das_fdr
     val  das_dpsi
     path sc_bam
@@ -552,6 +556,7 @@ process KATANA_REPORT_SC {
     def bam_arg  = sc_bam.name != 'NO_SC_BAM' ? "--sc-bam \"${sc_bam}\" --sc-bc-tag \"${sc_bc_tag}\"" : ''
     def bcs_arg  = (sc_bam.name != 'NO_SC_BAM' && sc_barcode_shares.name != 'NO_BARCODE_SHARES') ? "--sc-barcode-shares \"${sc_barcode_shares}\"" : ''
     def sp_val   = (species in ['human', 'mouse']) ? species : 'human'
+    def don_arg  = donor_col ? "--donor-col \"${donor_col}\"" : ''
     """
     ${prismPythonPathBlock(projectDir)}
     gtf_ref="${gtf}"
@@ -576,6 +581,7 @@ process KATANA_REPORT_SC {
         ${sn_arg} \
         ${st_arg} \
         ${sub_arg} \
+        ${don_arg} \
         --study-name "${study_name}" \
         --species "${sp_val}" \
         --fdr ${das_fdr} \
@@ -815,6 +821,7 @@ process SC_SUBTYPE_DOWNSTREAM {
             --event-genes "\${SM_DIR}/sc_event_genes.tsv" \
             --support "\${SM_DIR}/sc_support.tsv.gz" \
             \${EXPR_NET} \
+            ${don_arg} \
             --select-budget 1500 \
             --threads ${task.cpus} \
             --out "${contrast_id}/scsplicenet"; then

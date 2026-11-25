@@ -43,6 +43,31 @@ def detect_jeffreys_or_pseudocount_artifact(
     return False
 
 
+_MISSING_DONOR_TOKENS = {"", "nan", "none", "na", "null", "n/a"}
+_DONOR_COL_ALIASES = (
+    "donor_id",
+    "mouse_id",
+    "biological_sample_id",
+    "donor",
+    "subject_id",
+    "subject",
+    "mouse",
+    "patient_id",
+    "patient",
+    "individual",
+    "individual_id",
+    "sample_donor",
+    "animal_id",
+)
+
+
+def _norm_donor_series(series: pd.Series) -> list[str]:
+    return [
+        "" if (pd.isna(v) or str(v).strip().lower() in _MISSING_DONOR_TOKENS) else str(v).strip()
+        for v in series.tolist()
+    ]
+
+
 def validate_sc_usage_input(
     usage: pd.DataFrame,
     metadata: pd.DataFrame,
@@ -50,6 +75,7 @@ def validate_sc_usage_input(
     *,
     support: pd.DataFrame | None = None,
     host_log_expr: pd.DataFrame | None = None,
+    donor_col: str | None = None,
     require_qc_whitelist: bool = True,
 ) -> ValidatedSCUsageInput:
     """Validate single-cell usage matrix, explicit QC whitelist, support denominators, and gene mapping.
@@ -67,13 +93,17 @@ def validate_sc_usage_input(
             raise ValueError("event_genes DataFrame requires event_id and gene_id columns")
         if event_genes["event_id"].duplicated().any():
             raise ValueError("Duplicate event_id in event_genes")
-        eg = event_genes.set_index("event_id")["gene_id"]
+        eg = event_genes.assign(_eid=event_genes["event_id"].astype(str)).set_index("_eid")["gene_id"]
     else:
         eg = event_genes.copy()
+        eg.index = eg.index.astype(str)
         if eg.index.has_duplicates:
             raise ValueError("Duplicate event_id in event_genes Series")
 
-    eg = eg.reindex(usage.columns)
+    usage_cols_str = usage.columns.astype(str)
+    if len(set(usage_cols_str)) != len(usage_cols_str):
+        raise ValueError("usage must have unique event_id columns")
+    eg = eg.reindex(usage_cols_str)
     if eg.isna().any() or eg.astype(str).str.strip().eq("").any():
         raise ValueError("Every event/isoform must map to a valid non-empty gene_id")
     eg = eg.astype(str)
@@ -86,25 +116,54 @@ def validate_sc_usage_input(
             md = md.reset_index()
         else:
             raise ValueError("metadata must include explicit cell_id column")
-    md["cell_id"] = md["cell_id"].astype(str)
+    md["cell_id"] = md["cell_id"].astype(str).str.strip()
     if md["cell_id"].duplicated().any():
         raise ValueError("Duplicate cell_id entries in metadata")
 
     required_cols = {"cell_id", "donor_id", "cell_type", "condition"}
     cols_lower = {str(c).strip().lower(): str(c) for c in md.columns}
-    if "donor_id" not in md.columns:
-        for d_alias in ("mouse_id", "biological_sample_id", "donor", "subject", "mouse", "patient", "individual", "animal_id"):
+    if donor_col is not None and str(donor_col).strip():
+        req_d = str(donor_col).strip()
+        resolved_don = req_d if req_d in md.columns else cols_lower.get(req_d.lower())
+        if resolved_don is None:
+            raise ValueError(f"Donor column {donor_col!r} not found in metadata columns: {list(md.columns)}")
+        md["donor_id"] = [
+            np.nan if v == "" else v for v in _norm_donor_series(md[resolved_don])
+        ]
+    else:
+        populated_cols: list[str] = []
+        present_cols: list[str] = []
+        norm_by_col: dict[str, list[str]] = {}
+        for d_alias in _DONOR_COL_ALIASES:
             orig_d = cols_lower.get(d_alias)
-            if orig_d is not None:
-                md["donor_id"] = md[orig_d]
-                break
+            if orig_d is not None and orig_d not in present_cols:
+                present_cols.append(orig_d)
+                norm_v = _norm_donor_series(md[orig_d])
+                if any(v != "" for v in norm_v):
+                    populated_cols.append(orig_d)
+                    norm_by_col[orig_d] = norm_v
+        if len(populated_cols) >= 2:
+            base_col = populated_cols[0]
+            conflicts = [c for c in populated_cols[1:] if norm_by_col[c] != norm_by_col[base_col]]
+            if conflicts:
+                raise ValueError(
+                    f"Conflicting populated donor identifier columns in metadata: {[base_col, *conflicts]}. "
+                    "Pass an explicit --donor-col / donor_col= to select one column."
+                )
+        chosen_d = populated_cols[0] if populated_cols else (present_cols[0] if present_cols else None)
+        if chosen_d is not None:
+            md["donor_id"] = [
+                np.nan if v == "" else v for v in _norm_donor_series(md[chosen_d])
+            ]
     for alias_src, alias_dst in (("treatment", "condition"),):
         if alias_dst not in md.columns and alias_src in md.columns:
             md[alias_dst] = md[alias_src]
     if not required_cols <= set(md.columns):
         missing = sorted(required_cols - set(md.columns))
         raise ValueError(f"metadata missing required columns: {missing}")
-    if md[list(required_cols)].isna().any().any():
+    if md[list(required_cols)].isna().any().any() or any(
+        md[c].astype(str).str.strip().eq("").any() for c in ("cell_id", "donor_id", "cell_type", "condition")
+    ):
         raise ValueError("metadata contains missing values in required cell_id/donor_id/cell_type/condition columns")
 
     if require_qc_whitelist:

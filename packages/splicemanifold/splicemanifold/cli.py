@@ -35,14 +35,26 @@ def _run_bulk(args: argparse.Namespace) -> int:
     out.mkdir(parents=True, exist_ok=True)
 
     if args.psi_matrix is not None and args.samples is not None:
-        psi_mat = pd.read_csv(args.psi_matrix, sep="\t", index_col=0)
-        sup_mat = pd.read_csv(args.support_matrix, sep="\t", index_col=0) if args.support_matrix else None
-        s_df = pd.read_csv(args.samples, sep="\t" if str(args.samples).endswith(".tsv") else ",")
+        psi_mat = pd.read_csv(args.psi_matrix, sep="\t", dtype={0: str})
+        psi_mat[psi_mat.columns[0]] = psi_mat[psi_mat.columns[0]].astype(str)
+        psi_mat = psi_mat.set_index(psi_mat.columns[0])
+        if args.support_matrix:
+            sup_mat = pd.read_csv(args.support_matrix, sep="\t", dtype={0: str})
+            sup_mat[sup_mat.columns[0]] = sup_mat[sup_mat.columns[0]].astype(str)
+            sup_mat = sup_mat.set_index(sup_mat.columns[0])
+        else:
+            sup_mat = None
+        s_df = pd.read_csv(
+            args.samples,
+            sep="\t" if str(args.samples).lower().endswith((".tsv", ".tsv.gz")) else ",",
+            dtype=str,
+            keep_default_na=False,
+        )
         sample_meta = [
             {
-                "sample_id": str(r.get("sample_id") or r.get("sample")),
-                "biological_sample_id": str(r.get("biological_sample_id") or r.get("sample_id") or r.get("sample")),
-                "condition": str(r.get("condition") or r.get("group") or "Group"),
+                "sample_id": str(r.get("sample_id") or r.get("sample")).strip(),
+                "biological_sample_id": str(r.get("biological_sample_id") or r.get("sample_id") or r.get("sample")).strip(),
+                "condition": str(r.get("condition") or r.get("group") or "Group").strip(),
             }
             for _, r in s_df.iterrows()
         ]
@@ -115,14 +127,52 @@ def _run_single_cell(args: argparse.Namespace) -> int:
     out = Path(args.outdir)
     out.mkdir(parents=True, exist_ok=True)
 
-    psi_df = pd.read_csv(args.psi, sep="\t", index_col=0)
-    sup_df = pd.read_csv(args.support, sep="\t", index_col=0) if args.support else None
+    def _read_id_mat(path: Path) -> pd.DataFrame:
+        df_m = pd.read_csv(path, sep="\t", dtype={0: str})
+        if df_m.shape[1] > 0:
+            df_m[df_m.columns[0]] = df_m[df_m.columns[0]].astype(str).str.strip()
+            df_m = df_m.set_index(df_m.columns[0])
+        df_m.index = df_m.index.astype(str)
+        df_m.columns = df_m.columns.astype(str)
+        return df_m
+
+    psi_df = _read_id_mat(args.psi)
+    sup_df = _read_id_mat(args.support) if args.support else None
     if args.cells_as_rows:
         psi_df = psi_df.T
         if sup_df is not None:
             sup_df = sup_df.T
 
-    md_df = pd.read_csv(args.metadata, sep="\t" if str(args.metadata).endswith(".tsv") else ",")
+    md_df = pd.read_csv(
+        args.metadata,
+        sep="\t" if str(args.metadata).lower().endswith((".tsv", ".tsv.gz")) else ",",
+        dtype=str,
+        keep_default_na=False,
+    )
+
+    _sc_donor_aliases = ("donor_id", "mouse_id", "biological_sample_id", "donor", "subject_id", "subject", "mouse", "patient_id", "patient", "individual", "individual_id", "sample_donor", "animal_id")
+    _sc_missing = {"", "nan", "none", "na", "null", "n/a"}
+    req_dcol = getattr(args, "donor_col", None)
+    cols_l_sc = {str(c).strip().lower(): str(c) for c in md_df.columns}
+    if req_dcol is not None and str(req_dcol).strip():
+        resolved_dcol = str(req_dcol).strip() if str(req_dcol).strip() in md_df.columns else cols_l_sc.get(str(req_dcol).strip().lower())
+        if resolved_dcol is None:
+            raise ValueError(f"Donor column {req_dcol!r} not found in metadata columns: {list(md_df.columns)}")
+    else:
+        pop_d: list[str] = []
+        norm_d: dict[str, list[str]] = {}
+        for al in _sc_donor_aliases:
+            oc = cols_l_sc.get(al)
+            if oc is not None and oc not in pop_d:
+                vals = ["" if str(v).strip().lower() in _sc_missing else str(v).strip() for v in md_df[oc].tolist()]
+                if any(v != "" for v in vals):
+                    pop_d.append(oc)
+                    norm_d[oc] = vals
+        if len(pop_d) >= 2:
+            conflicts = [c for c in pop_d[1:] if norm_d[c] != norm_d[pop_d[0]]]
+            if conflicts:
+                raise ValueError(f"Conflicting populated donor identifier columns in metadata: {[pop_d[0], *conflicts]}. Pass --donor-col to disambiguate.")
+        resolved_dcol = pop_d[0] if pop_d else None
 
     def _meta_str(row: pd.Series, *keys: str, default: str = "") -> str:
         for k in keys:
@@ -130,7 +180,7 @@ def _run_single_cell(args: argparse.Namespace) -> int:
                 val = row[k]
                 if val is not None and pd.notna(val):
                     s_val = str(val).strip()
-                    if s_val and s_val.lower() != "nan":
+                    if s_val and s_val.lower() not in _sc_missing:
                         return s_val
         return default
 
@@ -147,7 +197,7 @@ def _run_single_cell(args: argparse.Namespace) -> int:
             "sample_id": cid,
             "condition": _meta_str(r, "condition", "cell_type", default="State"),
             "cell_type": _meta_str(r, "cell_type", "condition", default="Cell"),
-            "donor_id": _meta_str(r, "donor_id", "mouse_id", "biological_sample_id", "donor", "subject", "mouse", "patient", "individual", "animal_id", default=""),
+            "donor_id": _meta_str(r, resolved_dcol, default="") if resolved_dcol else "",
         })
 
     event_meta = {}
@@ -205,7 +255,7 @@ def _run_single_cell(args: argparse.Namespace) -> int:
     }
 
     if args.expression is not None:
-        expr_df = pd.read_csv(args.expression, sep="\t", index_col=0)
+        expr_df = _read_id_mat(args.expression)
         if not args.cells_as_rows:
             expr_df = expr_df.T
         dual = compute_dual_expression_vs_psi_umap(expr_df, landscape, k_neighbors=args.k_neighbors)
@@ -263,6 +313,7 @@ def main(argv: list[str] | None = None) -> int:
     psc.add_argument("--events", type=Path, default=None, help="Optional single-cell event annotation TSV (for gene symbol labels)")
     psc.add_argument("--support", type=Path, default=None, help="Optional junction read-support matrix TSV(.gz)")
     psc.add_argument("--metadata", type=Path, required=True, help="Cell metadata TSV/CSV (cell_id, cell_type, condition, donor_id)")
+    psc.add_argument("--donor-col", default=None, help="Explicit donor/animal column name (auto-detects unambiguous aliases if omitted)")
     psc.add_argument("--expression", type=Path, default=None, help="Optional host log-expression matrix TSV(.gz) for Procrustes dual UMAP & Delta_kNN")
     psc.add_argument("--cells-as-rows", action="store_true", help="Set if input matrices have cells as rows and events/genes as columns")
     psc.add_argument("--top-n", type=int, default=150)

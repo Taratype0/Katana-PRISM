@@ -57,8 +57,8 @@ def _extract_donor_id(row: pd.Series | dict[str, Any], fallback_sid: str) -> str
 def _has_rmats_files(d: Path, mode: str = "JCEC") -> bool:
     if not d.is_dir():
         return False
-    modes = tuple(dict.fromkeys((mode.upper(), "JCEC", "JC")))
-    return any((d / f"{et}.MATS.{m}.txt").is_file() for et in EVENT_TYPES for m in modes)
+    m = mode.upper()
+    return any((d / f"{et}.MATS.{m}.txt").is_file() for et in EVENT_TYPES)
 
 
 def _resolve_contrast_rmats_dir(
@@ -71,17 +71,31 @@ def _resolve_contrast_rmats_dir(
     mode: str,
     explicit_dir: Path | None = None,
     allow_bare_root: Path | None = None,
+    explicit_arm_order: bool = False,
 ) -> tuple[Path, bool]:
-    """Strictly match a declared contrast to its rMATS directory without multi-contrast bare reuse."""
-    if explicit_dir is not None and _has_rmats_files(explicit_dir, mode):
-        rev_name = explicit_dir.name in {f"{den_lbl}-{num_lbl}", f"{den_lbl}_vs_{num_lbl}"} or (
+    """Strictly match a declared contrast to its rMATS directory without silent orientation conflicts."""
+    rev_names = tuple(dict.fromkeys(k for k in (f"{den_lbl}-{num_lbl}", f"{den_lbl}_vs_{num_lbl}") if k and num_lbl and den_lbl))
+    rev_conflict_set = {k.lower() for k in rev_names}
+    if num_lbl and den_lbl:
+        rev_conflict_set.add(f"{den_lbl}_{num_lbl}".lower())
+    if (not explicit_arm_order) and cid and cid.strip().lower() in rev_conflict_set:
+        raise ValueError(
+            f"Ambiguous contrast_id {cid!r} matches reversed condition order '{den_lbl}-{num_lbl}' "
+            f"for numerator={num_lbl!r}, denominator={den_lbl!r} without explicit manifest rmats_group1/rmats_group2."
+        )
+
+    if explicit_dir is not None:
+        if not _has_rmats_files(explicit_dir, mode):
+            raise FileNotFoundError(f"Declared manifest rmats_dir for '{cid}' lacks *.MATS.{mode.upper()}.txt files: {explicit_dir}")
+        if explicit_arm_order:
+            return explicit_dir, False
+        rev_name = explicit_dir.name.lower() in rev_conflict_set or (
             explicit_dir.name == "rmats_post"
-            and explicit_dir.parent.name in {f"{den_lbl}-{num_lbl}", f"{den_lbl}_vs_{num_lbl}"}
+            and explicit_dir.parent.name.lower() in rev_conflict_set
         )
         return explicit_dir, rev_name
 
     fwd_names = tuple(dict.fromkeys(k for k in (cid, f"{num_lbl}-{den_lbl}", f"{num_lbl}_vs_{den_lbl}") if k))
-    rev_names = tuple(dict.fromkeys(k for k in (f"{den_lbl}-{num_lbl}", f"{den_lbl}_vs_{num_lbl}") if k))
 
     for root in search_roots:
         if not root.is_dir():
@@ -221,7 +235,39 @@ def _parse_manifest_rmats(bdir: Path) -> tuple[dict[str, list[str]], dict[str, d
 
 def _read_delimited(path: Path) -> pd.DataFrame:
     sep = "\t" if path.suffix.lower() in {".tsv", ".txt"} else ","
-    return pd.read_csv(path, sep=sep)
+    return pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False)
+
+
+def _validate_manifest_sample_order(
+    arm1_ids: list[str],
+    arm2_ids: list[str],
+    arm1_lbl: str,
+    arm2_lbl: str,
+    sample_rows: list[dict[str, str]],
+    cid: str,
+) -> None:
+    if not arm1_ids or not arm2_ids:
+        raise ValueError(f"manifest.json rmats_sample_order for '{cid}' must specify non-empty sample lists for both '{arm1_lbl}' and '{arm2_lbl}'.")
+    a1 = [str(x).strip() for x in arm1_ids]
+    a2 = [str(x).strip() for x in arm2_ids]
+    if any(not x for x in a1) or any(not x for x in a2):
+        raise ValueError(f"manifest.json rmats_sample_order for '{cid}' contains empty sample identifiers.")
+    if len(set(a1)) != len(a1) or len(set(a2)) != len(a2):
+        raise ValueError(f"manifest.json rmats_sample_order for '{cid}' contains duplicate sample identifiers within an arm.")
+    overlap = set(a1) & set(a2)
+    if overlap:
+        raise ValueError(f"manifest.json rmats_sample_order for '{cid}' assigns sample(s) {sorted(overlap)} to both arms.")
+    cond_by_sid = {str(s["sample_id"]): str(s["condition"]) for s in sample_rows}
+    unknown = [s for s in a1 + a2 if s not in cond_by_sid]
+    if unknown:
+        raise ValueError(f"manifest.json rmats_sample_order for '{cid}' references unknown samples absent from samplesheet: {unknown}")
+    bad_a1 = [(s, cond_by_sid[s]) for s in a1 if cond_by_sid[s] != arm1_lbl]
+    bad_a2 = [(s, cond_by_sid[s]) for s in a2 if cond_by_sid[s] != arm2_lbl]
+    if bad_a1 or bad_a2:
+        raise ValueError(
+            f"manifest.json rmats_sample_order for '{cid}' has condition mismatches against samplesheet: "
+            f"expected arm1='{arm1_lbl}' bad={bad_a1}, expected arm2='{arm2_lbl}' bad={bad_a2}"
+        )
 
 
 def extract_matrices_from_bundle_or_rmats(
@@ -273,6 +319,13 @@ def extract_matrices_from_bundle_or_rmats(
             if mc.get("rmats_dir"):
                 raw_d = Path(mc["rmats_dir"])
                 exp_dir = raw_d if raw_d.is_absolute() else (bdir / raw_d)
+            has_manifest_arms = bool(mc.get("rmats_group1") and mc.get("rmats_group2"))
+            g1_lbl = mc.get("rmats_group1") or num_c
+            g2_lbl = mc.get("rmats_group2") or den_c
+            if has_manifest_arms and {g1_lbl, g2_lbl} != {num_c, den_c}:
+                raise ValueError(
+                    f"manifest.json rmats_group1/2 ({g1_lbl}, {g2_lbl}) do not match contrast '{cid}' ({num_c}, {den_c})."
+                )
             rpath, path_inverted = _resolve_contrast_rmats_dir(
                 [bdir / "rmats", bdir / "rnasplicing/rmats"],
                 cid=cid,
@@ -282,21 +335,22 @@ def extract_matrices_from_bundle_or_rmats(
                 mode=mode,
                 explicit_dir=exp_dir,
                 allow_bare_root=None,
+                explicit_arm_order=has_manifest_arms,
             )
-            g1_lbl = mc.get("rmats_group1") or num_c
-            g2_lbl = mc.get("rmats_group2") or den_c
-            has_manifest_arms = bool(mc.get("rmats_group1") and mc.get("rmats_group2"))
             rev_dir = (g1_lbl == den_c and g2_lbl == num_c) if has_manifest_arms else path_inverted
             cm_order = mc.get("rmats_sample_order") or {}
-            num_ord = cm_order.get(num_c) or manifest_order.get(num_c)
-            den_ord = cm_order.get(den_c) or manifest_order.get(den_c)
-            n1 = num_ord or [s["sample_id"] for s in sample_rows if s["condition"] == num_c]
-            n2 = den_ord or [s["sample_id"] for s in sample_rows if s["condition"] == den_c]
-            explicit_order = bool(num_ord or den_ord)
-            if rev_dir:
-                specs.append((rpath, n2, n1, den_c, num_c, explicit_order))
+            arm1_lbl = den_c if rev_dir else num_c
+            arm2_lbl = num_c if rev_dir else den_c
+            ord1 = cm_order.get(arm1_lbl) if arm1_lbl in cm_order else manifest_order.get(arm1_lbl)
+            ord2 = cm_order.get(arm2_lbl) if arm2_lbl in cm_order else manifest_order.get(arm2_lbl)
+            explicit_order = bool(cm_order or manifest_order or ord1 is not None or ord2 is not None)
+            if explicit_order:
+                _validate_manifest_sample_order(ord1 or [], ord2 or [], arm1_lbl, arm2_lbl, sample_rows, cid)
+                specs.append((rpath, list(ord1 or []), list(ord2 or []), arm1_lbl, arm2_lbl, True))
             else:
-                specs.append((rpath, n1, n2, num_c, den_c, explicit_order))
+                n1 = [s["sample_id"] for s in sample_rows if s["condition"] == arm1_lbl]
+                n2 = [s["sample_id"] for s in sample_rows if s["condition"] == arm2_lbl]
+                specs.append((rpath, n1, n2, arm1_lbl, arm2_lbl, False))
     elif rmats_dir is not None:
         rpath = Path(rmats_dir)
         if samples_path is not None and Path(samples_path).is_file():
@@ -345,11 +399,7 @@ def extract_matrices_from_bundle_or_rmats(
     genes: dict[str, str] = {}
 
     for rpath, n1_decl, n2_decl, lbl1, lbl2, explicit_order in specs:
-        eff_mode = (
-            mode
-            if any((rpath / f"{et}.MATS.{mode}.txt").is_file() for et in EVENT_TYPES)
-            else next((m for m in ("JCEC", "JC") if any((rpath / f"{et}.MATS.{m}.txt").is_file() for et in EVENT_TYPES)), mode)
-        )
+        eff_mode = mode
         for et in EVENT_TYPES:
             fp = rpath / f"{et}.MATS.{eff_mode}.txt"
             if not fp.is_file():
@@ -365,7 +415,7 @@ def extract_matrices_from_bundle_or_rmats(
             gids = df["GeneID"].map(_norm_gene) if "GeneID" in df.columns else pd.Series("", index=df.index)
             p1_0 = _parse_nums(df["IncLevel1"].iloc[0]) or _parse_nums(df["IJC_SAMPLE_1"].iloc[0])
             p2_0 = _parse_nums(df["IncLevel2"].iloc[0]) or _parse_nums(df["IJC_SAMPLE_2"].iloc[0])
-            if explicit_order and ((n1_decl and len(n1_decl) != len(p1_0)) or (n2_decl and len(n2_decl) != len(p2_0))):
+            if explicit_order and (len(n1_decl) != len(p1_0) or len(n2_decl) != len(p2_0)):
                 raise ValueError(
                     f"manifest.json rmats_sample_order length mismatch in {rpath}: "
                     f"group1={len(n1_decl)} vs rMATS={len(p1_0)}, group2={len(n2_decl)} vs rMATS={len(p2_0)}"
@@ -379,12 +429,26 @@ def extract_matrices_from_bundle_or_rmats(
                 if not any(x["sample_id"] == s for x in sample_rows):
                     sample_rows.append({"sample_id": s, "biological_sample_id": s, "condition": lbl2})
 
-            for eid, gid, p1s, p2s, i1s, i2s, s1s, s2s in zip(
-                eids, gids,
-                df["IncLevel1"].map(_parse_nums), df["IncLevel2"].map(_parse_nums),
-                df["IJC_SAMPLE_1"].map(_parse_nums), df["IJC_SAMPLE_2"].map(_parse_nums),
-                df["SJC_SAMPLE_1"].map(_parse_nums), df["SJC_SAMPLE_2"].map(_parse_nums),
-            ):
+            exp_n1, exp_n2 = len(n1), len(n2)
+            p1_lists = df["IncLevel1"].map(_parse_nums).tolist()
+            p2_lists = df["IncLevel2"].map(_parse_nums).tolist()
+            i1_lists = df["IJC_SAMPLE_1"].map(_parse_nums).tolist()
+            i2_lists = df["IJC_SAMPLE_2"].map(_parse_nums).tolist()
+            s1_lists = df["SJC_SAMPLE_1"].map(_parse_nums).tolist()
+            s2_lists = df["SJC_SAMPLE_2"].map(_parse_nums).tolist()
+
+            for r_idx, (eid, gid, p1s, p2s, i1s, i2s, s1s, s2s) in enumerate(zip(
+                eids, gids, p1_lists, p2_lists, i1_lists, i2_lists, s1_lists, s2_lists,
+            )):
+                if (
+                    len(p1s) != exp_n1 or len(i1s) != exp_n1 or len(s1s) != exp_n1
+                    or len(p2s) != exp_n2 or len(i2s) != exp_n2 or len(s2s) != exp_n2
+                ):
+                    raise ValueError(
+                        f"Malformed rMATS replicate count list at {fp.name} row {r_idx} ({eid}): "
+                        f"expected (g1={exp_n1}, g2={exp_n2}), got IncLevel=({len(p1s)},{len(p2s)}), "
+                        f"IJC=({len(i1s)},{len(i2s)}), SJC=({len(s1s)},{len(s2s)})."
+                    )
                 genes.setdefault(eid, gid)
                 for s, pv, iv, sv in zip(n1, p1s, i1s, s1s):
                     psi_obs.setdefault((eid, s), []).append(pv)

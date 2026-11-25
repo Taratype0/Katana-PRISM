@@ -416,7 +416,7 @@ def main() -> int:
     args = ap.parse_args()
 
     args.outdir.mkdir(parents=True, exist_ok=True)
-    md = pd.read_csv(args.metadata, sep="," if args.metadata.suffix.lower() == ".csv" else "\t")
+    md = pd.read_csv(args.metadata, sep="," if args.metadata.suffix.lower() == ".csv" else "\t", dtype=str, keep_default_na=False)
     cid_col = next((c for c in ("cell_id", "cell_barcode", "barcode", "sample.id", "sample_id") if c in md.columns), md.columns[0])
     cid_series = md[cid_col].astype(str).str.strip()
     dup_cid = cid_series.duplicated(keep=False)

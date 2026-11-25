@@ -20,9 +20,7 @@ def _mode_file_order(rmats_mode: str) -> tuple[str, ...]:
     mode = str(rmats_mode or "JCEC").upper()
     if mode not in {"JCEC", "JC"}:
         raise ValueError(f"Unsupported rmats_mode: {rmats_mode}")
-    if mode == "JC":
-        return (".MATS.JC.txt", ".MATS.JCEC.txt", ".MATS.JunctionCountOnly.txt")
-    return (".MATS.JCEC.txt", ".MATS.JC.txt", ".MATS.JunctionCountOnly.txt")
+    return (f".MATS.{mode}.txt",)
 
 
 def _has_rmats_files(d: Path, mode: str = "JCEC") -> bool:
@@ -48,12 +46,44 @@ def _find_enclosing_bundle(src: Path) -> Path | None:
     return None
 
 
+def _find_expected_dir_for_contrast(
+    bdir: Path,
+    eff_cid: str,
+    num_lbl: str,
+    den_lbl: str,
+    mc: dict[str, str] | None,
+    rmats_mode: str,
+) -> tuple[Path | None, bool]:
+    if mc and mc.get("rmats_dir"):
+        raw_d = Path(mc["rmats_dir"])
+        cand_m = raw_d if raw_d.is_absolute() else (bdir / raw_d)
+        if _has_rmats_files(cand_m, rmats_mode):
+            return cand_m, False
+        raise FileNotFoundError(f"Manifest rmats_dir for contrast '{eff_cid}' lacks *.MATS.{rmats_mode.upper()}.txt files: {cand_m}")
+    roots = [bdir / "rmats", bdir / "rnasplicing/rmats"]
+    fwd = [k for k in (eff_cid, f"{num_lbl}-{den_lbl}", f"{num_lbl}_vs_{den_lbl}") if k and k != "-"]
+    rev = [k for k in (f"{den_lbl}-{num_lbl}", f"{den_lbl}_vs_{num_lbl}") if k and k != "-"]
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for k in fwd:
+            for p in (root / k / "rmats_post", root / k):
+                if _has_rmats_files(p, rmats_mode):
+                    return p, False
+        for k in rev:
+            for p in (root / k / "rmats_post", root / k):
+                if _has_rmats_files(p, rmats_mode):
+                    return p, True
+    return None, False
+
+
 def _resolve_bundle_context(
     bdir: Path,
     *,
     src_dir: Path | None,
     contrast_id: str | None,
     rmats_mode: str,
+    explicit_reverse_direction: bool | None = None,
 ) -> tuple[Path | None, bool, str | None]:
     """Resolve contrast rMATS dir and biological orientation from bundle manifest/contrastsheet."""
     c_path = next(
@@ -71,7 +101,7 @@ def _resolve_bundle_context(
     contrasts: list[tuple[str, str, str]] = []
     if c_path is not None:
         sep = "\t" if c_path.suffix.lower() in {".tsv", ".txt"} else ","
-        c_df = pd.read_csv(c_path, sep=sep)
+        c_df = pd.read_csv(c_path, sep=sep, dtype=str, keep_default_na=False)
         for _, r in c_df.iterrows():
             cid = str(r.get("contrast") or r.get("contrast_id") or r.get("comparison_id") or "").strip()
             num_l = str(r.get("treatment") or r.get("numerator") or r.get("group_a") or "").strip()
@@ -96,12 +126,32 @@ def _resolve_bundle_context(
         except Exception:
             pass
 
-    target_cid = contrast_id.strip() if contrast_id else None
+    target_cid = contrast_id.strip() if (contrast_id is not None and contrast_id.strip()) else None
     matched_c: tuple[str, str, str] | None = None
-    if target_cid:
+    if target_cid is not None:
         matched_c = next((c for c in contrasts if c[0] == target_cid or c[0].lower() == target_cid.lower()), None)
-    if matched_c is None and len(contrasts) == 1:
+        if matched_c is None and contrasts:
+            raise ValueError(
+                f"Requested contrast_id {target_cid!r} not found in bundle contrasts: {[c[0] for c in contrasts]}."
+            )
+        if matched_c is None and manifest_comps and target_cid not in manifest_comps and target_cid.lower() not in manifest_comps:
+            raise ValueError(
+                f"Requested contrast_id {target_cid!r} not found in bundle manifest comparisons."
+            )
+    elif len(contrasts) == 1:
         matched_c = contrasts[0]
+    elif len(contrasts) >= 2 and src_dir is not None and src_dir.resolve() != bdir.resolve():
+        # Match explicit src_dir back to the owning contrast when caller passed --rmats <subdir> without --contrast-id
+        src_res = src_dir.resolve()
+        for c_cand in contrasts:
+            mc_cand = manifest_comps.get(c_cand[0]) or manifest_comps.get(c_cand[0].lower())
+            try:
+                exp_c_dir, _ = _find_expected_dir_for_contrast(bdir, c_cand[0], c_cand[1], c_cand[2], mc_cand, rmats_mode)
+            except FileNotFoundError:
+                exp_c_dir = None
+            if exp_c_dir is not None and exp_c_dir.resolve() == src_res:
+                matched_c = c_cand
+                break
 
     eff_cid = matched_c[0] if matched_c is not None else target_cid
     num_lbl, den_lbl = (matched_c[1], matched_c[2]) if matched_c is not None else ("", "")
@@ -110,51 +160,64 @@ def _resolve_bundle_context(
     if mc is None and len(manifest_comps) == 1 and target_cid is None:
         mc = next(iter(manifest_comps.values()))
 
+    has_manifest_arms = bool(mc and mc.get("rmats_group1") and mc.get("rmats_group2"))
+    if has_manifest_arms and num_lbl and den_lbl and {mc["rmats_group1"], mc["rmats_group2"]} != {num_lbl, den_lbl}:
+        raise ValueError(
+            f"manifest.json rmats_group1/2 ({mc['rmats_group1']}, {mc['rmats_group2']}) do not match contrast '{eff_cid}' ({num_lbl}, {den_lbl})."
+        )
+    if (
+        explicit_reverse_direction is None
+        and (not has_manifest_arms)
+        and eff_cid
+        and num_lbl
+        and den_lbl
+        and eff_cid.lower() in {f"{den_lbl}-{num_lbl}".lower(), f"{den_lbl}_vs_{num_lbl}".lower(), f"{den_lbl}_{num_lbl}".lower()}
+    ):
+        raise ValueError(
+            f"Ambiguous contrast_id {eff_cid!r} matches reversed condition order '{den_lbl}-{num_lbl}' "
+            f"for numerator={num_lbl!r}, denominator={den_lbl!r} without explicit manifest rmats_group1/rmats_group2 or reverse_direction."
+        )
+
+    src_is_explicit = src_dir is not None and src_dir.resolve() != bdir.resolve()
     resolved_dir: Path | None = None
     path_inverted = False
-    if src_dir is not None and _has_rmats_files(src_dir, rmats_mode):
-        resolved_dir = src_dir
-        if num_lbl and den_lbl:
-            dname = src_dir.parent.name if src_dir.name == "rmats_post" else src_dir.name
-            if dname.lower() in {f"{den_lbl}-{num_lbl}".lower(), f"{den_lbl}_vs_{num_lbl}".lower()}:
-                path_inverted = True
-    elif eff_cid is not None:
-        if mc and mc.get("rmats_dir"):
-            raw_d = Path(mc["rmats_dir"])
-            cand_m = raw_d if raw_d.is_absolute() else (bdir / raw_d)
-            if _has_rmats_files(cand_m, rmats_mode):
-                resolved_dir = cand_m
-        if resolved_dir is None:
-            roots = [bdir / "rmats", bdir / "rnasplicing/rmats"]
-            fwd = [k for k in (eff_cid, f"{num_lbl}-{den_lbl}", f"{num_lbl}_vs_{den_lbl}") if k and k != "-"]
-            rev = [k for k in (f"{den_lbl}-{num_lbl}", f"{den_lbl}_vs_{num_lbl}") if k and k != "-"]
-            for root in roots:
-                if not root.is_dir():
+
+    if eff_cid is not None:
+        expected_dir, expected_inv = _find_expected_dir_for_contrast(bdir, eff_cid, num_lbl, den_lbl, mc, rmats_mode)
+        if src_is_explicit and _has_rmats_files(src_dir, rmats_mode):
+            src_res = src_dir.resolve()
+            if expected_dir is not None and src_res != expected_dir.resolve():
+                raise ValueError(
+                    f"Explicit rmats_source {src_dir} does not match expected contrast directory {expected_dir} for contrast '{eff_cid}'."
+                )
+            # Also reject if src_dir belongs to a different declared contrast in the bundle
+            for other_cid, other_num, other_den in contrasts:
+                if other_cid == eff_cid:
                     continue
-                for k in fwd:
-                    for p in (root / k / "rmats_post", root / k):
-                        if _has_rmats_files(p, rmats_mode):
-                            resolved_dir = p
-                            break
-                    if resolved_dir is not None:
-                        break
-                if resolved_dir is not None:
-                    break
-                for k in rev:
-                    for p in (root / k / "rmats_post", root / k):
-                        if _has_rmats_files(p, rmats_mode):
-                            resolved_dir = p
-                            path_inverted = True
-                            break
-                    if resolved_dir is not None:
-                        break
-                if resolved_dir is not None:
-                    break
-        if resolved_dir is None and len(contrasts) > 1:
-            raise FileNotFoundError(f"No rMATS contrast directory matched '{eff_cid}' under {bdir}")
+                other_mc = manifest_comps.get(other_cid) or manifest_comps.get(other_cid.lower())
+                try:
+                    other_dir, _ = _find_expected_dir_for_contrast(bdir, other_cid, other_num, other_den, other_mc, rmats_mode)
+                except FileNotFoundError:
+                    other_dir = None
+                if other_dir is not None and other_dir.resolve() == src_res:
+                    raise ValueError(
+                        f"Explicit rmats_source {src_dir} belongs to contrast '{other_cid}', conflicting with requested contrast '{eff_cid}'."
+                    )
+            resolved_dir = src_dir
+            if num_lbl and den_lbl:
+                dname = src_dir.parent.name if src_dir.name == "rmats_post" else src_dir.name
+                if dname.lower() in {f"{den_lbl}-{num_lbl}".lower(), f"{den_lbl}_vs_{num_lbl}".lower()}:
+                    path_inverted = True
+        else:
+            resolved_dir = expected_dir
+            path_inverted = expected_inv
+            if resolved_dir is None and len(contrasts) >= 1:
+                raise FileNotFoundError(f"No rMATS contrast directory matched '{eff_cid}' (mode={rmats_mode.upper()}) under {bdir}")
+    elif src_is_explicit and _has_rmats_files(src_dir, rmats_mode):
+        resolved_dir = src_dir
 
     rev_dir = path_inverted
-    if mc and mc.get("rmats_group1") and mc.get("rmats_group2") and num_lbl and den_lbl:
+    if has_manifest_arms and num_lbl and den_lbl:
         rev_dir = (mc["rmats_group1"] == den_lbl and mc["rmats_group2"] == num_lbl)
     return resolved_dir, rev_dir, eff_cid
 
@@ -249,6 +312,7 @@ def load_rmats_measurable_events(
             src_dir=src if src.is_dir() else None,
             contrast_id=eff_cid_query,
             rmats_mode=rmats_mode,
+            explicit_reverse_direction=reverse_direction,
         )
         if rdir_res is not None:
             src = rdir_res
@@ -260,15 +324,10 @@ def load_rmats_measurable_events(
     frames: list[pd.DataFrame] = []
     found_any_rmats_file = False
     if src.is_dir():
-        eff_suf = next(
-            (s for s in prio_sufs if any((src / f"{kind}{s}").is_file() for kind in EVENT_COORD_COLS)),
-            prio_sufs[0],
-        )
+        eff_suf = prio_sufs[0]
         for kind in EVENT_COORD_COLS:
             cand = src / f"{kind}{eff_suf}"
-            if not cand.is_file():
-                cand = next((src / f"{kind}{s}" for s in prio_sufs if (src / f"{kind}{s}").is_file()), None)
-            if cand is not None and cand.is_file():
+            if cand.is_file():
                 found_any_rmats_file = True
                 raw = pd.read_csv(cand, sep="\t", low_memory=False)
                 frames.append(_standardize_rmats_df(raw, kind, valid_contigs, eff_comp_id, reverse_direction=eff_rev))
