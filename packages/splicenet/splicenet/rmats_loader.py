@@ -114,12 +114,23 @@ def extract_matrices_from_bundle_or_rmats(
             cid = str(r.get("contrast") or r.get("contrast_id")).strip()
             num_c = str(r.get("treatment") or r.get("numerator")).strip()
             den_c = str(r.get("control") or r.get("denominator")).strip()
-            rpath = bdir / "rmats" / cid / "rmats_post"
-            if not rpath.is_dir():
-                rpath = bdir / "rmats" / cid
+            rpath_candidates = (
+                (bdir / "rmats" / cid / "rmats_post", False),
+                (bdir / "rmats" / cid, False),
+                (bdir / "rnasplicing/rmats" / f"{num_c}-{den_c}" / "rmats_post", False),
+                (bdir / "rnasplicing/rmats" / cid / "rmats_post", False),
+                (bdir / "rnasplicing/rmats" / f"{den_c}-{num_c}" / "rmats_post", True),
+            )
+            rpath, rev_dir = next(
+                ((p, inv) for p, inv in rpath_candidates if p.is_dir()),
+                (bdir / "rmats" / cid / "rmats_post", False),
+            )
             n1 = [s["sample_id"] for s in sample_rows if s["condition"] == num_c]
             n2 = [s["sample_id"] for s in sample_rows if s["condition"] == den_c]
-            specs.append((rpath, n1, n2, num_c, den_c))
+            if rev_dir:
+                specs.append((rpath, n2, n1, den_c, num_c))
+            else:
+                specs.append((rpath, n1, n2, num_c, den_c))
     elif rmats_dir is not None:
         rpath = Path(rmats_dir)
         if samples_path is not None and Path(samples_path).is_file():

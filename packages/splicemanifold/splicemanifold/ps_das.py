@@ -351,11 +351,19 @@ def load_rmats_study(
                 cid = str(r.get("contrast") or r.get("contrast_id")).strip()
                 num_lbl = str(r.get("treatment") or r.get("numerator")).strip()
                 den_lbl = str(r.get("control") or r.get("denominator")).strip()
-                rdir = bdir / "rmats" / cid / "rmats_post"
-                if not rdir.is_dir():
-                    rdir = bdir / "rmats" / cid
+                rdir_candidates = (
+                    (bdir / "rmats" / cid / "rmats_post", False),
+                    (bdir / "rmats" / cid, False),
+                    (bdir / "rnasplicing/rmats" / f"{num_lbl}-{den_lbl}" / "rmats_post", False),
+                    (bdir / "rnasplicing/rmats" / cid / "rmats_post", False),
+                    (bdir / "rnasplicing/rmats" / f"{den_lbl}-{num_lbl}" / "rmats_post", True),
+                )
+                rdir, path_inverted = next(
+                    ((p, inv) for p, inv in rdir_candidates if p.is_dir()),
+                    (bdir / "rmats" / cid / "rmats_post", False),
+                )
                 g1_lbl, g2_lbl = manifest_arms.get(cid, (num_lbl, den_lbl))
-                rev_dir = (g1_lbl == den_lbl and g2_lbl == num_lbl)
+                rev_dir = (g1_lbl == den_lbl and g2_lbl == num_lbl) if cid in manifest_arms else path_inverted
                 num_s = manifest_order.get(num_lbl) or [s["sample_id"] for s in sample_meta if s["condition"] == num_lbl]
                 den_s = manifest_order.get(den_lbl) or [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl]
                 contrast_specs.append({
@@ -379,12 +387,21 @@ def load_rmats_study(
                 cid = str(r.get("contrast") or r.get("contrast_id") or contrast_id).strip()
                 num_lbl = str(r.get("treatment") or r.get("numerator")).strip()
                 den_lbl = str(r.get("control") or r.get("denominator")).strip()
-                cand = rdir / cid / "rmats_post" if (rdir / cid / "rmats_post").is_dir() else (rdir / cid if (rdir / cid).is_dir() else rdir)
+                cand_options = (
+                    (rdir / cid / "rmats_post", False),
+                    (rdir / cid, False),
+                    (rdir / f"{num_lbl}-{den_lbl}" / "rmats_post", False),
+                    (rdir / f"{num_lbl}-{den_lbl}", False),
+                    (rdir / f"{den_lbl}-{num_lbl}" / "rmats_post", True),
+                    (rdir / f"{den_lbl}-{num_lbl}", True),
+                )
+                cand, rev_dir = next(((p, inv) for p, inv in cand_options if p.is_dir()), (rdir, False))
                 contrast_specs.append({
                     "contrast_id": cid, "numerator": num_lbl, "denominator": den_lbl,
                     "rmats_dir": cand,
                     "num_samples": [s["sample_id"] for s in sample_meta if s["condition"] == num_lbl],
                     "den_samples": [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl],
+                    "reverse_direction": rev_dir,
                 })
         else:
             # Single rMATS directory mode (infer sample counts from first non-empty table if needed)

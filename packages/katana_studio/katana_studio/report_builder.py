@@ -413,6 +413,43 @@ def _discover_rmats_contrasts(rmats_arg: str | Path | dict[str, Path], declared_
     return out
 
 
+def _resolve_rmats_dir_for_contrast(
+    rmats_map: dict[str, Path],
+    c_spec: dict[str, Any],
+    n_declared_contrasts: int,
+) -> tuple[Path, bool]:
+    """Match a declared contrast to its exact rMATS directory without silent multi-contrast fallback."""
+    cid = str(c_spec["contrast_id"]).strip()
+    num_lbl = str(c_spec["numerator"]["label"]).strip()
+    den_lbl = str(c_spec["denominator"]["label"]).strip()
+
+    forward_keys = [k for k in (cid, f"{num_lbl}-{den_lbl}", f"{num_lbl}_vs_{den_lbl}") if k]
+    reverse_keys = [k for k in (f"{den_lbl}-{num_lbl}", f"{den_lbl}_vs_{num_lbl}") if k]
+
+    for key in forward_keys:
+        if key in rmats_map:
+            return rmats_map[key], False
+    for key in reverse_keys:
+        if key in rmats_map:
+            return rmats_map[key], True
+
+    lower_map = {k.lower(): v for k, v in rmats_map.items()}
+    for key in forward_keys:
+        if key.lower() in lower_map:
+            return lower_map[key.lower()], False
+    for key in reverse_keys:
+        if key.lower() in lower_map:
+            return lower_map[key.lower()], True
+
+    if len(rmats_map) == 1 and n_declared_contrasts == 1:
+        return next(iter(rmats_map.values())), False
+
+    raise FileNotFoundError(
+        f"No rMATS contrast directory matched '{cid}' "
+        f"(tried {forward_keys + reverse_keys}); available: {sorted(rmats_map.keys())}"
+    )
+
+
 def _resolve_splicetrace_dirs(
     splicetrace_dirs: list[str | Path] | dict[str, Path] | None,
     declared_contrasts: list[dict[str, Any]],
@@ -860,11 +897,11 @@ def run_bulk(
 
     for c_spec in contrasts_list:
         cid = c_spec["contrast_id"]
-        rdir = rmats_map.get(cid) or next(iter(rmats_map.values()))
+        rdir, dir_inverted = _resolve_rmats_dir_for_contrast(rmats_map, c_spec, len(contrasts_list))
         num_lbl = str(c_spec["numerator"]["label"])
         den_lbl = str(c_spec["denominator"]["label"])
         g1_lbl, g2_lbl = manifest_comp_arms.get(cid, (num_lbl, den_lbl))
-        rmats_inverted = (g1_lbl == den_lbl and g2_lbl == num_lbl)
+        rmats_inverted = (g1_lbl == den_lbl and g2_lbl == num_lbl) if cid in manifest_comp_arms else dir_inverted
         g1_sids = manifest_rmats_order.get(g1_lbl) or (c_spec["denominator"]["sample_ids"] if rmats_inverted else c_spec["numerator"]["sample_ids"])
         g2_sids = manifest_rmats_order.get(g2_lbl) or (c_spec["numerator"]["sample_ids"] if rmats_inverted else c_spec["denominator"]["sample_ids"])
         num_sids = g2_sids if rmats_inverted else g1_sids
@@ -1247,7 +1284,7 @@ def run_bulk(
         st_dir_c = st_map.get(cid)
         if st_dir_c is None and fasta is not None and gtf is not None and Path(fasta).is_file() and Path(gtf).is_file():
             from splicetrace.cli import main as splicetrace_cli_main
-            rdir = rmats_map.get(cid) or next(iter(rmats_map.values()))
+            rdir, _ = _resolve_rmats_dir_for_contrast(rmats_map, c_spec, len(contrasts_list))
             st_run_dir = out / "outputs/splicetrace_runs" / cid
             st_run_dir.mkdir(parents=True, exist_ok=True)
             cli_args = [
