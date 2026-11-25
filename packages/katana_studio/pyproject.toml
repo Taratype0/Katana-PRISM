@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "katana-studio"
-version = "1.0.3"
+version = "1.0.4"
 description = "Katana Studio & Katana Report: Self-contained SHA256-verified splicing synthesis report generator and interactive local workbench"
 readme = "README.md"
 requires-python = ">=3.10"

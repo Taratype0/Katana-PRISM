@@ -920,21 +920,40 @@ def run_bulk(
     manifest_rmats_order: dict[str, list[str]] = {}
     manifest_comps: dict[str, dict[str, Any]] = {}
     if bundle_path is not None and (bundle_path / "manifest.json").is_file():
-        bm = json.loads((bundle_path / "manifest.json").read_text(encoding="utf-8"))
-        if isinstance(bm.get("rmats_sample_order"), dict):
-            manifest_rmats_order = {str(k): [str(x) for x in v] for k, v in bm["rmats_sample_order"].items() if isinstance(v, list)}
-        for comp_m in bm.get("comparisons", []):
+        mpath_b = bundle_path / "manifest.json"
+        try:
+            bm = json.loads(mpath_b.read_text(encoding="utf-8"))
+            if not isinstance(bm, dict):
+                raise ValueError("top-level JSON value must be an object")
+            if bm.get("rmats_sample_order") is not None:
+                if not isinstance(bm["rmats_sample_order"], dict):
+                    raise ValueError("'rmats_sample_order' must be an object")
+                for k, v in bm["rmats_sample_order"].items():
+                    if not isinstance(v, list):
+                        raise ValueError(f"'rmats_sample_order[{k!r}]' must be a list")
+                    manifest_rmats_order[str(k).strip()] = [str(x).strip() for x in v]
+            comps_b = bm.get("comparisons", [])
+            if comps_b is not None and not isinstance(comps_b, list):
+                raise ValueError("'comparisons' must be a list")
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            raise ValueError(f"Malformed manifest.json in {mpath_b}: {exc}") from exc
+        for comp_m in comps_b or []:
             if isinstance(comp_m, dict) and comp_m.get("comparison_id"):
                 c_key = str(comp_m["comparison_id"]).strip()
+                cm_ord_raw = comp_m.get("rmats_sample_order")
+                cm_ord: dict[str, list[str]] = {}
+                if cm_ord_raw is not None:
+                    if not isinstance(cm_ord_raw, dict):
+                        raise ValueError(f"comparisons[{c_key!r}].rmats_sample_order must be an object")
+                    for k, v in cm_ord_raw.items():
+                        if not isinstance(v, list):
+                            raise ValueError(f"comparisons[{c_key!r}].rmats_sample_order[{k!r}] must be a list")
+                        cm_ord[str(k).strip()] = [str(x).strip() for x in v]
                 comp_rec = {
                     "rmats_group1": str(comp_m["rmats_group1"]).strip() if comp_m.get("rmats_group1") else None,
                     "rmats_group2": str(comp_m["rmats_group2"]).strip() if comp_m.get("rmats_group2") else None,
                     "rmats_dir": str(comp_m["rmats_dir"]).strip() if comp_m.get("rmats_dir") else None,
-                    "rmats_sample_order": (
-                        {str(k): [str(x) for x in v] for k, v in comp_m["rmats_sample_order"].items() if isinstance(v, list)}
-                        if isinstance(comp_m.get("rmats_sample_order"), dict)
-                        else {}
-                    ),
+                    "rmats_sample_order": cm_ord,
                 }
                 manifest_comps[c_key] = comp_rec
                 manifest_comps.setdefault(c_key.lower(), comp_rec)
@@ -1741,35 +1760,56 @@ def run_single_cell(
         ):
             if src_p in base_ev.columns and dst_p not in base_ev.columns:
                 base_ev[dst_p] = pd.to_numeric(base_ev[src_p], errors="coerce")
-        if (trace_dir / "scsplicetrace_event_contrasts.tsv").is_file() and "event_id" in base_ev.columns:
-            st_ev = _safe_read_csv(trace_dir / "scsplicetrace_event_contrasts.tsv", sep="\t", dtype={"event_id": str})
-            if not st_ev.empty and "event_id" in st_ev.columns:
-                st_ev["event_id"] = st_ev["event_id"].astype(str)
-                base_ev["event_id"] = base_ev["event_id"].astype(str)
-                m_cols = [c for c in (
-                    "event_id", "raw_dpsi", "dpsi", "z_shift", "p_value", "pvalue", "fdr",
-                    "eligible", "event_inference_unit", "n_donors_used",
-                    "donor_n_paired", "donor_n_unpaired_fg", "donor_n_unpaired_bg",
-                ) if c in st_ev.columns]
-                st_sub = st_ev[m_cols].drop_duplicates("event_id")
-                drop_pre = [c for c in m_cols if c != "event_id" and c in base_ev.columns]
-                ev_m = base_ev.drop(columns=drop_pre).merge(st_sub, on="event_id", how="left")
-                dpsi_src = "raw_dpsi" if "raw_dpsi" in ev_m.columns else ("dpsi" if "dpsi" in ev_m.columns else None)
-                p_src = "p_value" if "p_value" in ev_m.columns else ("pvalue" if "pvalue" in ev_m.columns else None)
-                ev_m["dpsi"] = pd.to_numeric(ev_m[dpsi_src], errors="coerce") if dpsi_src else np.nan
-                ev_m["pvalue"] = pd.to_numeric(ev_m[p_src], errors="coerce") if p_src else np.nan
-                ev_m["fdr"] = pd.to_numeric(ev_m["fdr"], errors="coerce") if "fdr" in ev_m.columns else np.nan
-                elig_b = _coerce_bool_series(ev_m["eligible"]) if "eligible" in ev_m.columns else pd.Series(False, index=ev_m.index, dtype=bool)
-                ev_m["eligible"] = elig_b
-                if "event_inference_unit" not in ev_m.columns:
-                    ev_m["event_inference_unit"] = np.where(elig_b, "donor_aware", "missing_or_ineligible")
-                else:
-                    ev_m["event_inference_unit"] = ev_m["event_inference_unit"].fillna("missing_or_ineligible").astype(str)
-                # Quarantined invariant: ineligible events NEVER carry backfilled pooled statistics into primary columns
-                ev_m.loc[~elig_b, ["dpsi", "pvalue", "fdr"]] = np.nan
+        _primary_stat_cols = (
+            "raw_dpsi", "dpsi", "delta_psi", "effect", "z_shift",
+            "p_value", "pvalue", "PValue",
+            "fdr", "FDR", "q_value", "padj",
+            "eligible", "event_inference_unit",
+            "n_donors_used", "donor_n_paired", "donor_n_unpaired_fg", "donor_n_unpaired_bg",
+        )
+        ev_trace_p = trace_dir / "scsplicetrace_event_contrasts.tsv"
+        if ev_trace_p.is_file() and "event_id" in base_ev.columns:
+            st_ev = _safe_read_csv(ev_trace_p, sep="\t", dtype={"event_id": str})
+            base_clean = base_ev.drop(columns=[c for c in _primary_stat_cols if c in base_ev.columns])
+            base_clean["event_id"] = base_clean["event_id"].astype(str)
+            dpsi_col = next((c for c in ("raw_dpsi", "dpsi") if c in st_ev.columns), None)
+            p_col = next((c for c in ("p_value", "pvalue") if c in st_ev.columns), None)
+            q_col = next((c for c in ("fdr", "FDR", "q_value", "padj") if c in st_ev.columns), None)
+            has_elig = "eligible" in st_ev.columns
+            schema_complete = (not st_ev.empty) and ("event_id" in st_ev.columns) and bool(dpsi_col and p_col and q_col and has_elig)
+            if not schema_complete:
+                # Incomplete Trace output must never backfill cell-pooled stats into primary donor columns
+                ev_m = base_clean.copy()
+                ev_m["dpsi"] = np.nan
+                ev_m["pvalue"] = np.nan
+                ev_m["fdr"] = np.nan
+                ev_m["eligible"] = False
+                ev_m["event_inference_unit"] = "incomplete_donor_schema"
                 if st_cmp:
                     ev_m["comparison_id"] = st_cmp
                 return ev_m, st_cmp
+            st_ev["event_id"] = st_ev["event_id"].astype(str)
+            m_cols = [c for c in (
+                "event_id", "raw_dpsi", "dpsi", "z_shift", "p_value", "pvalue", "fdr", "FDR", "q_value", "padj",
+                "eligible", "event_inference_unit", "n_donors_used",
+                "donor_n_paired", "donor_n_unpaired_fg", "donor_n_unpaired_bg",
+            ) if c in st_ev.columns]
+            st_sub = st_ev[m_cols].drop_duplicates("event_id")
+            ev_m = base_clean.merge(st_sub, on="event_id", how="left")
+            ev_m["dpsi"] = pd.to_numeric(ev_m[dpsi_col], errors="coerce")
+            ev_m["pvalue"] = pd.to_numeric(ev_m[p_col], errors="coerce")
+            ev_m["fdr"] = pd.to_numeric(ev_m[q_col], errors="coerce")
+            elig_b = _coerce_bool_series(ev_m["eligible"])
+            ev_m["eligible"] = elig_b
+            if "event_inference_unit" not in ev_m.columns:
+                ev_m["event_inference_unit"] = np.where(elig_b, "donor_aware", "missing_or_ineligible")
+            else:
+                ev_m["event_inference_unit"] = ev_m["event_inference_unit"].fillna("missing_or_ineligible").astype(str)
+            # Quarantined invariant: ineligible events NEVER carry backfilled pooled statistics into primary columns
+            ev_m.loc[~elig_b, ["dpsi", "pvalue", "fdr"]] = np.nan
+            if st_cmp:
+                ev_m["comparison_id"] = st_cmp
+            return ev_m, st_cmp
         if st_cmp:
             base_ev["comparison_id"] = st_cmp
         return base_ev, st_cmp
@@ -2033,8 +2073,13 @@ def run_single_cell(
         ev_df["passes_read_support"] = dpsi_vals_tmp.notna().astype(bool)
     ev_pq = res_dir / "sc_differential_splicing.parquet"
     ev_df.to_parquet(ev_pq, index=False, compression="zstd")
+    any_donor_eval = ("eligible" in ev_df.columns) and (bool(st_dirs_by_contrast) or st_dir is not None or ev_df["eligible"].notna().any())
     tables.append({
-        "name": "Single-cell donor-aware differential splicing events",
+        "name": (
+            "Single-cell donor-aware differential splicing events"
+            if any_donor_eval
+            else "Single-cell exploratory cell-pooled splicing events (scSpliceTrace not run)"
+        ),
         "analysis_id": "differential.sc_as",
         "chapter": 3,
         "contrast_id": "all",
@@ -2075,7 +2120,9 @@ def run_single_cell(
             n_nom_sig = int(sub["_sig_nom"].sum())
             n_elig = int(elig_mask.sum())
 
-            use_nom_axis = (n_fdr_sig == 0) and (p_c is not None) and (n_nom_sig > 0)
+            use_nom_axis = (n_fdr_sig == 0) and (p_c is not None) and (n_nom_sig > 0) and (
+                (not sub_has_donor_eval) or q_c is None or not q_num[elig_mask].notna().any()
+            )
             plot_q_col = p_c if use_nom_axis else eff_col
             sub["_sig"] = sub["_sig_nom"] if use_nom_axis else sub["_sig_fdr"]
             sub["gene_symbol"] = sub[g_c].astype(str)
@@ -2090,6 +2137,7 @@ def run_single_cell(
             v_png = out / "figures/comparisons" / f"{cid}-sc-as-volcano.png"
             if sub_has_donor_eval:
                 plot_df = sub[elig_mask & valid_d & pd.to_numeric(sub[plot_q_col], errors="coerce").notna()].copy()
+                v_caption = "Donor-aware single-cell differential splicing preserving biological replicate degrees of freedom."
                 if n_elig == 0 or plot_df.empty:
                     v_title = f"Donor-Aware DAS Volcano (0 donor-eligible events; ineligible pooled excluded) | {cid}"
                     v_banner = "0 donor-eligible events (ineligible pooled ratios excluded)"
@@ -2102,6 +2150,7 @@ def run_single_cell(
             else:
                 plot_df = sub
                 v_banner = None
+                v_caption = "Exploratory cell-pooled single-cell splicing contrast (scSpliceTrace donor-level inference not run; individual cells are not independent biological replicates)."
                 v_title = (
                     f"Exploratory Cell-Pooled Splicing Volcano ({n_fdr_sig:,} FDR ≤ {fdr_cutoff:g}; scSpliceTrace not run) | {cid}"
                     if not use_nom_axis else
@@ -2124,13 +2173,25 @@ def run_single_cell(
                 "contrast_id": cid,
                 "policy": None,
                 "title": v_title,
-                "caption": "Donor-aware single-cell differential splicing preserving biological replicate degrees of freedom.",
+                "caption": v_caption,
                 "image": v_png.relative_to(out).as_posix(),
                 "svg": v_png.with_suffix(".svg").relative_to(out).as_posix(),
                 "data_links": [{"role": "plot_data", "label": "Volcano data (TSV)", "path": v_tsv.relative_to(out).as_posix(), "unit": "splicing_event", "contrast_id": cid, "policy": None}],
             })
-            _render_das_class_direction_bar(sub, "_sig", "Single-Cell DAS", cid, None, out, panels)
-            policy_data["stable_significant"][cid] = {"available": True, "events": n_fdr_sig, "genes": int(sub.loc[sub["_sig_fdr"], g_c].nunique()) if n_fdr_sig else 0}
+            _render_das_class_direction_bar(sub, "_sig", "Single-Cell DAS" if sub_has_donor_eval else "Exploratory Cell-Pooled Splicing", cid, None, out, panels)
+            if sub_has_donor_eval:
+                policy_data["stable_significant"][cid] = {
+                    "available": bool(n_elig > 0),
+                    "events": n_fdr_sig,
+                    "genes": int(sub.loc[sub["_sig_fdr"], g_c].nunique()) if n_fdr_sig else 0,
+                }
+            else:
+                policy_data["stable_significant"][cid] = {"available": False, "events": 0, "genes": 0}
+                policy_data.setdefault("exploratory_cell_pooled", {})[cid] = {
+                    "available": True,
+                    "events": n_fdr_sig,
+                    "genes": int(sub.loc[sub["_sig_fdr"], g_c].nunique()) if n_fdr_sig else 0,
+                }
 
             cand_top = sub[sub["_sig"]].copy()
             if not cand_top.empty:
@@ -2142,8 +2203,12 @@ def run_single_cell(
                     "id": f"{cid}-sc-top10",
                     "chapter": 3,
                     "contrast_id": cid,
-                    "analysis": "DAS",
-                    "kind": "Single-Cell Differential Splicing (FDR ≤ 0.05)" if n_fdr_sig > 0 else "Single-Cell Candidate DAS Events (Nominal P ≤ 0.05)",
+                    "analysis": "DAS" if sub_has_donor_eval else "EXPLORATORY_DAS",
+                    "kind": (
+                        ("Single-Cell Differential Splicing (FDR ≤ 0.05)" if n_fdr_sig > 0 else "Single-Cell Candidate DAS Events (Nominal P ≤ 0.05)")
+                        if sub_has_donor_eval
+                        else "Exploratory Cell-Pooled Splicing (scSpliceTrace not run)"
+                    ),
                     "unit": "splicing_event",
                     "columns": t_cols,
                     "rows": cand_top[t_cols].to_dict(orient="records"),

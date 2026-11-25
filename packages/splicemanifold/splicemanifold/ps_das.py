@@ -479,30 +479,42 @@ def _parse_manifest_rmats(bdir: Path) -> tuple[dict[str, list[str]], dict[str, d
         return manifest_order, manifest_comps
     try:
         bm = _json.loads(mpath.read_text(encoding="utf-8"))
-        if isinstance(bm.get("rmats_sample_order"), dict):
-            manifest_order = {
-                str(k): [str(x) for x in v]
-                for k, v in bm["rmats_sample_order"].items()
-                if isinstance(v, list)
-            }
-        for cm in bm.get("comparisons", []):
+        if not isinstance(bm, dict):
+            raise ValueError("top-level JSON value must be an object")
+        top_ord = bm.get("rmats_sample_order")
+        if top_ord is not None:
+            if not isinstance(top_ord, dict):
+                raise ValueError("'rmats_sample_order' must be an object")
+            for k, v in top_ord.items():
+                if not isinstance(v, list):
+                    raise ValueError(f"'rmats_sample_order[{k!r}]' must be a list of sample identifiers")
+                manifest_order[str(k).strip()] = [str(x).strip() for x in v]
+        comps_raw = bm.get("comparisons", [])
+        if comps_raw is not None and not isinstance(comps_raw, list):
+            raise ValueError("'comparisons' must be a list")
+        for cm in comps_raw or []:
             if not isinstance(cm, dict) or not cm.get("comparison_id"):
                 continue
             cid_m = str(cm["comparison_id"]).strip()
+            cm_ord_raw = cm.get("rmats_sample_order")
+            cm_ord: dict[str, list[str]] = {}
+            if cm_ord_raw is not None:
+                if not isinstance(cm_ord_raw, dict):
+                    raise ValueError(f"comparisons[{cid_m!r}].rmats_sample_order must be an object")
+                for k, v in cm_ord_raw.items():
+                    if not isinstance(v, list):
+                        raise ValueError(f"comparisons[{cid_m!r}].rmats_sample_order[{k!r}] must be a list")
+                    cm_ord[str(k).strip()] = [str(x).strip() for x in v]
             comp_rec = {
                 "rmats_group1": str(cm["rmats_group1"]).strip() if cm.get("rmats_group1") else None,
                 "rmats_group2": str(cm["rmats_group2"]).strip() if cm.get("rmats_group2") else None,
                 "rmats_dir": str(cm["rmats_dir"]).strip() if cm.get("rmats_dir") else None,
-                "rmats_sample_order": (
-                    {str(k): [str(x) for x in v] for k, v in cm["rmats_sample_order"].items() if isinstance(v, list)}
-                    if isinstance(cm.get("rmats_sample_order"), dict)
-                    else {}
-                ),
+                "rmats_sample_order": cm_ord,
             }
             manifest_comps[cid_m] = comp_rec
             manifest_comps.setdefault(cid_m.lower(), comp_rec)
-    except Exception:
-        pass
+    except (_json.JSONDecodeError, ValueError, TypeError) as exc:
+        raise ValueError(f"Malformed manifest.json in {mpath}: {exc}") from exc
     return manifest_order, manifest_comps
 
 
@@ -582,6 +594,10 @@ def load_rmats_study(
                 arm2_lbl = num_lbl if rev_dir else den_lbl
                 ord1 = cm_order.get(arm1_lbl) if arm1_lbl in cm_order else manifest_order.get(arm1_lbl)
                 ord2 = cm_order.get(arm2_lbl) if arm2_lbl in cm_order else manifest_order.get(arm2_lbl)
+                if ord1 is not None:
+                    ord1 = [str(x).strip() for x in ord1]
+                if ord2 is not None:
+                    ord2 = [str(x).strip() for x in ord2]
                 has_any_order = bool(cm_order or manifest_order)
                 explicit_order = bool(has_any_order or ord1 is not None or ord2 is not None)
                 if explicit_order:

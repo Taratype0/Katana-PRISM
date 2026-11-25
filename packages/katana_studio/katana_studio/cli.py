@@ -21,7 +21,7 @@ def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_REPO
 def report_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="katana-report",
-        description="Katana Report 1.0.3: Build SHA256-verified self-contained REPORT.html and REPORT.zip for bulk or single-cell splicing studies.",
+        description="Katana Report 1.0.4: Build SHA256-verified self-contained REPORT.html and REPORT.zip for bulk or single-cell splicing studies.",
     )
     parser.add_argument("--version", action="version", version=f"katana-report {__version__}")
     parser.add_argument("--emit-versions-yml", type=Path, default=None)
@@ -163,7 +163,7 @@ def report_main(argv: list[str] | None = None) -> int:
 def studio_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="katana-studio",
-        description="Katana Studio 1.0.3: Launch the interactive local web workbench on a REPORT.zip or report directory.",
+        description="Katana Studio 1.0.4: Launch the interactive local web workbench on a REPORT.zip or report directory.",
     )
     parser.add_argument("--version", action="version", version=f"katana-studio {__version__}")
     parser.add_argument("report", nargs="?", default=None, help="Optional REPORT.zip or report directory to open immediately")

@@ -227,6 +227,7 @@ process SPLICEMANIFOLD_SC {
     path support_matrix
     path cell_metadata
     path host_expression
+    val  donor_col
 
     output:
     path "sc_manifold_out", emit: results
@@ -236,6 +237,7 @@ process SPLICEMANIFOLD_SC {
     def ev_arg   = events_table.name != 'NO_EVENTS' ? "--events ${events_table}" : ''
     def sup_arg  = support_matrix.name != 'NO_SUPPORT' ? "--support ${support_matrix}" : ''
     def expr_arg = host_expression.name != 'NO_EXPRESSION' ? "--expression ${host_expression}" : ''
+    def don_arg  = donor_col ? "--donor-col \"${donor_col}\"" : ''
     """
     ${prismPythonPathBlock(projectDir)}
     splicemanifold single-cell \
@@ -244,6 +246,7 @@ process SPLICEMANIFOLD_SC {
         ${ev_arg} \
         ${sup_arg} \
         ${expr_arg} \
+        ${don_arg} \
         --cells-as-rows \
         --outdir sc_manifold_out \
         --emit-versions-yml versions.yml \
@@ -805,6 +808,7 @@ process SC_SUBTYPE_DOWNSTREAM {
         --events "\${SM_DIR}/sc_events.tsv" \
         --support "\${SM_DIR}/sc_support.tsv.gz" \
         \${EXPR_SLICE} \
+        ${don_arg} \
         --cells-as-rows \
         --outdir "${contrast_id}/splicemanifold" \
         --emit-versions-yml versions.yml \
@@ -873,6 +877,7 @@ process SC_SUBTYPE_DOWNSTREAM {
         \${SM_REPORT_ARG} \
         \${SN_REPORT_ARG} \
         \${ST_REPORT_ARG} \
+        ${don_arg} \
         --study-name "${contrast_id}" \
         --species "${sp_val}" \
         --fdr ${das_fdr} \

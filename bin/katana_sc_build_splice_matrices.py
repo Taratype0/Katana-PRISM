@@ -356,26 +356,28 @@ def standardize_metadata(
         bad_cids = md.loc[dup_cid, "cell_id"].drop_duplicates().head(5).tolist()
         raise ValueError(f"Duplicate physical cell_id entries in metadata (e.g. {bad_cids}).")
 
-    # Match barcodes cleanly even if `-1` suffix differs between expression/metadata and STARsolo
+    # Match barcodes cleanly per cell even when some STARsolo barcodes carry `-1` suffixes and others do not
     obs_set = set(observed_cells)
-    if len(set(md["cell_id"]) & obs_set) == 0:
-        stripped_map: dict[str, str] = {}
-        colliding_barcodes: list[str] = []
-        for c in observed_cells:
-            base_c = c.split("-")[0]
-            if base_c in stripped_map:
-                colliding_barcodes.append(f"{base_c} ({stripped_map[base_c]} vs {c})")
-            else:
-                stripped_map[base_c] = c
-        if colliding_barcodes:
-            raise ValueError(
-                f"Duplicate observed cell barcodes after `-1` suffix normalization (e.g. {colliding_barcodes[:5]})."
-            )
-        md["cell_id"] = [stripped_map.get(c.split("-")[0], c) for c in md["cell_id"]]
-        dup_stripped = md["cell_id"].duplicated(keep=False)
-        if dup_stripped.any():
-            bad_s = md.loc[dup_stripped, "cell_id"].drop_duplicates().head(5).tolist()
-            raise ValueError(f"Duplicate cell_id entries after barcode suffix normalization (e.g. {bad_s}).")
+    base_to_obs: dict[str, list[str]] = defaultdict(list)
+    for c_obs in observed_cells:
+        base_to_obs[c_obs.split("-")[0]].append(c_obs)
+
+    resolved_cids: list[str] = []
+    for cid_raw in md["cell_id"]:
+        if cid_raw in obs_set:
+            resolved_cids.append(cid_raw)
+        else:
+            cands = base_to_obs.get(cid_raw.split("-")[0], [])
+            if len(cands) > 1:
+                raise ValueError(
+                    f"Duplicate observed cell barcodes after `-1` suffix normalization for {cid_raw!r}: {cands[:5]}."
+                )
+            resolved_cids.append(cands[0] if len(cands) == 1 else cid_raw)
+    md["cell_id"] = resolved_cids
+    dup_stripped = md["cell_id"].duplicated(keep=False)
+    if dup_stripped.any():
+        bad_s = md.loc[dup_stripped, "cell_id"].drop_duplicates().head(5).tolist()
+        raise ValueError(f"Duplicate cell_id entries after barcode suffix normalization (e.g. {bad_s}).")
 
     cols_l = {str(c).strip().lower(): str(c) for c in md.columns}
     if donor_col is not None and str(donor_col).strip():

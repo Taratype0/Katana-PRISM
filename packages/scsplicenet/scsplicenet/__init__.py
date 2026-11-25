@@ -1,4 +1,4 @@
-"""scSpliceNet 1.0.3 (Smart-seq3 / HT Smart-seq3 / Smart-seq3xpress)."""
+"""scSpliceNet 1.0.4 (Smart-seq3 / HT Smart-seq3 / Smart-seq3xpress)."""
 from scsplicenet.evaluation import (
     enrich_sc_module_genes,
     evaluate_heldout_edges_and_modules,
@@ -23,7 +23,7 @@ from scsplicenet.qc_and_selection import (
     select_sc_events,
 )
 
-__version__ = "1.0.3"
+__version__ = "1.0.4"
 
 __all__ = [
     "__version__",

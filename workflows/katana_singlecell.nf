@@ -55,7 +55,8 @@ workflow KATANA_SINGLE_CELL {
         ch_psi_val,
         ch_sup_val,
         ch_meta_val,
-        ch_expr_val
+        ch_expr_val,
+        params.sc_donor_col ?: ''
     )
     ch_versions = ch_versions.mix(SPLICEMANIFOLD_SC.out.versions)
 

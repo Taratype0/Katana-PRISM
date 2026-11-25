@@ -818,11 +818,11 @@ def trace_protein_and_nmd_consequences(
                     s0_a, s1_a = int(rec["shortES"]), int(rec["shortEE"])
                     f0_a, f1_a = int(rec["flankingES"]), int(rec["flankingEE"])
                     if (etype == "A3SS" and strand == "+") or (etype == "A5SS" and strand == "-"):
-                        dir_ok = (l0_a < s0_a < s1_a) and (l1_a == s1_a) and (f0_a < f1_a <= l0_a)
+                        dir_ok = (l0_a < s0_a < s1_a) and (l1_a == s1_a) and (f0_a < f1_a < l0_a)
                         pair_l = ((f0_a, f1_a), (l0_a, l1_a))
                         pair_s = ((f0_a, f1_a), (s0_a, s1_a))
                     elif (etype == "A3SS" and strand == "-") or (etype == "A5SS" and strand == "+"):
-                        dir_ok = (l0_a == s0_a) and (l0_a < s1_a < l1_a) and (l1_a <= f0_a < f1_a)
+                        dir_ok = (l0_a == s0_a) and (l0_a < s1_a < l1_a) and (l1_a < f0_a < f1_a)
                         pair_l = ((l0_a, l1_a), (f0_a, f1_a))
                         pair_s = ((s0_a, s1_a), (f0_a, f1_a))
                     else:
@@ -856,8 +856,13 @@ def trace_protein_and_nmd_consequences(
                     })
                     continue
 
-                adj_pairs = {(a, b) for m in ranked_hosts for a, b in zip(m.exons, m.exons[1:])}
-                has_annotated_pair = bool((pair_l in adj_pairs) and (pair_s in adj_pairs))
+                adj_by_gene: dict[str, set[tuple[tuple[int, int], tuple[int, int]]]] = {}
+                for m in ranked_hosts:
+                    adj_by_gene.setdefault(m.gene_id, set()).update(zip(m.exons, m.exons[1:]))
+                valid_pair_gids = {g for g, pairs in adj_by_gene.items() if (pair_l in pairs) and (pair_s in pairs)}
+                has_annotated_pair = bool(valid_pair_gids)
+                if has_annotated_pair and host is not None and host.gene_id not in valid_pair_gids:
+                    host = next(m for m in ranked_hosts if m.gene_id in valid_pair_gids)
                 if not has_annotated_pair:
                     if require_annotated_a3_a5_pair:
                         rows.append({

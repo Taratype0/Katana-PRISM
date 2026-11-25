@@ -2,7 +2,7 @@ cff-version: 1.2.0
 title: "Katana-PRISM: precision-calibrated workflows for alternative splicing manifolds, cis-regulatory RNA maps, co-splicing networks, and isoform consequences across bulk and full-length single-cell RNA-seq"
 message: "If you use Katana-PRISM in your research, please cite it using the metadata below."
 type: software
-version: "1.0.1"
+version: "1.0.4"
 license: MIT
 repository-code: "https://github.com/Taratype0/Katana-PRISM"
 authors:
