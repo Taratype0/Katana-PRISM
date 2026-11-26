@@ -1,4 +1,4 @@
-"""SpliceNet 1.0.6 — Pure-Python Excess-BioVar Signed TOM Co-Splicing Network."""
+"""SpliceNet 1.0.7 — Pure-Python Excess-BioVar Signed TOM Co-Splicing Network."""
 from splicenet.evaluation import enrich_module_genes, orthogonalize_host_depth, score_modules
 from splicenet.network import (
     compute_signed_tom_from_bicor,
@@ -9,7 +9,7 @@ from splicenet.network import (
 )
 from splicenet.qc_and_selection import select_events, unit_robust_audit
 
-__version__ = "1.0.6"
+__version__ = "1.0.7"
 
 __all__ = [
     "__version__",

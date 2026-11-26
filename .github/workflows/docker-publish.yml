@@ -39,7 +39,7 @@ jobs:
               echo "EOF"
             } >> "$GITHUB_OUTPUT"
           else
-            echo "version=1.0.6-main.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "version=1.0.7-main.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
             {
               echo "tags<<EOF"
               echo "ghcr.io/taratype0/katana-prism:main"

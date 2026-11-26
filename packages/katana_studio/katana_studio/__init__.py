@@ -1,7 +1,7 @@
-"""Katana Studio & Katana Report (1.0.6) — Executive Splicing Synthesis & Interactive Workbench."""
+"""Katana Studio & Katana Report (1.0.7) — Executive Splicing Synthesis & Interactive Workbench."""
 from katana_studio.report_builder import open_workspace, run_bulk, run_report_from_nextflow, run_single_cell
 
-__version__ = "1.0.6"
+__version__ = "1.0.7"
 
 __all__ = [
     "__version__",

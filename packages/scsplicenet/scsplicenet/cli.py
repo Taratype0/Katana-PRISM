@@ -1,4 +1,4 @@
-"""Standalone CLI for scsplicenet (1.0.6) — Smart-seq3 support-precision co-splicing network & modules."""
+"""Standalone CLI for scsplicenet (1.0.7) — Smart-seq3 support-precision co-splicing network & modules."""
 from __future__ import annotations
 
 import argparse
@@ -15,7 +15,7 @@ from scsplicenet.qc_and_selection import (
     select_sc_events,
 )
 
-__version__ = "1.0.6"
+__version__ = "1.0.7"
 def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SCSPLICENET") -> None:
     """Emit standard nf-core `versions.yml` recording tool and Python versions."""
     import platform
@@ -23,7 +23,7 @@ def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SCSP
     p.parent.mkdir(parents=True, exist_ok=True)
     yml = (
         f'"{process_name}":\n'
-        f'    scsplicenet: "1.0.6"\n'
+        f'    scsplicenet: "1.0.7"\n'
         f'    python: "{platform.python_version()}"\n'
     )
     p.write_text(yml, encoding="utf-8")
@@ -32,7 +32,7 @@ def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SCSP
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="scsplicenet",
-        description="scSpliceNet 1.0.6: Smart-seq3 Hybrid-Manifold ExcessBioVar & support-precision TOM co-splicing network.",
+        description="scSpliceNet 1.0.7: Smart-seq3 Hybrid-Manifold ExcessBioVar & support-precision TOM co-splicing network.",
     )
     p.add_argument("--version", action="version", version=f"scsplicenet {__version__}")
     p.add_argument("--usage", type=Path, required=False, help="TSV(.gz): cell_id rows x event_id columns observed usage")

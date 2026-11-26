@@ -14,7 +14,7 @@ Key fixes & guarantees in 1.0.0:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 import gzip
 from importlib import resources
@@ -205,13 +205,14 @@ class HostTranscriptModel:
     stop_codon_3p: int | None             # exact 0-based genomic position of 3'-most base of canonical stop codon
     is_canonical: bool
     is_incomplete: bool
+    selenocysteine_blocks: list[tuple[int, int]] = field(default_factory=list)
 
 
 def load_gtf_coding_transcripts(
     gtf_path: Path | str,
     target_genes: set[str] | None = None,
 ) -> dict[str, list[HostTranscriptModel]]:
-    """Streaming GTF/GTF.gz parser honoring `start_codon`, `stop_codon`, `CDS` column-8 phase, biotypes, and `cds_start_NF` flags."""
+    """Streaming GTF/GTF.gz parser honoring `start_codon`, `stop_codon`, `Selenocysteine`, `CDS` column-8 phase, biotypes, and `cds_start_NF` flags."""
     p = Path(gtf_path)
     opener = gzip.open if p.name.endswith(".gz") else open
     clean_targets: set[str] | None = None
@@ -224,6 +225,7 @@ def load_gtf_coding_transcripts(
     tx_phases: dict[str, dict[tuple[int, int], int]] = {}
     tx_start_bases: dict[str, list[tuple[int, int]]] = {}
     tx_stop_bases: dict[str, list[tuple[int, int]]] = {}
+    tx_sec_bases: dict[str, list[tuple[int, int]]] = {}
 
     with opener(p, "rt", encoding="utf-8", errors="replace") as handle:
         for line in handle:
@@ -233,7 +235,7 @@ def load_gtf_coding_transcripts(
             if len(parts) < 9:
                 continue
             ftype = parts[2]
-            if ftype not in ("transcript", "exon", "CDS", "start_codon", "stop_codon"):
+            if ftype not in ("transcript", "exon", "CDS", "start_codon", "stop_codon", "Selenocysteine"):
                 continue
             attrs = parts[8]
             mg = _ATTR_GENE_ID.search(attrs)
@@ -278,6 +280,8 @@ def load_gtf_coding_transcripts(
                 tx_start_bases.setdefault(tid, []).append((start0, end0))
             elif ftype == "stop_codon":
                 tx_stop_bases.setdefault(tid, []).append((start0, end0))
+            elif ftype == "Selenocysteine":
+                tx_sec_bases.setdefault(tid, []).append((start0, end0))
 
     by_gene: dict[str, list[HostTranscriptModel]] = {}
     for tid, (gid, gname, chrom, strand, bt, is_can, is_inc) in tx_meta.items():
@@ -289,6 +293,7 @@ def load_gtf_coding_transcripts(
         sc_5p = (sc_blocks[0][0] if strand == "+" else (sc_blocks[-1][1] - 1)) if sc_blocks else None
         st_blocks = sorted(set(tx_stop_bases.get(tid, ())))
         stop_3p = ((st_blocks[-1][1] - 1) if strand == "+" else st_blocks[0][0]) if st_blocks else None
+        sec_blocks = sorted(set(tx_sec_bases.get(tid, ())))
         model = HostTranscriptModel(
             transcript_id=tid,
             gene_id=gid,
@@ -303,6 +308,7 @@ def load_gtf_coding_transcripts(
             stop_codon_3p=stop_3p,
             is_canonical=is_can,
             is_incomplete=is_inc,
+            selenocysteine_blocks=sec_blocks,
         )
         by_gene.setdefault(gid, []).append(model)
         by_gene.setdefault(gname.lower(), []).append(model)
@@ -517,6 +523,51 @@ def _genomic_pos_to_tx_offset(exons_asc: list[tuple[int, int]], strand: str, gpo
     return None
 
 
+def _selenocysteine_tx_starts(
+    exons_asc: list[tuple[int, int]],
+    strand: str,
+    sec_blocks: list[tuple[int, int]],
+) -> set[int]:
+    """Project intact 3-nt GTF `Selenocysteine` codon spans onto 0-based spliced transcript offsets."""
+    starts: set[int] = set()
+    for s0, s1 in sec_blocks:
+        if s1 - s0 != 3:
+            continue
+        b5 = s0 if strand == "+" else (s1 - 1)
+        b3 = (s1 - 1) if strand == "+" else s0
+        off5 = _genomic_pos_to_tx_offset(exons_asc, strand, b5)
+        off3 = _genomic_pos_to_tx_offset(exons_asc, strand, b3)
+        if off5 is not None and off3 == off5 + 2:
+            starts.add(off5)
+    return starts
+
+
+def _terminal_extension_supported_by_exon(
+    pre_exons: list[tuple[int, int]],
+    post_exons: list[tuple[int, int]],
+    old_tr: dict,
+    new_tr: dict,
+    candidate_models: list[HostTranscriptModel],
+    strand: str,
+) -> bool:
+    """Require at least one annotated host-gene exon to continuously span from the unextended terminal exon through the healed stop codon."""
+    if old_tr["stop_tx_nt"] is not None:
+        return True
+    if new_tr["stop_tx_nt"] is None:
+        return False
+    pos = int(new_tr["stop_tx_nt"]) - 1
+    for a, b in (post_exons if strand == "+" else post_exons[::-1]):
+        if pos < b - a:
+            stop = a + pos if strand == "+" else b - 1 - pos
+            break
+        pos -= b - a
+    else:
+        return False
+    a0, b0 = pre_exons[-1] if strand == "+" else pre_exons[0]
+    lo, hi = min(a0, stop), max(b0, stop + 1)
+    return any(x <= lo and hi <= y for mod in candidate_models for x, y in mod.exons)
+
+
 def _translate_and_evaluate_nmd(
     dna_5to3: str,
     exon_lengths_5to3: list[int],
@@ -524,8 +575,10 @@ def _translate_and_evaluate_nmd(
     phase_offset: int = 0,
     canonical_stop_tx_end: int | None = None,
     host_baseline_ptc_dist: int = 0,
+    sec_codon_tx_starts: set[int] | None = None,
 ) -> dict:
     total_len = len(dna_5to3)
+    sec_starts = sec_codon_tx_starts or set()
     ejc_positions = list(np.cumsum(exon_lengths_5to3)[:-1]) if len(exon_lengths_5to3) >= 2 else []
     last_ejc = int(ejc_positions[-1]) if ejc_positions else None
 
@@ -535,18 +588,23 @@ def _translate_and_evaluate_nmd(
         eff_start = None
 
     if eff_start is None or eff_start < 0 or eff_start + 3 > total_len:
-        best_orf, best_stop_end, best_st = "", None, 0
+        best_orf, best_stop_end, best_sec_cnt = "", None, 0
         for m in re.finditer(r"ATG", dna_5to3):
             st = m.start()
-            aa_chars, stop_end = [], None
+            aa_chars, stop_end, sec_cnt = [], None, 0
             for p in range(st, total_len - 2, 3):
-                aa = CODON_TABLE.get(dna_5to3[p : p + 3], "X")
+                cod = dna_5to3[p : p + 3]
+                if p in sec_starts and cod == "TGA":
+                    aa_chars.append("U")
+                    sec_cnt += 1
+                    continue
+                aa = CODON_TABLE.get(cod, "X")
                 if aa == "*":
                     stop_end = p + 3
                     break
                 aa_chars.append(aa)
             if len(aa_chars) > len(best_orf):
-                best_orf, best_stop_end, best_st = "".join(aa_chars), stop_end, st
+                best_orf, best_stop_end, best_sec_cnt = "".join(aa_chars), stop_end, sec_cnt
         dist_ejc = int(last_ejc - best_stop_end) if (best_stop_end is not None and last_ejc is not None) else 0
         is_native_stop = canonical_stop_tx_end is not None and best_stop_end == canonical_stop_tx_end and dist_ejc <= max(host_baseline_ptc_dist + 6, 49)
         nmd = bool(best_stop_end is not None and last_ejc is not None and dist_ejc >= 50 and not is_native_stop)
@@ -559,12 +617,19 @@ def _translate_and_evaluate_nmd(
             "nmd_sensitive": nmd,
             "ptc_to_last_ejc_nt": max(0, dist_ejc),
             "start_preserved": False,
+            "sec_translated": best_sec_cnt,
         }
 
     aa_list: list[str] = []
     stop_end: int | None = None
+    sec_cnt = 0
     for p in range(eff_start, total_len - 2, 3):
-        aa = CODON_TABLE.get(dna_5to3[p : p + 3], "X")
+        cod = dna_5to3[p : p + 3]
+        if p in sec_starts and cod == "TGA":
+            aa_list.append("U")
+            sec_cnt += 1
+            continue
+        aa = CODON_TABLE.get(cod, "X")
         if aa == "*":
             stop_end = p + 3
             break
@@ -582,6 +647,7 @@ def _translate_and_evaluate_nmd(
         "nmd_sensitive": nmd,
         "ptc_to_last_ejc_nt": max(0, dist_ejc),
         "start_preserved": True,
+        "sec_translated": sec_cnt,
     }
 
 
@@ -862,6 +928,18 @@ def _validate_event_geometry_and_bounds(rec: dict, reader, stream) -> dict:
     return rec_out
 
 
+def _classify_nmd_pair(t_inc: dict, t_exc: dict) -> tuple[str, int]:
+    if t_inc["stop_tx_nt"] is None or t_exc["stop_tx_nt"] is None:
+        return "incomplete_3prime_CDS_or_nonstop", 0
+    if t_inc["nmd_sensitive"] and not t_exc["nmd_sensitive"]:
+        return "inclusion_triggers_NMD_poison_exon", int(t_inc["ptc_to_last_ejc_nt"])
+    if t_exc["nmd_sensitive"] and not t_inc["nmd_sensitive"]:
+        return "skipping_triggers_NMD_decay", int(t_exc["ptc_to_last_ejc_nt"])
+    if not t_inc["nmd_sensitive"] and not t_exc["nmd_sensitive"]:
+        return ("productive_protein_isoform_switch" if t_inc["protein"] != t_exc["protein"] else "coding_silent_utr_switch"), 0
+    return "dual_NMD_background", int(max(t_inc["ptc_to_last_ejc_nt"], t_exc["ptc_to_last_ejc_nt"]))
+
+
 def trace_protein_and_nmd_consequences(
     events_df: pd.DataFrame,
     gtf_path: Path | str,
@@ -870,8 +948,11 @@ def trace_protein_and_nmd_consequences(
     indexed_fasta_cls: type,
     species: str = "auto",
     require_annotated_a3_a5_pair: bool = True,
+    selenocysteine_mode: str = "conditional",
 ) -> pd.DataFrame:
     """Deterministic GTF + FASTA + Curated UniProt/Pfam ORF, reading-frame, NMD, and protein-domain consequence engine."""
+    if selenocysteine_mode not in ("conditional", "recode", "ignore"):
+        raise ValueError(f"Unsupported selenocysteine_mode={selenocysteine_mode!r}; expected 'conditional', 'recode', or 'ignore'.")
     if events_df.empty:
         return pd.DataFrame(columns=_PROTEIN_CONSEQUENCE_COLUMNS)
 
@@ -1093,7 +1174,12 @@ def trace_protein_and_nmd_consequences(
                         s_e = _genomic_pos_to_tx_offset(ext_exc, strand, c_start_gpos)
                         t_i2 = _translate_and_evaluate_nmd(d_i, [b - a for a, b in o_i], s_i, phase_offset=c_phase_off, canonical_stop_tx_end=can_end_inc, host_baseline_ptc_dist=host_base_ptc)
                         t_e2 = _translate_and_evaluate_nmd(d_e, [b - a for a, b in o_e], s_e, phase_offset=c_phase_off, canonical_stop_tx_end=can_end_exc, host_baseline_ptc_dist=host_base_ptc)
-                        if (t_i2["stop_tx_nt"] is not None) and (t_e2["stop_tx_nt"] is not None):
+                        if (
+                            _terminal_extension_supported_by_exon(c_inc_ex, ext_inc, ct_inc, t_i2, candidates, strand)
+                            and _terminal_extension_supported_by_exon(c_exc_ex, ext_exc, ct_exc, t_e2, candidates, strand)
+                            and (t_i2["stop_tx_nt"] is not None)
+                            and (t_e2["stop_tx_nt"] is not None)
+                        ):
                             c_inc_ex, c_exc_ex, c_ord_inc, c_ord_exc, c_dna_inc, c_dna_exc, ct_inc, ct_exc = ext_inc, ext_exc, o_i, o_e, d_i, d_e, t_i2, t_e2
 
                 both_closed = int((ct_inc["stop_tx_nt"] is not None) and (ct_exc["stop_tx_nt"] is not None))
@@ -1108,6 +1194,46 @@ def trace_protein_and_nmd_consequences(
             if chosen_bundle is None:
                 raise ValueError(f"Unable to assemble coding isoform bundle for annotated event {eid}.")
             host, inc_exons, exc_exons, ord_inc, ord_exc, dna_inc, dna_exc, t_inc, t_exc = chosen_bundle
+
+            sec_cond_info: dict | None = None
+            if host.selenocysteine_blocks and selenocysteine_mode != "ignore":
+                h_start_gpos, h_phase_off = _resolve_reading_frame_start_gpos(host)
+                h_ord = host.exons if strand == "+" else host.exons[::-1]
+                h_ejcs = list(np.cumsum([b - a for a, b in h_ord])[:-1]) if len(h_ord) >= 2 else []
+                h_last_ejc = int(h_ejcs[-1]) if h_ejcs else 0
+                if host.stop_codon_3p is not None:
+                    hs_off = _genomic_pos_to_tx_offset(host.exons, strand, host.stop_codon_3p)
+                    h_base_ptc = max(0, h_last_ejc - (hs_off + 1)) if hs_off is not None else 0
+                    i_st_off = _genomic_pos_to_tx_offset(inc_exons, strand, host.stop_codon_3p)
+                    e_st_off = _genomic_pos_to_tx_offset(exc_exons, strand, host.stop_codon_3p)
+                    c_end_i = (i_st_off + 1) if i_st_off is not None else None
+                    c_end_e = (e_st_off + 1) if e_st_off is not None else None
+                else:
+                    h_base_ptc, c_end_i, c_end_e = 0, None, None
+                st_i_sec = _genomic_pos_to_tx_offset(inc_exons, strand, h_start_gpos)
+                st_e_sec = _genomic_pos_to_tx_offset(exc_exons, strand, h_start_gpos)
+                sec_i = _translate_and_evaluate_nmd(
+                    dna_inc, [b - a for a, b in ord_inc], st_i_sec,
+                    phase_offset=h_phase_off, canonical_stop_tx_end=c_end_i, host_baseline_ptc_dist=h_base_ptc,
+                    sec_codon_tx_starts=_selenocysteine_tx_starts(inc_exons, strand, host.selenocysteine_blocks),
+                )
+                sec_e = _translate_and_evaluate_nmd(
+                    dna_exc, [b - a for a, b in ord_exc], st_e_sec,
+                    phase_offset=h_phase_off, canonical_stop_tx_end=c_end_e, host_baseline_ptc_dist=h_base_ptc,
+                    sec_codon_tx_starts=_selenocysteine_tx_starts(exc_exons, strand, host.selenocysteine_blocks),
+                )
+                sec_cls, _ = _classify_nmd_pair(sec_i, sec_e)
+                sec_cond_info = {
+                    "gtf_sec_sites": len(host.selenocysteine_blocks),
+                    "aa_len_inclusion": int(sec_i["aa_len"]),
+                    "aa_len_exclusion": int(sec_e["aa_len"]),
+                    "delta_aa": int(sec_i["aa_len"] - sec_e["aa_len"]),
+                    "nmd_switch_class": sec_cls,
+                    "inc_sec_translated": int(sec_i.get("sec_translated", 0)),
+                    "exc_sec_translated": int(sec_e.get("sec_translated", 0)),
+                }
+                if selenocysteine_mode == "recode":
+                    t_inc, t_exc = sec_i, sec_e
 
             cds_lo, cds_hi = host.cds_blocks[0][0], host.cds_blocks[-1][1]
             ev_coords = [
@@ -1133,21 +1259,7 @@ def trace_protein_and_nmd_consequences(
             else:
                 f_status = "frameshift"
 
-            if t_inc["stop_tx_nt"] is None or t_exc["stop_tx_nt"] is None:
-                nmd_cls = "incomplete_3prime_CDS_or_nonstop"
-                ptc_dist = 0
-            elif t_inc["nmd_sensitive"] and not t_exc["nmd_sensitive"]:
-                nmd_cls = "inclusion_triggers_NMD_poison_exon"
-                ptc_dist = t_inc["ptc_to_last_ejc_nt"]
-            elif t_exc["nmd_sensitive"] and not t_inc["nmd_sensitive"]:
-                nmd_cls = "skipping_triggers_NMD_decay"
-                ptc_dist = t_exc["ptc_to_last_ejc_nt"]
-            elif not t_inc["nmd_sensitive"] and not t_exc["nmd_sensitive"]:
-                nmd_cls = "productive_protein_isoform_switch" if t_inc["protein"] != t_exc["protein"] else "coding_silent_utr_switch"
-                ptc_dist = 0
-            else:
-                nmd_cls = "dual_NMD_background"
-                ptc_dist = max(t_inc["ptc_to_last_ejc_nt"], t_exc["ptc_to_last_ejc_nt"])
+            nmd_cls, ptc_dist = _classify_nmd_pair(t_inc, t_exc)
 
             u_acc, feat_str, arch_list = _map_uniprot_domains_to_isoforms(
                 gsym, t_inc["protein"], t_exc["protein"], t_inc["nmd_sensitive"], t_exc["nmd_sensitive"], domain_db
@@ -1173,6 +1285,9 @@ def trace_protein_and_nmd_consequences(
                 "splice_junction_aa": pre_aa + 1,
                 "domains": arch_list[:18],
             }
+
+            if sec_cond_info is not None:
+                arch_payload["selenocysteine_conditional"] = sec_cond_info
 
             if nmd_cls == "inclusion_triggers_NMD_poison_exon":
                 fav = "Promotes NMD decay" if dpsi > 0 else "Skips poison exon -> rescues protein"
@@ -1200,6 +1315,12 @@ def trace_protein_and_nmd_consequences(
                     summary = f"Productive {f_status}: {t_inc['aa_len']} vs {t_exc['aa_len']} aa ({delta_aa:+d} aa){dom_note}"
             if conditional_novel_a3_a5:
                 summary = f"[Conditional novel-site model] {summary}"
+            if sec_cond_info is not None and selenocysteine_mode == "conditional":
+                summary = (
+                    f"[Conditional selenocysteine (UGA->Sec) host ({sec_cond_info['gtf_sec_sites']} GTF Sec sites; "
+                    f"full-recoding model: {sec_cond_info['aa_len_inclusion']} vs {sec_cond_info['aa_len_exclusion']} aa, "
+                    f"{sec_cond_info['nmd_switch_class']})] {summary}"
+                )
 
             rows.append({
                 "event_id": eid,

@@ -474,3 +474,106 @@ def test_a05_a06_a08_manifold_and_studio_guards(tmp_path: Path) -> None:
         hm_fn(sup_res, hm_p)
         pca_fn(sup_res, pca_p)
         assert hm_p.is_file() and pca_p.is_file()
+
+
+def test_terminal_exon_support_and_selenocysteine_modes(tmp_path: Path) -> None:
+    """Verify 3' terminal extension requires continuous annotated exon support and GTF Selenocysteine is honored."""
+    from splicetrace.protein_consequences import trace_protein_and_nmd_consequences
+    from splicetrace.rna_forms import IndexedFasta
+
+    # Build a synthetic '+' strand chromosome:
+    # Exon 1: [10, 40) (30 nt: ATG + 9 sense codons)
+    # Alt Exon A: [60, 80) (20 nt, shifts reading frame!)
+    # Exon 2 (clipped in TX1): [100, 120) (20 nt, no stop in shifted frame)
+    # Intronic gap [120, 160) contains an intronic TAA at [130, 133) NOT covered by any exon!
+    # Sibling TX2 has a separate downstream exon [160, 190) (so gene_3p_max=190, but [100, 133) is NOT covered by one exon!)
+    # Sibling TX3 has complete Exon 1 + Exon 2 with native in-frame stop before Alt Exon A (5'-UTR / short intact ORF)
+    seq = list("A" * 300)
+    # Put ATG at 10..13, then GCA repeats
+    def put(pos: int, s: str) -> None:
+        seq[pos : pos + len(s)] = list(s)
+
+    put(10, "ATG" + "GCA" * 9)       # [10, 40): 10 codons (no stop)
+    put(60, "G" + "CCA" * 6 + "C")   # [60, 80): 20 nt frameshift exon (no stop)
+    put(100, "GCA" * 6 + "TA")       # [100, 120): ends with 'TA', in Exc (30+20=50 nt) put stop at 100..103? Let's place stop cleanly:
+    put(112, "TAA")                  # Exc frame: 30 nt + 12 nt = 42 nt -> TAA at [112, 115) (14 aa)! Inc frame: 30+20+12=62 -> 62%3=2 (out of frame, misses TAA!)
+    put(131, "TAA")                  # Intronic TAA at [131, 134): would be hit ONLY if [100, 120) were stretched across intron [120, 160)!
+    # Also build a Selenocysteine gene GSEC on chr1 [210, 270): ATG + GGA + TGA(Sec) + GCA + TAA
+    put(210, "ATGGGATGAGCATAA")      # [210, 225): M - G - U(216..219) - A - *(222..225) -> 4 aa with Sec, 2 aa without!
+
+    fa_p = tmp_path / "ref.fa"
+    fa_p.write_bytes((">chr1\n" + "".join(seq) + "\n").encode("ascii"))
+    (tmp_path / "ref.fa.fai").write_bytes(b"chr1\t300\t6\t300\t301\n")
+
+    gtf_lines = [
+        'chr1\ttest\ttranscript\t11\t120\t.\t+\t.\tgene_id "G1"; transcript_id "TX1"; gene_name "G1"; transcript_type "protein_coding"; tag "Ensembl_canonical";',
+        'chr1\ttest\texon\t11\t40\t.\t+\t.\tgene_id "G1"; transcript_id "TX1"; gene_name "G1"; transcript_type "protein_coding";',
+        'chr1\ttest\tCDS\t11\t40\t.\t+\t0\tgene_id "G1"; transcript_id "TX1"; gene_name "G1"; transcript_type "protein_coding";',
+        'chr1\ttest\tstart_codon\t11\t13\t.\t+\t0\tgene_id "G1"; transcript_id "TX1"; gene_name "G1"; transcript_type "protein_coding";',
+        'chr1\ttest\texon\t61\t80\t.\t+\t.\tgene_id "G1"; transcript_id "TX1"; gene_name "G1"; transcript_type "protein_coding";',
+        'chr1\ttest\texon\t101\t120\t.\t+\t.\tgene_id "G1"; transcript_id "TX1"; gene_name "G1"; transcript_type "protein_coding";',
+        'chr1\ttest\tCDS\t101\t112\t.\t+\t0\tgene_id "G1"; transcript_id "TX1"; gene_name "G1"; transcript_type "protein_coding";',
+        'chr1\ttest\tstop_codon\t113\t115\t.\t+\t0\tgene_id "G1"; transcript_id "TX1"; gene_name "G1"; transcript_type "protein_coding";',
+        # TX2 has a disjoint downstream exon [161, 190] so gene_3p_max = 190, leaving [120, 160) unannotated intron
+        'chr1\ttest\ttranscript\t11\t190\t.\t+\t.\tgene_id "G1"; transcript_id "TX2"; gene_name "G1"; transcript_type "protein_coding";',
+        'chr1\ttest\texon\t11\t40\t.\t+\t.\tgene_id "G1"; transcript_id "TX2"; gene_name "G1"; transcript_type "protein_coding";',
+        'chr1\ttest\tCDS\t11\t40\t.\t+\t0\tgene_id "G1"; transcript_id "TX2"; gene_name "G1"; transcript_type "protein_coding";',
+        'chr1\ttest\texon\t161\t190\t.\t+\t.\tgene_id "G1"; transcript_id "TX2"; gene_name "G1"; transcript_type "protein_coding";',
+        # GSEC transcript with annotated Selenocysteine at 1-based [217, 219] (0-based [216, 219))
+        'chr1\ttest\ttranscript\t211\t240\t.\t+\t.\tgene_id "GSEC"; transcript_id "TXSEC"; gene_name "GSEC"; transcript_type "protein_coding"; tag "Ensembl_canonical";',
+        'chr1\ttest\texon\t211\t240\t.\t+\t.\tgene_id "GSEC"; transcript_id "TXSEC"; gene_name "GSEC"; transcript_type "protein_coding";',
+        'chr1\ttest\tCDS\t211\t222\t.\t+\t0\tgene_id "GSEC"; transcript_id "TXSEC"; gene_name "GSEC"; transcript_type "protein_coding";',
+        'chr1\ttest\tstart_codon\t211\t213\t.\t+\t0\tgene_id "GSEC"; transcript_id "TXSEC"; gene_name "GSEC"; transcript_type "protein_coding";',
+        'chr1\ttest\tSelenocysteine\t217\t219\t.\t+\t0\tgene_id "GSEC"; transcript_id "TXSEC"; gene_name "GSEC"; transcript_type "protein_coding";',
+        'chr1\ttest\tstop_codon\t223\t225\t.\t+\t0\tgene_id "GSEC"; transcript_id "TXSEC"; gene_name "GSEC"; transcript_type "protein_coding";',
+        'chr1\ttest\texon\t251\t270\t.\t+\t.\tgene_id "GSEC"; transcript_id "TXSEC"; gene_name "GSEC"; transcript_type "protein_coding";',
+        'chr1\ttest\texon\t281\t295\t.\t+\t.\tgene_id "GSEC"; transcript_id "TXSEC"; gene_name "GSEC"; transcript_type "protein_coding";',
+    ]
+    gtf_p = tmp_path / "ref.gtf"
+    gtf_p.write_text("\n".join(gtf_lines) + "\n", encoding="utf-8")
+
+    ev = pd.DataFrame([
+        {
+            "event_id": "SE:chr1:+:60:80:10:40:100:120",
+            "gene_id": "G1",
+            "gene_symbol": "G1",
+            "event_type": "SE",
+            "chr": "chr1",
+            "strand": "+",
+            "exonStart_0base": 60,
+            "exonEnd": 80,
+            "upstreamES": 10,
+            "upstreamEE": 40,
+            "downstreamES": 100,
+            "downstreamEE": 120,
+            "dpsi": 0.25,
+        },
+        {
+            "event_id": "SE:chr1:+:250:270:210:240:280:295",
+            "gene_id": "GSEC",
+            "gene_symbol": "GSEC",
+            "event_type": "SE",
+            "chr": "chr1",
+            "strand": "+",
+            "exonStart_0base": 250,
+            "exonEnd": 270,
+            "upstreamES": 210,
+            "upstreamEE": 240,
+            "downstreamES": 280,
+            "downstreamEE": 295,
+            "dpsi": 0.20,
+        },
+    ])
+    out_cond = trace_protein_and_nmd_consequences(ev, gtf_p, fa_p, indexed_fasta_cls=IndexedFasta, selenocysteine_mode="conditional")
+    r_g1 = out_cond[out_cond["gene_id"] == "G1"].iloc[0]
+    # Intronic TAA at [131, 134) MUST NOT be used because no single exon spans [100, 134)!
+    assert r_g1["nmd_switch_class"] == "incomplete_3prime_CDS_or_nonstop"
+
+    r_sec = out_cond[out_cond["gene_id"] == "GSEC"].iloc[0]
+    assert int(r_sec["aa_len_inclusion"]) == 2 and "Conditional selenocysteine" in str(r_sec["functional_consequence_summary"])
+    assert "4 vs 4 aa" in str(r_sec["functional_consequence_summary"])
+
+    out_rec = trace_protein_and_nmd_consequences(ev, gtf_p, fa_p, indexed_fasta_cls=IndexedFasta, selenocysteine_mode="recode")
+    r_sec_rec = out_rec[out_rec["gene_id"] == "GSEC"].iloc[0]
+    assert int(r_sec_rec["aa_len_inclusion"]) == 4 and int(r_sec_rec["aa_len_exclusion"]) == 4
+

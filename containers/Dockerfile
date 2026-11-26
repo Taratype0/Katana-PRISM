@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-ARG APP_VERSION=1.0.6
+ARG APP_VERSION=1.0.7
 ARG VCS_REF=unknown
 
 LABEL org.opencontainers.image.title="Katana-PRISM" \

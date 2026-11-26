@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "splicenet"
-version = "1.0.6"
+version = "1.0.7"
 description = "SpliceNet: Bulk Excess-BioVar debiased signed TOM co-splicing network and hub discovery"
 readme = "README.md"
 requires-python = ">=3.10"

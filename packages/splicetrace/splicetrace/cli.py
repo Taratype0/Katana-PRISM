@@ -1,4 +1,4 @@
-"""Standalone CLI for splicetrace (1.0.6) — Package & nf-core unified interface."""
+"""Standalone CLI for splicetrace (1.0.7) — Package & nf-core unified interface."""
 from __future__ import annotations
 
 import argparse
@@ -20,7 +20,7 @@ from splicetrace.rmats_io import _find_enclosing_bundle, load_rmats_measurable_e
 from splicetrace.rna_forms import IndexedFasta, compute_flank_gc_fast, extract_event_rna, trace_motif_instances
 from splicetrace.scanner import run_splicetrace_scan
 
-__version__ = "1.0.6"
+__version__ = "1.0.7"
 
 
 def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SPLICETRACE") -> None:
@@ -229,7 +229,7 @@ def _run_gtf_and_5plots(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="splicetrace",
-        description="SpliceTrace 1.0.6: Bulk AS RBP discovery, mature-mRNA motif, SpliceNet bridge & GTF/UniProt ORF/NMD suite.",
+        description="SpliceTrace 1.0.7: Bulk AS RBP discovery, mature-mRNA motif, SpliceNet bridge & GTF/UniProt ORF/NMD suite.",
     )
     parser.add_argument("--version", action="version", version=f"splicetrace {__version__}")
     parser.add_argument("--rmats", type=Path, default=None, help="rMATS directory, .tar.gz archive, or measurable events table")

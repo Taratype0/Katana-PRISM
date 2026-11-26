@@ -1,4 +1,4 @@
-"""Portable public benchmark runner for Katana-PRISM v1.0.6 (Nucleic Acids Research).
+"""Portable public benchmark runner for Katana-PRISM v1.0.7 (Nucleic Acids Research).
 
 Reproduces & verifies:
   1. 13-channel (`distal_intron_nt = 500`, mature-RNA path + 12 spatial windows) FWL-orthogonalized `SpliceTrace`
@@ -191,9 +191,10 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_NegA") & s1_ds["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "qualified_foreground_events"].iloc[0]) == 1041
     assert int(s1_ds.loc[s1_ds["cohort"].eq("GSE206660_NegA"), "downstream_SpliceTrace_sig_rbps_fwer05"].sum()) == 0
     enc_u = s1_ds[s1_ds["cohort"].str.startswith("ENCODE_")]
-    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "retained_full_ENCODE_UniProt_switches"].sum()) == 3764
-    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Strict All>=10 Filter"), "retained_full_ENCODE_UniProt_switches"].sum()) == 3550
-    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "retained_full_ENCODE_NMD_switches"].sum()) == 2884
+    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "retained_full_ENCODE_UniProt_switches"].sum()) == 3763
+    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Strict All>=10 Filter"), "retained_full_ENCODE_UniProt_switches"].sum()) == 3549
+    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Katana-PRISM (PS-DAS)"), "retained_full_ENCODE_NMD_switches"].sum()) == 2886
+    assert int(enc_u.loc[enc_u["upstream_gate"].eq("Strict All>=10 Filter"), "retained_full_ENCODE_NMD_switches"].sum()) == 2684
 
     # 2. SpliceTrace 18-cohort calibration, ablations, 44-PWM retrieval, eCLIP, native rMAPS3, and untruncated rMAPS2-style
     f2c = _read("fig2c_splicetrace_exact_and_ablations.tsv")
@@ -374,10 +375,12 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert abs(float(tas_w["usage_pooled"]) - 0.005586) < 2e-5
     assert abs(float(tas_w["acorde_percentile_native"]) - 0.002221) < 2e-5
 
-    sc_mod = _read("fig5e_gse270928_scsplicenet_modules.tsv").set_index("event_id")["module"].to_dict()
+    sc_mod_df = _read("fig5e_gse270928_scsplicenet_modules.tsv")
+    assert sc_mod_df["module"].value_counts().to_dict() == {"M1": 123, "M2": 113, "M3": 72, "M0": 42}
+    sc_mod = sc_mod_df.set_index("event_id")["module"].to_dict()
     sc_br = _read("fig5e_gse270928_sc_module_rbp_bridge.tsv")
-    sig_sc_br = sc_br[sc_br["module_P_FWER"] <= 0.05].set_index("RBP")["module"].to_dict()
-    assert sig_sc_br.get("RBM10") == "M3" and sig_sc_br.get("HNRNPAB") == "M3" and sig_sc_br.get("SF1") == "M2" and sig_sc_br.get("FMR1") == "M4"
+    assert len(sc_br) == 507 and int((sc_br["module_P_FWER"] <= 0.05).sum()) == 0
+    assert abs(float(sc_br["module_P_FWER"].min()) - 0.0688) < 1e-4
     assert sc_mod.get("SS3SE:chr1:160619849:160623502:160623585:160624095:-:ENSG00000117090") == "M3"  # SLAMF1
     assert sc_mod.get("SS3SE:chr1:70228555:70231858:70231975:70232267:+:ENSG00000116754") == "M3"      # SRSF11
     assert sc_mod.get("SS3SE:chr1:198699704:198702386:198702530:198703297:+:ENSG00000081237") == "M2"  # PTPRC
@@ -480,7 +483,7 @@ def verify_bundled_tables(tables_path: Path) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Reproduce or verify Katana-PRISM v1.0.6 NAR benchmarks.")
+    ap = argparse.ArgumentParser(description="Reproduce or verify Katana-PRISM v1.0.7 NAR benchmarks.")
     ap.add_argument("--verify-bundled", action="store_true", help="Verify bundled summary TSV invariants.")
     ap.add_argument("--splicetools-dir", type=Path, default=None, help="Directory with public ENCODE rMATS tables.")
     ap.add_argument("--hg38-fasta", type=Path, default=None, help="Indexed hg38 FASTA for sequence extraction.")

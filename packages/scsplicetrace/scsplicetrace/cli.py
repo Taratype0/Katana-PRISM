@@ -1,4 +1,4 @@
-"""Standalone CLI for scsplicetrace (1.0.6) with Extensible Motif Library, Module Bridge & GTF/UniProt Proteome Viz."""
+"""Standalone CLI for scsplicetrace (1.0.7) with Extensible Motif Library, Module Bridge & GTF/UniProt Proteome Viz."""
 from __future__ import annotations
 
 import argparse
@@ -28,7 +28,7 @@ from scsplicetrace.sequence_and_consequence import (
 )
 from scsplicetrace.target_and_psi_models import rank_rbp_target_events
 
-__version__ = "1.0.6"
+__version__ = "1.0.7"
 
 
 def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SCSPLICETRACE") -> None:
@@ -118,7 +118,7 @@ def handle_library_management_commands(args: argparse.Namespace) -> tuple[bool, 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="scsplicetrace",
-        description="scSpliceTrace 1.0.6: Smart-seq3 RBP discovery, mature-mRNA motif, Module Bridge & GTF/UniProt Proteome Consequences.",
+        description="scSpliceTrace 1.0.7: Smart-seq3 RBP discovery, mature-mRNA motif, Module Bridge & GTF/UniProt Proteome Consequences.",
     )
     p.add_argument("--version", action="version", version=f"scsplicetrace {__version__}")
     p.add_argument("--events", type=Path, required=False)

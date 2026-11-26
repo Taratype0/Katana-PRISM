@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install all 6 standalone Katana-PRISM 1.0.6 packages
+      - name: Install all 6 standalone Katana-PRISM 1.0.7 packages
         run: |
           python -m pip install --upgrade pip pytest httpx httpx2 umap-learn numba
           python -m pip install -e ./packages/splicemanifold
