@@ -1,4 +1,4 @@
-"""Standalone CLI for splicetrace (1.0.5) — Package & nf-core unified interface."""
+"""Standalone CLI for splicetrace (1.0.6) — Package & nf-core unified interface."""
 from __future__ import annotations
 
 import argparse
@@ -6,6 +6,8 @@ import hashlib
 import json
 from pathlib import Path
 import platform
+import shutil
+import tempfile
 import time
 import pandas as pd
 
@@ -18,7 +20,7 @@ from splicetrace.rmats_io import _find_enclosing_bundle, load_rmats_measurable_e
 from splicetrace.rna_forms import IndexedFasta, compute_flank_gc_fast, extract_event_rna, trace_motif_instances
 from splicetrace.scanner import run_splicetrace_scan
 
-__version__ = "1.0.5"
+__version__ = "1.0.6"
 
 
 def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SPLICETRACE") -> None:
@@ -134,6 +136,20 @@ def _purge_stale_outputs(out_dir: Path) -> None:
                 fp.unlink(missing_ok=True)
 
 
+def _commit_staging_dir(stage_dir: Path, final_out_dir: Path) -> None:
+    """Atomically replace stale outputs in `final_out_dir` only after `stage_dir` succeeded completely."""
+    final_out_dir.mkdir(parents=True, exist_ok=True)
+    _purge_stale_outputs(final_out_dir)
+    for src_fp in sorted(stage_dir.rglob("*")):
+        if not src_fp.is_file():
+            continue
+        rel = src_fp.relative_to(stage_dir)
+        dst_fp = final_out_dir / rel
+        dst_fp.parent.mkdir(parents=True, exist_ok=True)
+        src_fp.replace(dst_fp)
+    shutil.rmtree(stage_dir, ignore_errors=True)
+
+
 def _build_artifacts_ledger(out_dir: Path, files: list[Path]) -> dict[str, dict[str, object]]:
     ledger: dict[str, dict[str, object]] = {}
     for fp in files:
@@ -213,7 +229,7 @@ def _run_gtf_and_5plots(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="splicetrace",
-        description="SpliceTrace 1.0.5: Bulk AS RBP discovery, mature-mRNA motif, SpliceNet bridge & GTF/UniProt ORF/NMD suite.",
+        description="SpliceTrace 1.0.6: Bulk AS RBP discovery, mature-mRNA motif, SpliceNet bridge & GTF/UniProt ORF/NMD suite.",
     )
     parser.add_argument("--version", action="version", version=f"splicetrace {__version__}")
     parser.add_argument("--rmats", type=Path, default=None, help="rMATS directory, .tar.gz archive, or measurable events table")
@@ -264,119 +280,74 @@ def main(argv: list[str] | None = None) -> int:
 
     active_threads = configure_server_threads(args.threads)
     t0 = time.monotonic()
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    _purge_stale_outputs(out_dir)
-    written_files: list[Path] = []
-    eff_contrast_id = str(args.contrast_id or "")
-    bridge_pool_df: pd.DataFrame | None = None
-    ref_audit_info: dict[str, object] = {}
-    bdir_check = args.bundle if args.bundle is not None else (_find_enclosing_bundle(args.rmats) if args.rmats is not None and args.rmats.exists() else None)
-    if bdir_check is not None:
-        ref_audit_info = verify_bundle_reference_sha(
-            bdir_check,
-            fasta_path=args.fasta,
-            gtf_path=args.gtf,
-            allow_reference_reannotation=args.allow_reference_reannotation,
-        )
-    rbp_expr_df = _read_table(args.rbp_expression) if args.rbp_expression is not None else None
-    mod_scores_df = _read_table(args.splicenet_scores) if args.splicenet_scores is not None else None
+    final_out_dir = Path(args.output_dir)
+    final_out_dir.parent.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(tempfile.mkdtemp(prefix=f".{final_out_dir.name}.staging_", dir=str(final_out_dir.parent)))
+    try:
+        written_files: list[Path] = []
+        eff_contrast_id = str(args.contrast_id or "")
+        bridge_pool_df: pd.DataFrame | None = None
+        ref_audit_info: dict[str, object] = {}
+        bdir_check = args.bundle if args.bundle is not None else (_find_enclosing_bundle(args.rmats) if args.rmats is not None and args.rmats.exists() else None)
+        if bdir_check is not None:
+            ref_audit_info = verify_bundle_reference_sha(
+                bdir_check,
+                fasta_path=args.fasta,
+                gtf_path=args.gtf,
+                allow_reference_reannotation=args.allow_reference_reannotation,
+            )
+        rbp_expr_df = _read_table(args.rbp_expression) if args.rbp_expression is not None else None
+        mod_scores_df = _read_table(args.splicenet_scores) if args.splicenet_scores is not None else None
 
-    if (args.rmats is not None or args.bundle is not None) and (args.mode in {"auto", "rescue"} and args.foreground is None):
-        rmats_in = args.rmats if args.rmats is not None else args.bundle
-        meas_df = load_rmats_measurable_events(
-            rmats_in,
-            args.fasta,
-            comparison_id=str(args.contrast_id or "rmats_contrast"),
-            rmats_mode=args.rmats_mode,
-            reverse_direction=True if args.reverse_direction else None,
-            bundle_dir=args.bundle,
-            contrast_id=args.contrast_id,
-            allow_reference_reannotation=args.allow_reference_reannotation,
-        )
-        bridge_pool_df = meas_df
-        if not eff_contrast_id and "comparison_id" in meas_df.columns and not meas_df.empty:
-            cid0 = str(meas_df["comparison_id"].iloc[0]).strip()
-            if cid0 and cid0 != "rmats_contrast":
-                eff_contrast_id = cid0
-        dir_inv = bool(meas_df["reverse_direction"].iloc[0]) if ("reverse_direction" in meas_df.columns and not meas_df.empty) else bool(args.reverse_direction)
-        if len(meas_df) < 10:
-            rk_p = out_dir / "rbp_ranking.tsv"
-            rg_p = out_dir / "region_tests.tsv"
-            ev_p = out_dir / "evaluated_events.tsv"
-            pd.DataFrame(columns=["RBP", "best_channel", "stat_Z", "rbp_P_FWER"]).to_csv(rk_p, sep="\t", index=False)
-            pd.DataFrame(columns=["RBP", "region", "stat_Z", "P_FWER"]).to_csv(rg_p, sep="\t", index=False)
-            meas_df.to_csv(ev_p, sep="\t", index=False)
-            written_files.extend([rk_p, rg_p, ev_p])
-            receipt = {
-                "version": __version__,
-                "library": lib.name,
-                "status": "insufficient_events_for_rescue",
-                "contrast_id": eff_contrast_id,
-                "evaluated_events": int(len(meas_df)),
-                "rmats_mode": args.rmats_mode,
-                "direction_inverted": dir_inv,
-                "active_threads": int(active_threads),
-                "artifacts": _build_artifacts_ledger(out_dir, written_files),
-                "elapsed_seconds": round(time.monotonic() - t0, 2),
-            }
-            if ref_audit_info.get("reference_audit_path"):
-                receipt["reference_reannotation"] = bool(ref_audit_info.get("reannotated", False))
-                receipt["reference_audit_sha256"] = ref_audit_info.get("actual", {})
-            (out_dir / "run_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
-            if args.emit_versions_yml is not None:
-                write_nfcore_versions_yml(args.emit_versions_yml, args.process_name)
-            print(json.dumps(receipt))
-            return 0
-        rescue_res = run_bulk_continuous_rescue(
-            meas_df,
-            args.fasta,
-            lib,
-            distal_intron_nt=args.distal_intron_nt,
-            rbp_expr_df=rbp_expr_df,
-            min_rbp_expr=args.min_rbp_expr,
-            n_permutations=args.permutations,
-            calibration=args.calibration,
-            seed=args.seed,
-            threads=active_threads,
-        )
-        for fn, df_w in (
-            ("rbp_ranking.tsv", rescue_res.rbp_ranking),
-            ("region_tests.tsv", rescue_res.region_tests),
-            ("evaluated_events.tsv", rescue_res.event_contrasts),
-        ):
-            p_w = out_dir / fn
-            df_w.to_csv(p_w, sep="\t", index=False)
-            written_files.append(p_w)
-        if not rescue_res.mature_consequences.empty:
-            mc_p = out_dir / "motif_consequence_changes.tsv"
-            rescue_res.mature_consequences.to_csv(mc_p, sep="\t", index=False)
-            written_files.append(mc_p)
-        receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "n_models": lib.n_models, "mode": "continuous_rescue", "status": "complete", "contrast_id": eff_contrast_id, "rmats_mode": args.rmats_mode, "direction_inverted": dir_inv, "active_threads": int(active_threads), **rescue_res.diagnostics}
-        if args.gtf is not None:
-            fg_prot_ev = rescue_res.event_contrasts[rescue_res.event_contrasts["_is_fg"]]
-            c_lbl = str(args.contrast_id or out_dir.name or "contrast")
-            receipt.update(_run_gtf_and_5plots(fg_prot_ev, rescue_res.mature_consequences, args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl, written_files=written_files))
-
-    elif args.foreground is not None and args.background is not None:
-        fg = _read_table(args.foreground).copy()
-        bg = _read_table(args.background).copy()
-        comb_all = pd.concat([fg, bg], ignore_index=True).drop_duplicates("event_id")
-        bridge_pool_df = comb_all
-        if args.flank_gc_caliper > 0:
-            if "flank_GC" not in fg.columns:
-                fg["flank_GC"] = fg["event_id"].astype(str).map(compute_flank_gc_fast(fg, args.fasta))
-            if "flank_GC" not in bg.columns:
-                bg["flank_GC"] = bg["event_id"].astype(str).map(compute_flank_gc_fast(bg, args.fasta))
-            caliper_val: float | None = args.flank_gc_caliper
-        else:
-            caliper_val = None
-        matched, _, _ = match_events(fg, bg, flank_gc_caliper=caliper_val)
-        m_ok = matched[matched["status"].eq("matched")]
-        conseq_fg = pd.DataFrame()
-        if args.mode == "auto" and len(m_ok) < 250 and "dpsi" in comb_all.columns and "baseline_PSI" in comb_all.columns:
+        if (args.rmats is not None or args.bundle is not None) and (args.mode in {"auto", "rescue"} and args.foreground is None):
+            rmats_in = args.rmats if args.rmats is not None else args.bundle
+            meas_df = load_rmats_measurable_events(
+                rmats_in,
+                args.fasta,
+                comparison_id=str(args.contrast_id or "rmats_contrast"),
+                rmats_mode=args.rmats_mode,
+                reverse_direction=True if args.reverse_direction else None,
+                bundle_dir=args.bundle,
+                contrast_id=args.contrast_id,
+                allow_reference_reannotation=args.allow_reference_reannotation,
+            )
+            bridge_pool_df = meas_df
+            if not eff_contrast_id and "comparison_id" in meas_df.columns and not meas_df.empty:
+                cid0 = str(meas_df["comparison_id"].iloc[0]).strip()
+                if cid0 and cid0 != "rmats_contrast":
+                    eff_contrast_id = cid0
+            dir_inv = bool(meas_df["reverse_direction"].iloc[0]) if ("reverse_direction" in meas_df.columns and not meas_df.empty) else bool(args.reverse_direction)
+            if len(meas_df) < 10:
+                rk_p = out_dir / "rbp_ranking.tsv"
+                rg_p = out_dir / "region_tests.tsv"
+                ev_p = out_dir / "evaluated_events.tsv"
+                pd.DataFrame(columns=["RBP", "best_channel", "stat_Z", "rbp_P_FWER"]).to_csv(rk_p, sep="\t", index=False)
+                pd.DataFrame(columns=["RBP", "region", "stat_Z", "P_FWER"]).to_csv(rg_p, sep="\t", index=False)
+                meas_df.to_csv(ev_p, sep="\t", index=False)
+                written_files.extend([rk_p, rg_p, ev_p])
+                receipt = {
+                    "version": __version__,
+                    "library": lib.name,
+                    "status": "insufficient_events_for_rescue",
+                    "contrast_id": eff_contrast_id,
+                    "evaluated_events": int(len(meas_df)),
+                    "rmats_mode": args.rmats_mode,
+                    "direction_inverted": dir_inv,
+                    "active_threads": int(active_threads),
+                    "artifacts": _build_artifacts_ledger(out_dir, written_files),
+                    "elapsed_seconds": round(time.monotonic() - t0, 2),
+                }
+                if ref_audit_info.get("reference_audit_path"):
+                    receipt["reference_reannotation"] = bool(ref_audit_info.get("reannotated", False))
+                    receipt["reference_audit_sha256"] = ref_audit_info.get("actual", {})
+                (out_dir / "run_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+                _commit_staging_dir(out_dir, final_out_dir)
+                if args.emit_versions_yml is not None:
+                    write_nfcore_versions_yml(args.emit_versions_yml, args.process_name)
+                print(json.dumps(receipt))
+                return 0
             rescue_res = run_bulk_continuous_rescue(
-                comb_all,
+                meas_df,
                 args.fasta,
                 lib,
                 distal_intron_nt=args.distal_intron_nt,
@@ -387,88 +358,142 @@ def main(argv: list[str] | None = None) -> int:
                 seed=args.seed,
                 threads=active_threads,
             )
-            rk_p = out_dir / "rbp_ranking.tsv"
-            rg_p = out_dir / "region_tests.tsv"
-            rescue_res.rbp_ranking.to_csv(rk_p, sep="\t", index=False)
-            rescue_res.region_tests.to_csv(rg_p, sep="\t", index=False)
-            written_files.extend([rk_p, rg_p])
-            conseq_fg = rescue_res.mature_consequences
-            receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "mode": "auto_small_sample_rescue", "status": "complete", "contrast_id": eff_contrast_id, "active_threads": int(active_threads), **rescue_res.diagnostics}
-        else:
-            me_p = out_dir / "matched_events.tsv"
-            matched.to_csv(me_p, sep="\t", index=False)
-            written_files.append(me_p)
-            needed = set(m_ok["foreground_event"].astype(str)) | set(m_ok["background_event"].astype(str))
-            comb_ev = pd.concat([fg[fg["event_id"].isin(needed)], bg[bg["event_id"].isin(needed)]], ignore_index=True)
-            rna_df = extract_event_rna(
-                comb_ev,
-                args.fasta,
-                intron_nt=200,
-                distal_intron_nt=args.distal_intron_nt,
-                acceptor_core_nt=args.acceptor_core_nt,
-            )
-            res = run_splicetrace_scan(matched, rna_df, lib, permutations=args.permutations, seed=args.seed)
-            rg_p = out_dir / "region_tests.tsv"
-            mc_p = out_dir / "motif_clusters.tsv"
-            res["whole_regions"].to_csv(rg_p, sep="\t", index=False)
-            res["clusters"].to_csv(mc_p, sep="\t", index=False)
-            written_files.extend([rg_p, mc_p])
-            rank_all = res["rbp_ranking_all"]
-            if rbp_expr_df is not None and not rank_all.empty:
-                z_col_disc = "rbp_pivotal_Z" if "rbp_pivotal_Z" in rank_all.columns else rank_all.columns[1]
-                rank_all = annotate_rbp_expression_disambiguation(
-                    rank_all,
-                    rbp_expr_df,
-                    fwer_col="rbp_P_FWER",
-                    z_col=z_col_disc,
+            for fn, df_w in (
+                ("rbp_ranking.tsv", rescue_res.rbp_ranking),
+                ("region_tests.tsv", rescue_res.region_tests),
+                ("evaluated_events.tsv", rescue_res.event_contrasts),
+            ):
+                p_w = out_dir / fn
+                df_w.to_csv(p_w, sep="\t", index=False)
+                written_files.append(p_w)
+            if not rescue_res.mature_consequences.empty:
+                mc_p = out_dir / "motif_consequence_changes.tsv"
+                rescue_res.mature_consequences.to_csv(mc_p, sep="\t", index=False)
+                written_files.append(mc_p)
+            receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "n_models": lib.n_models, "mode": "continuous_rescue", "status": "complete", "contrast_id": eff_contrast_id, "rmats_mode": args.rmats_mode, "direction_inverted": dir_inv, "active_threads": int(active_threads), **rescue_res.diagnostics}
+            if args.gtf is not None:
+                fg_prot_ev = rescue_res.event_contrasts[rescue_res.event_contrasts["_is_fg"]]
+                c_lbl = str(args.contrast_id or final_out_dir.name or "contrast")
+                if not fg_prot_ev.empty:
+                    receipt.update(_run_gtf_and_5plots(fg_prot_ev, rescue_res.mature_consequences, args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl, written_files=written_files))
+                else:
+                    receipt.update({"protein_consequences_evaluated": 0, "nmd_switch_events": 0, "uniprot_domain_hits": 0})
+
+        elif args.foreground is not None and args.background is not None:
+            fg = _read_table(args.foreground).copy()
+            bg = _read_table(args.background).copy()
+            comb_all = pd.concat([fg, bg], ignore_index=True).drop_duplicates("event_id")
+            bridge_pool_df = comb_all
+            if args.flank_gc_caliper > 0:
+                if "flank_GC" not in fg.columns:
+                    fg["flank_GC"] = fg["event_id"].astype(str).map(compute_flank_gc_fast(fg, args.fasta))
+                if "flank_GC" not in bg.columns:
+                    bg["flank_GC"] = bg["event_id"].astype(str).map(compute_flank_gc_fast(bg, args.fasta))
+                caliper_val: float | None = args.flank_gc_caliper
+            else:
+                caliper_val = None
+            matched, _, _ = match_events(fg, bg, flank_gc_caliper=caliper_val)
+            m_ok = matched[matched["status"].eq("matched")]
+            conseq_fg = pd.DataFrame()
+            if args.mode == "auto" and len(m_ok) < 250 and "dpsi" in comb_all.columns and "baseline_PSI" in comb_all.columns:
+                rescue_res = run_bulk_continuous_rescue(
+                    comb_all,
+                    args.fasta,
+                    lib,
+                    distal_intron_nt=args.distal_intron_nt,
+                    rbp_expr_df=rbp_expr_df,
                     min_rbp_expr=args.min_rbp_expr,
+                    n_permutations=args.permutations,
+                    calibration=args.calibration,
+                    seed=args.seed,
+                    threads=active_threads,
                 )
-            rk_p = out_dir / "rbp_ranking.tsv"
-            rank_all.to_csv(rk_p, sep="\t", index=False)
-            written_files.append(rk_p)
-            receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "mode": "discrete_matched", "status": "complete", "contrast_id": eff_contrast_id, "active_threads": int(active_threads), "matched_events": int(len(m_ok)), "significant_rbps_fwer05": int((rank_all["rbp_P_FWER"] <= 0.05).sum())}
-        if args.gtf is not None:
-            if "dpsi" not in fg.columns:
-                fg["dpsi"] = 0.0
-            c_lbl = str(args.contrast_id or out_dir.name or "contrast")
-            receipt.update(_run_gtf_and_5plots(fg, conseq_fg, args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl, written_files=written_files))
+                rk_p = out_dir / "rbp_ranking.tsv"
+                rg_p = out_dir / "region_tests.tsv"
+                rescue_res.rbp_ranking.to_csv(rk_p, sep="\t", index=False)
+                rescue_res.region_tests.to_csv(rg_p, sep="\t", index=False)
+                written_files.extend([rk_p, rg_p])
+                conseq_fg = rescue_res.mature_consequences
+                receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "mode": "auto_small_sample_rescue", "status": "complete", "contrast_id": eff_contrast_id, "active_threads": int(active_threads), **rescue_res.diagnostics}
+            else:
+                me_p = out_dir / "matched_events.tsv"
+                matched.to_csv(me_p, sep="\t", index=False)
+                written_files.append(me_p)
+                needed = set(m_ok["foreground_event"].astype(str)) | set(m_ok["background_event"].astype(str))
+                comb_ev = pd.concat([fg[fg["event_id"].isin(needed)], bg[bg["event_id"].isin(needed)]], ignore_index=True)
+                rna_df = extract_event_rna(
+                    comb_ev,
+                    args.fasta,
+                    intron_nt=200,
+                    distal_intron_nt=args.distal_intron_nt,
+                    acceptor_core_nt=args.acceptor_core_nt,
+                )
+                res = run_splicetrace_scan(matched, rna_df, lib, permutations=args.permutations, seed=args.seed)
+                rg_p = out_dir / "region_tests.tsv"
+                mc_p = out_dir / "motif_clusters.tsv"
+                res["whole_regions"].to_csv(rg_p, sep="\t", index=False)
+                res["clusters"].to_csv(mc_p, sep="\t", index=False)
+                written_files.extend([rg_p, mc_p])
+                rank_all = res["rbp_ranking_all"]
+                if rbp_expr_df is not None and not rank_all.empty:
+                    z_col_disc = "rbp_pivotal_Z" if "rbp_pivotal_Z" in rank_all.columns else rank_all.columns[1]
+                    rank_all = annotate_rbp_expression_disambiguation(
+                        rank_all,
+                        rbp_expr_df,
+                        fwer_col="rbp_P_FWER",
+                        z_col=z_col_disc,
+                        min_rbp_expr=args.min_rbp_expr,
+                    )
+                rk_p = out_dir / "rbp_ranking.tsv"
+                rank_all.to_csv(rk_p, sep="\t", index=False)
+                written_files.append(rk_p)
+                receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "mode": "discrete_matched", "status": "complete", "contrast_id": eff_contrast_id, "active_threads": int(active_threads), "matched_events": int(len(m_ok)), "significant_rbps_fwer05": int((rank_all["rbp_P_FWER"] <= 0.05).sum())}
+            if args.gtf is not None:
+                if "dpsi" not in fg.columns:
+                    fg["dpsi"] = 0.0
+                c_lbl = str(args.contrast_id or final_out_dir.name or "contrast")
+                receipt.update(_run_gtf_and_5plots(fg, conseq_fg, args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl, written_files=written_files))
 
-    elif args.events is not None and (args.gtf is not None or args.splicenet_modules is not None):
-        ev_only = _read_table(args.events).copy()
-        if "dpsi" not in ev_only.columns:
-            ev_only["dpsi"] = 0.0
-        bridge_pool_df = ev_only
-        receipt = {"version": __version__, "library": lib.name, "mode": "consequences_or_bridge_only", "status": "complete", "contrast_id": eff_contrast_id, "active_threads": int(active_threads)}
-        if args.gtf is not None:
-            c_lbl = str(args.contrast_id or out_dir.name or "contrast")
-            receipt.update(_run_gtf_and_5plots(ev_only, pd.DataFrame(), args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl, written_files=written_files))
-    else:
-        parser.error("Provide --rmats, --foreground/--background, --events (with --gtf or --splicenet-modules), or a library flag (--list-rbps).")
+        elif args.events is not None and (args.gtf is not None or args.splicenet_modules is not None):
+            ev_only = _read_table(args.events).copy()
+            if "dpsi" not in ev_only.columns:
+                ev_only["dpsi"] = 0.0
+            bridge_pool_df = ev_only
+            receipt = {"version": __version__, "library": lib.name, "mode": "consequences_or_bridge_only", "status": "complete", "contrast_id": eff_contrast_id, "active_threads": int(active_threads)}
+            if args.gtf is not None:
+                c_lbl = str(args.contrast_id or final_out_dir.name or "contrast")
+                receipt.update(_run_gtf_and_5plots(ev_only, pd.DataFrame(), args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl, written_files=written_files))
+        else:
+            parser.error("Provide --rmats, --foreground/--background, --events (with --gtf or --splicenet-modules), or a library flag (--list-rbps).")
 
-    if args.splicenet_modules is not None:
-        ev_bridge = _read_table(args.events) if args.events is not None else bridge_pool_df
-        if ev_bridge is not None and not ev_bridge.empty:
-            mod_in = _read_table(args.splicenet_modules)
-            br_df = bridge_splicenet_modules_to_rbps(
-                mod_in, ev_bridge, args.fasta, lib,
-                extract_rna_fn=extract_event_rna, score_odds_fn=fast_score_mean_log_odds,
-                distal_intron_nt=args.distal_intron_nt,
-                rbp_expr_df=rbp_expr_df,
-                module_scores_df=mod_scores_df,
-                min_rbp_expr=args.min_rbp_expr,
-                n_permutations=args.permutations, seed=args.seed,
-            )
-            br_p = out_dir / "module_rbp_bridge.tsv"
-            br_df.to_csv(br_p, sep="\t", index=False)
-            written_files.append(br_p)
-            receipt["bridged_module_rbp_rows"] = int(len(br_df))
+        if args.splicenet_modules is not None:
+            ev_bridge = _read_table(args.events) if args.events is not None else bridge_pool_df
+            if ev_bridge is not None and not ev_bridge.empty:
+                mod_in = _read_table(args.splicenet_modules)
+                br_df = bridge_splicenet_modules_to_rbps(
+                    mod_in, ev_bridge, args.fasta, lib,
+                    extract_rna_fn=extract_event_rna, score_odds_fn=fast_score_mean_log_odds,
+                    distal_intron_nt=args.distal_intron_nt,
+                    rbp_expr_df=rbp_expr_df,
+                    module_scores_df=mod_scores_df,
+                    min_rbp_expr=args.min_rbp_expr,
+                    n_permutations=args.permutations, seed=args.seed,
+                )
+                br_p = out_dir / "module_rbp_bridge.tsv"
+                br_df.to_csv(br_p, sep="\t", index=False)
+                written_files.append(br_p)
+                receipt["bridged_module_rbp_rows"] = int(len(br_df))
 
-    if ref_audit_info.get("reference_audit_path"):
-        receipt["reference_reannotation"] = bool(ref_audit_info.get("reannotated", False))
-        receipt["reference_audit_sha256"] = ref_audit_info.get("actual", {})
-    receipt["artifacts"] = _build_artifacts_ledger(out_dir, written_files)
-    receipt["elapsed_seconds"] = round(time.monotonic() - t0, 2)
-    (out_dir / "run_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+        if ref_audit_info.get("reference_audit_path"):
+            receipt["reference_reannotation"] = bool(ref_audit_info.get("reannotated", False))
+            receipt["reference_audit_sha256"] = ref_audit_info.get("actual", {})
+        receipt["artifacts"] = _build_artifacts_ledger(out_dir, written_files)
+        receipt["elapsed_seconds"] = round(time.monotonic() - t0, 2)
+        (out_dir / "run_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+        _commit_staging_dir(out_dir, final_out_dir)
+    finally:
+        if out_dir.exists():
+            shutil.rmtree(out_dir, ignore_errors=True)
     if args.emit_versions_yml is not None:
         write_nfcore_versions_yml(args.emit_versions_yml, args.process_name)
     print(json.dumps(receipt))

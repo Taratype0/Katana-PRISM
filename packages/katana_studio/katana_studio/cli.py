@@ -21,7 +21,7 @@ def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_REPO
 def report_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="katana-report",
-        description="Katana Report 1.0.5: Build SHA256-verified self-contained REPORT.html and REPORT.zip for bulk or single-cell splicing studies.",
+        description="Katana Report 1.0.6: Build SHA256-verified self-contained REPORT.html and REPORT.zip for bulk or single-cell splicing studies.",
     )
     parser.add_argument("--version", action="version", version=f"katana-report {__version__}")
     parser.add_argument("--emit-versions-yml", type=Path, default=None)
@@ -32,6 +32,7 @@ def report_main(argv: list[str] | None = None) -> int:
     pb.add_argument("--bundle", type=Path, default=None, help="Completed Nextflow katana_bundle directory")
     pb.add_argument("--rmats", type=str, default=None, help="Standalone rMATS directory or contrast=dir mapping")
     pb.add_argument("--rmats-mode", choices=["JCEC", "JC"], default="JCEC", help="Preferred rMATS count mode (default: JCEC)")
+    pb.add_argument("--require-verified-sample-order", action="store_true", help="Fail if replicate slot order is not verified by manifest/input_audit/bamlist")
     pb.add_argument("--samples", type=Path, default=None, help="Sample metadata CSV/TSV")
     pb.add_argument("--contrasts", type=Path, default=None, help="Optional contrastsheet CSV/TSV")
     pb.add_argument("--deseq2", type=Path, default=None, help="Optional DESeq2 results directory or TSV")
@@ -118,6 +119,7 @@ def report_main(argv: list[str] | None = None) -> int:
                 deseq2=args.deseq2,
                 multiqc=args.multiqc,
                 fasta=args.fasta,
+                require_verified_sample_order=args.require_verified_sample_order,
                 gtf=args.gtf,
                 splicemanifold_dir=args.splicemanifold_dir,
                 splicenet_dir=args.splicenet_dir,
@@ -163,7 +165,7 @@ def report_main(argv: list[str] | None = None) -> int:
 def studio_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="katana-studio",
-        description="Katana Studio 1.0.5: Launch the interactive local web workbench on a REPORT.zip or report directory.",
+        description="Katana Studio 1.0.6: Launch the interactive local web workbench on a REPORT.zip or report directory.",
     )
     parser.add_argument("--version", action="version", version=f"katana-studio {__version__}")
     parser.add_argument("report", nargs="?", default=None, help="Optional REPORT.zip or report directory to open immediately")

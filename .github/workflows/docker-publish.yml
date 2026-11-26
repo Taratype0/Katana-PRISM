@@ -24,12 +24,41 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Katana-PRISM 1.0.5 image
+      - name: Compute immutable OCI tags and revision labels
+        id: meta
+        run: |
+          SHORT_SHA="${GITHUB_SHA::12}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == v* ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+            echo "version=${VER}" >> "$GITHUB_OUTPUT"
+            {
+              echo "tags<<EOF"
+              echo "ghcr.io/taratype0/katana-prism:${VER}"
+              echo "ghcr.io/taratype0/katana-prism:sha-${SHORT_SHA}"
+              echo "ghcr.io/taratype0/katana-prism:latest"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "version=1.0.6-main.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            {
+              echo "tags<<EOF"
+              echo "ghcr.io/taratype0/katana-prism:main"
+              echo "ghcr.io/taratype0/katana-prism:sha-${SHORT_SHA}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push Katana-PRISM image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./containers/Dockerfile
           push: true
-          tags: |
-            ghcr.io/taratype0/katana-prism:1.0.5
-            ghcr.io/taratype0/katana-prism:latest
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            APP_VERSION=${{ steps.meta.outputs.version }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.source=https://github.com/Taratype0/Katana-PRISM
+          tags: ${{ steps.meta.outputs.tags }}

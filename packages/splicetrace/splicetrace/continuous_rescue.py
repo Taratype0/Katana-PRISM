@@ -235,23 +235,52 @@ def run_bulk_continuous_rescue(
     if "depth" not in df.columns:
         df["depth"] = 50.0
 
-    # Strict domain validation before probability/PSI clipping
-    raw_dpsi_in = pd.to_numeric(df["dpsi"], errors="coerce").to_numpy(dtype=float)
-    if (not np.all(np.isfinite(raw_dpsi_in))) or np.any(np.abs(raw_dpsi_in) > 1.0 + 1e-9):
-        raise ValueError("Out-of-range or non-finite dpsi values in continuous rescue input; expected finite values in [-1, 1].")
-    raw_bpsi_in = pd.to_numeric(df["baseline_PSI"], errors="coerce").to_numpy(dtype=float)
-    if np.any(np.isinf(raw_bpsi_in)) or np.any(np.isfinite(raw_bpsi_in) & ((raw_bpsi_in < 0.0) | (raw_bpsi_in > 1.0))):
-        raise ValueError("Out-of-range or non-finite baseline_PSI values in continuous rescue input; expected values in [0, 1].")
+    def _strict_num_vec(
+        ser: pd.Series, col_name: str, *, lo: float | None = None, hi: float | None = None, allow_na: bool = True,
+    ) -> np.ndarray:
+        out = np.full(len(ser), np.nan, dtype=float)
+        blank_toks = {"", "na", "nan", "none", "null"}
+        for r_i, raw in enumerate(ser.tolist()):
+            if raw is None:
+                if not allow_na:
+                    raise ValueError(f"Missing required numeric value in '{col_name}' at row {r_i}.")
+                continue
+            if isinstance(raw, (int, float, np.number)) and not isinstance(raw, (bool, np.bool_)):
+                fv = float(raw)
+                if math.isnan(fv):
+                    if not allow_na:
+                        raise ValueError(f"Missing required numeric value in '{col_name}' at row {r_i}.")
+                    continue
+            else:
+                if isinstance(raw, (bool, np.bool_)):
+                    raise ValueError(f"Invalid boolean token {raw!r} in numeric column '{col_name}' (row {r_i}).")
+                s = str(raw).strip()
+                if s.lower() in blank_toks:
+                    if not allow_na:
+                        raise ValueError(f"Missing required numeric value in '{col_name}' at row {r_i}.")
+                    continue
+                try:
+                    fv = float(s)
+                except ValueError as exc:
+                    raise ValueError(f"Non-numeric token {s!r} in column '{col_name}' (continuous rescue row {r_i}).") from exc
+            if (not math.isfinite(fv)) or (lo is not None and fv < lo - 1e-9) or (hi is not None and fv > hi + 1e-9):
+                rng_lbl = f"[{lo}, {hi}]" if (lo is not None and hi is not None) else "finite"
+                raise ValueError(f"Out-of-range or non-finite {col_name} values in continuous rescue input; expected {rng_lbl}.")
+            out[r_i] = fv
+        return out
+
+    import math
+
+    # Strict domain & token validation before probability/PSI clipping
+    df["dpsi"] = _strict_num_vec(df["dpsi"], "dpsi", lo=-1.0, hi=1.0, allow_na=False)
+    df["baseline_PSI"] = _strict_num_vec(df["baseline_PSI"], "baseline_PSI", lo=0.0, hi=1.0, allow_na=True)
+    df["depth"] = _strict_num_vec(df["depth"], "depth", lo=0.0, hi=None, allow_na=True)
     fdr_col_name = "fdr" if "fdr" in df.columns else ("FDR" if "FDR" in df.columns else None)
     if fdr_col_name is not None:
-        raw_fdr_in = pd.to_numeric(df[fdr_col_name], errors="coerce").to_numpy(dtype=float)
-        if np.any(np.isinf(raw_fdr_in)) or np.any(np.isfinite(raw_fdr_in) & ((raw_fdr_in < 0.0) | (raw_fdr_in > 1.0))):
-            raise ValueError(f"Out-of-range or non-finite {fdr_col_name} values in continuous rescue input; expected [0, 1].")
+        df[fdr_col_name] = _strict_num_vec(df[fdr_col_name], fdr_col_name, lo=0.0, hi=1.0, allow_na=True)
     pv_col_name = next((c for c in ("PValue", "pvalue", "p_value") if c in df.columns), None)
     if pv_col_name is not None:
-        raw_pv_in = pd.to_numeric(df[pv_col_name], errors="coerce").to_numpy(dtype=float)
-        if np.any(np.isinf(raw_pv_in)) or np.any(np.isfinite(raw_pv_in) & ((raw_pv_in < 0.0) | (raw_pv_in > 1.0))):
-            raise ValueError(f"Out-of-range or non-finite {pv_col_name} values in continuous rescue input; expected [0, 1].")
+        df[pv_col_name] = _strict_num_vec(df[pv_col_name], pv_col_name, lo=0.0, hi=1.0, allow_na=True)
 
     p_ctrl = np.clip(df["baseline_PSI"].to_numpy(dtype=float), 0.0, 1.0)
     p_kd = np.clip(p_ctrl + df["dpsi"].to_numpy(dtype=float), 0.0, 1.0)
@@ -277,6 +306,13 @@ def run_bulk_continuous_rescue(
 
     fg_df = df.loc[is_fg].copy()
     bg_pool = df.loc[is_bg & (~df["gene_id"].isin(set(fg_df["gene_id"])))].copy()
+    has_prob_evidence = (
+        bool(np.any(pv_fin & (pval_all < 1.0 - 1e-12)))
+        if pv_col_name is not None
+        else bool(np.any(np.isfinite(fdr_all) & (fdr_all < 1.0 - 1e-12)))
+    )
+    run_status = "complete"
+    inference_valid = True
     if len(fg_df) >= 10 and len(bg_pool) >= 40:
         bg_parts = []
         for et, fg_et in fg_df.groupby("event_type"):
@@ -291,9 +327,22 @@ def run_bulk_continuous_rescue(
         panel_raw = pd.concat([fg_df, bg_df], ignore_index=True)
         panel_raw["_is_fg"] = [True] * len(fg_df) + [False] * len(bg_df)
     else:
+        df["_fg_cand"] = is_fg
         df["_h"] = df["event_id"].astype(str).map(lambda s: hashlib.md5(s.encode()).hexdigest())
         panel_raw = df.sort_values(["depth", "_h"], ascending=[False, True]).head(int(max_events_blind_depth)).drop(columns=["_h"]).copy()
-        panel_raw["_is_fg"] = True
+        if not has_prob_evidence:
+            panel_raw["_is_fg"] = False
+            run_status = "insufficient_probability_evidence"
+            inference_valid = False
+        elif not bool(panel_raw["_fg_cand"].any()):
+            panel_raw["_is_fg"] = False
+            run_status = "zero_foreground_events"
+            inference_valid = False
+        else:
+            panel_raw["_is_fg"] = panel_raw["_fg_cand"].astype(bool)
+            run_status = "complete"
+            inference_valid = True
+        panel_raw = panel_raw.drop(columns=["_fg_cand"])
 
     valid_mask = []
     for rec in panel_raw.to_dict("records"):
@@ -495,14 +544,15 @@ def run_bulk_continuous_rescue(
         event_contrasts=cont_df,
         mature_consequences=conseq_df,
         diagnostics={
-            "status": "complete",
+            "status": run_status,
+            "inference_valid": inference_valid,
             "inference_mode": "case_control_cpg_rademacher_hc_maxT" if calibration == "rademacher_hc" else "case_control_cpg_gene_block_maxT",
             "calibration": calibration,
             "evaluated_events": len(cont_df),
             "foreground_events": int(cont_df["_is_fg"].sum()),
             "eligible_genes": int(G),
-            "significant_rbps_fwer05": int((rbp_df["rbp_P_FWER"] <= 0.05).sum()),
-            "significant_rbps_fdr05": int((rbp_df["rbp_FDR_BH"] <= 0.05).sum()),
-            "significant_rbps_nom05": int((rbp_df["nominal_P"] <= 0.05).sum()),
+            "significant_rbps_fwer05": int((rbp_df["rbp_P_FWER"] <= 0.05).sum()) if inference_valid else 0,
+            "significant_rbps_fdr05": int((rbp_df["rbp_FDR_BH"] <= 0.05).sum()) if inference_valid else 0,
+            "significant_rbps_nom05": int((rbp_df["nominal_P"] <= 0.05).sum()) if inference_valid else 0,
         },
     )

@@ -445,9 +445,50 @@ def _file_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def _extract_expected_ref_sha(bdir: Path) -> tuple[dict[str, str], Path | None]:
-    expected: dict[str, str] = {}
+def _extract_expected_ref_sha(
+    bdir: Path,
+    *,
+    gtf_path: Path | None = None,
+) -> tuple[dict[str, set[str]], dict[str, str], Path | None]:
+    allowed: dict[str, set[str]] = {"fasta": set(), "gtf": set()}
+    primary: dict[str, str] = {}
     source_path: Path | None = None
+
+    def _add_sha(kind: str, raw_val: object) -> bool:
+        s = str(raw_val or "").strip().lower()
+        if len(s) == 64 and all(ch in "0123456789abcdef" for ch in s):
+            allowed[kind].add(s)
+            primary.setdefault(kind, s)
+            return True
+        return False
+
+    def _harvest_ref_dict(obj: object) -> bool:
+        if not isinstance(obj, dict):
+            return False
+        hit = False
+        for kind in ("fasta", "gtf"):
+            entry = obj.get(kind)
+            if isinstance(entry, dict):
+                for sk in ("sha256", "uncompressed_sha256", "source_sha256", "analysis_gtf_sha256", "input_gtf_sha256"):
+                    if entry.get(sk):
+                        hit = _add_sha(kind, entry[sk]) or hit
+                raw_ep = entry.get("path")
+                if raw_ep and str(raw_ep).lower().endswith(".gz"):
+                    ep = Path(str(raw_ep))
+                    if ep.is_file():
+                        import gzip as _gz
+                        h_u = hashlib.sha256()
+                        try:
+                            with _gz.open(ep, "rb") as gzf:
+                                for blk in iter(lambda: gzf.read(1024 * 1024), b""):
+                                    h_u.update(blk)
+                            hit = _add_sha(kind, h_u.hexdigest()) or hit
+                        except OSError:
+                            pass
+            elif isinstance(entry, str):
+                hit = _add_sha(kind, entry) or hit
+        return hit
+
     for rel in (
         "provenance/reference_audit.json",
         "pipeline_info/reference_audit.json",
@@ -466,20 +507,59 @@ def _extract_expected_ref_sha(bdir: Path) -> tuple[dict[str, str], Path | None]:
         if not isinstance(data, dict):
             lbl = "manifest.json" if rel == "manifest.json" else "reference audit JSON"
             raise ValueError(f"Malformed {lbl} in {ap}: expected JSON object.")
-        refs_obj = data.get("references") if isinstance(data.get("references"), dict) else data
         found_here = False
-        for kind in ("fasta", "gtf"):
-            entry = refs_obj.get(kind) if isinstance(refs_obj, dict) else None
-            if isinstance(entry, dict) and entry.get("sha256"):
-                sha = str(entry["sha256"]).strip().lower()
-                if sha and kind not in expected:
-                    expected[kind] = sha
-                    found_here = True
+        for cand_obj in (data.get("reference"), data.get("references"), data):
+            if _harvest_ref_dict(cand_obj):
+                found_here = True
+        if rel == "manifest.json" and isinstance(data.get("artifacts"), list):
+            for art in data["artifacts"]:
+                if not isinstance(art, dict) or not art.get("sha256"):
+                    continue
+                akind = str(art.get("kind") or "").strip().lower()
+                arel = str(art.get("relative_path") or "").strip().lower()
+                if akind == "genome_fasta" or arel == "refs/genome.fasta":
+                    found_here = _add_sha("fasta", art["sha256"]) or found_here
+                elif akind == "gtf" or arel in {"refs/annotation.gtf", "provenance/reference/annotation.unfiltered.gtf"}:
+                    found_here = _add_sha("gtf", art["sha256"]) or found_here
         if found_here and source_path is None:
             source_path = ap
-        if "fasta" in expected and "gtf" in expected:
-            break
-    return expected, source_path
+
+    unfiltered_sums = bdir / "provenance/reference/unfiltered_reference.sha256"
+    if unfiltered_sums.is_file():
+        for ln in unfiltered_sums.read_text(encoding="utf-8", errors="replace").splitlines():
+            parts = ln.strip().split()
+            if len(parts) >= 2:
+                nm = Path(parts[-1]).name.lower()
+                if nm in {"genome.fasta", "genome.fa"}:
+                    if _add_sha("fasta", parts[0]) and source_path is None:
+                        source_path = unfiltered_sums
+                elif nm.endswith(".gtf"):
+                    if _add_sha("gtf", parts[0]) and source_path is None:
+                        source_path = unfiltered_sums
+
+    filter_receipts = [bdir / "provenance/gene_exclusions/filtering.receipt.json"]
+    if gtf_path is not None:
+        sib_rcpt = Path(gtf_path).resolve().parent / "filtering.receipt.json"
+        if sib_rcpt not in filter_receipts:
+            filter_receipts.append(sib_rcpt)
+    for fr_p in filter_receipts:
+        if not fr_p.is_file():
+            continue
+        try:
+            fr = json.loads(fr_p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(fr, dict):
+            continue
+        in_sha = str(fr.get("input_gtf_sha256") or "").strip().lower()
+        out_sha = str(fr.get("analysis_gtf_sha256") or "").strip().lower()
+        if in_sha and out_sha and (in_sha in allowed["gtf"] or fr_p.resolve().is_relative_to(bdir.resolve())):
+            _add_sha("gtf", in_sha)
+            _add_sha("gtf", out_sha)
+            if source_path is None:
+                source_path = fr_p
+
+    return allowed, primary, source_path
 
 
 def verify_bundle_reference_sha(
@@ -489,30 +569,55 @@ def verify_bundle_reference_sha(
     gtf_path: Path | str | None = None,
     allow_reference_reannotation: bool = False,
 ) -> dict[str, object]:
-    """Verify FASTA/GTF SHA256 against the bundle reference audit unless explicit re-annotation is requested."""
-    expected, audit_path = _extract_expected_ref_sha(bdir)
+    """Verify FASTA/GTF SHA256 (including decompressed/filtered pipeline derivatives) against bundle metadata."""
+    gtf_p_obj = Path(gtf_path) if gtf_path is not None else None
+    allowed, primary, audit_path = _extract_expected_ref_sha(bdir, gtf_path=gtf_p_obj)
+    expected = {k: v for k, v in primary.items() if k in allowed and allowed[k]}
     info: dict[str, object] = {
         "reference_audit_path": str(audit_path) if audit_path is not None else None,
         "expected": expected,
+        "allowed_lineage_sha256": {k: sorted(v) for k, v in allowed.items() if v},
         "actual": {},
+        "verified": False,
         "reannotated": False,
     }
     if not expected:
         return info
     mismatches: list[str] = []
     actual_map: dict[str, str] = {}
+    derived_used: dict[str, str] = {}
     for kind, raw_p in (("fasta", fasta_path), ("gtf", gtf_path)):
+        valid_shas = allowed.get(kind, set())
         exp_sha = expected.get(kind)
-        if not exp_sha or raw_p is None:
+        if not valid_shas or not exp_sha or raw_p is None:
             continue
         p = Path(raw_p)
         if not p.is_file():
             continue
         act_sha = _file_sha256(p).lower()
         actual_map[kind] = act_sha
-        if act_sha != exp_sha:
-            mismatches.append(f"{kind.upper()} SHA256 mismatch vs {audit_path}: expected {exp_sha}, got {act_sha}")
+        if act_sha not in valid_shas:
+            # Also accept gzipped file passed directly when its uncompressed stream matches valid_shas
+            matched_uncomp = False
+            if p.name.lower().endswith(".gz"):
+                import gzip as _gz
+                h_u = hashlib.sha256()
+                try:
+                    with _gz.open(p, "rb") as gzf:
+                        for blk in iter(lambda: gzf.read(1024 * 1024), b""):
+                            h_u.update(blk)
+                    if h_u.hexdigest().lower() in valid_shas:
+                        matched_uncomp = True
+                        derived_used[kind] = "compressed_equivalent"
+                except OSError:
+                    pass
+            if not matched_uncomp:
+                mismatches.append(f"{kind.upper()} SHA256 mismatch vs {audit_path}: expected {exp_sha}, got {act_sha}")
+        elif act_sha != exp_sha:
+            derived_used[kind] = "pipeline_derived_reference"
     info["actual"] = actual_map
+    if derived_used:
+        info["derived_lineage"] = derived_used
     if mismatches:
         if allow_reference_reannotation:
             info["reannotated"] = True
@@ -521,6 +626,8 @@ def verify_bundle_reference_sha(
                 "; ".join(mismatches)
                 + ". Supply the bundle-matched reference or pass allow_reference_reannotation=True / --allow-reference-reannotation."
             )
+    else:
+        info["verified"] = bool(actual_map)
     return info
 
 

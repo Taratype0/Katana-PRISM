@@ -1,4 +1,4 @@
-"""Standalone CLI for splicenet (1.0.5) — pure Python out-of-the-box, nf-core compatible."""
+"""Standalone CLI for splicenet (1.0.6) — pure Python out-of-the-box, nf-core compatible."""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,7 @@ from splicenet.evaluation import enrich_module_genes, score_modules
 from splicenet.network import consensus_core_audit, fit_splicenet
 from splicenet.qc_and_selection import select_events, unit_robust_audit
 
-__version__ = "1.0.5"
+__version__ = "1.0.6"
 def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SPLICENET") -> None:
     """Emit standard nf-core `versions.yml` recording tool and Python versions."""
     import platform
@@ -19,7 +19,7 @@ def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SPLI
     p.parent.mkdir(parents=True, exist_ok=True)
     yml = (
         f'"{process_name}":\n'
-        f'    splicenet: "1.0.5"\n'
+        f'    splicenet: "1.0.6"\n'
         f'    python: "{platform.python_version()}"\n'
     )
     p.write_text(yml, encoding="utf-8")
@@ -28,12 +28,14 @@ def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SPLI
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="splicenet",
-        description="SpliceNet 1.0.5: Excess-BioVar debiased signed TOM co-splicing network & module discovery.",
+        description="SpliceNet 1.0.6: Excess-BioVar debiased signed TOM co-splicing network & module discovery.",
     )
     parser.add_argument("--version", action="version", version=f"splicenet {__version__}")
     parser.add_argument("--bundle", type=Path, default=None, help="Katana upstream bundle directory (auto-extracts PSI & support matrices)")
     parser.add_argument("--rmats-dir", type=Path, default=None, help="External rMATS directory (auto-extracts PSI & support matrices)")
+    parser.add_argument("--contrasts", type=Path, default=None, help="Optional contrastsheet CSV/TSV when using --rmats-dir")
     parser.add_argument("--rmats-mode", choices=["JCEC", "JC"], default="JCEC", help="rMATS count mode when using --bundle or --rmats-dir")
+    parser.add_argument("--require-verified-sample-order", action="store_true", help="Fail if replicate slot order is not verified by manifest/input_audit/bamlist")
     parser.add_argument("--usage", type=Path, required=False, help="Relative usage / PSI matrix TSV (rows=events, cols=samples)")
     parser.add_argument("--samples", type=Path, required=False, help="Sample metadata TSV/CSV (sample_id, biological_sample_id)")
     parser.add_argument("--support", type=Path, default=None, help="Optional total read-support matrix TSV")
@@ -66,12 +68,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.bundle is not None or args.rmats_dir is not None:
         from splicenet.rmats_loader import extract_matrices_from_bundle_or_rmats
         usage, meta, support, auto_gene_map = extract_matrices_from_bundle_or_rmats(
-            bundle_dir=args.bundle, rmats_dir=args.rmats_dir, samples_path=args.samples, rmats_mode=args.rmats_mode
+            bundle_dir=args.bundle,
+            rmats_dir=args.rmats_dir,
+            samples_path=args.samples,
+            contrasts_path=args.contrasts,
+            rmats_mode=args.rmats_mode,
+            require_verified_sample_order=args.require_verified_sample_order,
         )
     else:
+        from splicenet.rmats_loader import _extract_donor_id, _validate_unique_headers
+
         usage = pd.read_csv(args.usage, sep="\t", index_col=0)
         _s_sep = "," if str(args.samples).lower().endswith((".csv", ".csv.gz")) else "\t"
-        meta = pd.read_csv(args.samples, sep=_s_sep, dtype={"sample_id": str, "biological_sample_id": str})
+        meta = pd.read_csv(args.samples, sep=_s_sep, dtype=str, keep_default_na=False)
+        _validate_unique_headers(list(meta.columns), str(args.samples))
+        sid_c = next((c for c in ("sample_id", "sample", "id") if c in meta.columns), meta.columns[0])
+        meta["sample_id"] = meta[sid_c].astype(str).str.strip()
+        meta["biological_sample_id"] = [
+            _extract_donor_id(r, str(r["sample_id"]).strip()) for _, r in meta.iterrows()
+        ]
         support = pd.read_csv(args.support, sep="\t", index_col=0) if args.support is not None else None
 
     masked, audit = unit_robust_audit(usage, meta, support)
@@ -112,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
         min_module_size=eff_min_mod,
         merge_cut_height=args.merge_cut_height,
         backend=args.backend,
+        meta=meta,
     )
     stability_metrics: dict[str, float] = {}
     if args.subsamples > 0:

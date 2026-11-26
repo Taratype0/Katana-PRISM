@@ -1,4 +1,4 @@
-"""Standalone CLI for splicemanifold (1.0.5) — Bulk PS-DAS + Manifold & Single-Cell Precision Event-PSI UMAP."""
+"""Standalone CLI for splicemanifold (1.0.6) — Bulk PS-DAS + Manifold & Single-Cell Precision Event-PSI UMAP."""
 from __future__ import annotations
 
 import argparse
@@ -15,9 +15,15 @@ from splicemanifold.manifold import (
     render_psi_clustermap,
     render_psi_pca,
 )
-from splicemanifold.ps_das import PS_DAS_POLICY_ID, load_rmats_study, qualify_ps_das_events
+from splicemanifold.ps_das import (
+    PS_DAS_POLICY_ID,
+    _extract_donor_id,
+    _validate_unique_headers,
+    load_rmats_study,
+    qualify_ps_das_events,
+)
 
-__version__ = "1.0.5"
+__version__ = "1.0.6"
 
 
 def write_nfcore_versions_yml(path: Path | str, process_name: str = "SPLICEMANIFOLD") -> None:
@@ -50,14 +56,35 @@ def _run_bulk(args: argparse.Namespace) -> int:
             dtype=str,
             keep_default_na=False,
         )
-        sample_meta = [
-            {
-                "sample_id": str(r.get("sample_id") or r.get("sample")).strip(),
-                "biological_sample_id": str(r.get("biological_sample_id") or r.get("sample_id") or r.get("sample")).strip(),
-                "condition": str(r.get("condition") or r.get("group") or "Group").strip(),
-            }
-            for _, r in s_df.iterrows()
-        ]
+        _validate_unique_headers(list(s_df.columns), str(args.samples))
+        _bio_aliases_cli = (
+            "biological_sample_id", "donor_id", "donor", "mouse_id",
+            "subject_id", "subject", "patient_id", "patient",
+            "individual", "individual_id", "animal_id",
+        )
+        _has_bio_col = any(
+            str(c).strip().casefold() in _bio_aliases_cli
+            and any(str(v).strip().lower() not in {"", "nan", "none", "na", "null", "n/a"} for v in s_df[c].tolist())
+            for c in s_df.columns
+        )
+        sample_meta = []
+        seen_sids_cli: set[str] = set()
+        for _, r in s_df.iterrows():
+            sid = str(r.get("sample_id") or r.get("sample") or "").strip()
+            if not sid:
+                continue
+            if sid in seen_sids_cli:
+                raise ValueError(f"Duplicate physical sample_id {sid!r} in {args.samples}")
+            seen_sids_cli.add(sid)
+            bio_val = _extract_donor_id(r, "" if _has_bio_col else sid)
+            sample_meta.append(
+                {
+                    "sample_id": sid,
+                    "biological_sample_id": bio_val,
+                    "donor_id": bio_val,
+                    "condition": str(r.get("condition") or r.get("group") or "Group").strip(),
+                }
+            )
         event_meta = {}
         qualified = pd.DataFrame()
     else:
@@ -67,6 +94,7 @@ def _run_bulk(args: argparse.Namespace) -> int:
             samples_file=args.samples,
             contrasts_file=args.contrasts,
             rmats_mode=args.rmats_mode,
+            require_verified_sample_order=getattr(args, "require_verified_sample_order", False),
         )
         qualified = qualify_ps_das_events(
             events_raw,
@@ -113,6 +141,12 @@ def _run_bulk(args: argparse.Namespace) -> int:
         "manifold_available": bool(landscape.get("available", False)),
         "permanova_r2": landscape.get("permanova_r2"),
         "permanova_p": landscape.get("permanova_p"),
+        "permanova_p_unpaired": landscape.get("permanova_p_unpaired"),
+        "paired_subjects": landscape.get("paired_subjects", 0),
+        "permanova_strata": landscape.get("permanova_strata", "free"),
+        "permanova_subject_r2": landscape.get("permanova_subject_r2"),
+        "permanova_within_subject_r2": landscape.get("permanova_within_subject_r2"),
+        "permanova_p_within_subject": landscape.get("permanova_p_within_subject"),
         "permanova_scope": landscape.get("permanova_scope"),
         "permanova_inference_valid": landscape.get("permanova_inference_valid"),
         "elapsed_seconds": round(time.monotonic() - t0, 2),
@@ -151,6 +185,7 @@ def _run_single_cell(args: argparse.Namespace) -> int:
         dtype=str,
         keep_default_na=False,
     )
+    _validate_unique_headers(list(md_df.columns), str(args.metadata))
 
     _sc_donor_aliases = ("donor_id", "mouse_id", "biological_sample_id", "donor", "subject_id", "subject", "mouse", "patient_id", "patient", "individual", "individual_id", "sample_donor", "animal_id")
     _sc_missing = {"", "nan", "none", "na", "null", "n/a"}
@@ -285,7 +320,7 @@ def _run_single_cell(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="splicemanifold",
-        description="SpliceManifold 1.0.5: PS-DAS qualification, Empirical-Bayes PSI Clustermap, PERMANOVA PCA & Precision-Kernel Event-PSI UMAP.",
+        description="SpliceManifold 1.0.6: PS-DAS qualification, Empirical-Bayes PSI Clustermap, PERMANOVA PCA & Precision-Kernel Event-PSI UMAP.",
     )
     p.add_argument("--version", action="version", version=f"splicemanifold {__version__}")
     p.add_argument("--emit-versions-yml", type=Path, default=None)
@@ -300,6 +335,7 @@ def main(argv: list[str] | None = None) -> int:
     pb.add_argument("--samples", type=Path, default=None, help="Samplesheet CSV/TSV (sample_id, condition)")
     pb.add_argument("--contrasts", type=Path, default=None, help="Optional contrastsheet CSV/TSV")
     pb.add_argument("--rmats-mode", choices=["JCEC", "JC"], default="JCEC")
+    pb.add_argument("--require-verified-sample-order", action="store_true", help="Fail if replicate slot order is not verified by manifest/input_audit/bamlist")
     pb.add_argument("--fdr-cutoff", type=float, default=0.05)
     pb.add_argument("--dpsi-cutoff", type=float, default=0.10)
     pb.add_argument("--min-effective-reads", type=float, default=10.0)

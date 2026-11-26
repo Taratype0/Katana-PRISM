@@ -40,10 +40,20 @@ def main() -> int:
 
     ev = pd.read_csv(args.events, sep="\t", dtype={"event_id": str, "gene_id": str, "gene_symbol": str}, low_memory=False)
     md_sep = "," if str(args.metadata).lower().endswith((".csv", ".csv.gz")) else "\t"
+    with (
+        pd.io.common.get_handle(args.metadata, "r", encoding="utf-8-sig") as _mh
+    ):
+        _hdr_line = _mh.handle.readline().rstrip("\r\n")
+        _raw_hdr = [c.strip() for c in _hdr_line.split(md_sep)] if _hdr_line else []
+        if len(_raw_hdr) != len({c.casefold() for c in _raw_hdr}):
+            raise ValueError(f"Duplicate or case-colliding column names in --metadata ({args.metadata}): {_raw_hdr}")
     md = pd.read_csv(args.metadata, sep=md_sep, dtype=str, keep_default_na=False)
+    md.columns = [str(c).strip() for c in md.columns]
     psi = _read_id_mat(args.psi)
     if psi.index.has_duplicates:
         raise ValueError("Duplicate cell_id rows detected in --psi matrix.")
+    if psi.columns.has_duplicates:
+        raise ValueError("Duplicate event_id columns detected in --psi matrix.")
     sup = None
     if args.support is not None and args.support.name != "NO_SUPPORT":
         if not args.support.is_file():
@@ -51,6 +61,8 @@ def main() -> int:
         sup = _read_id_mat(args.support)
     if sup is not None and sup.index.has_duplicates:
         raise ValueError("Duplicate cell_id rows detected in --support matrix.")
+    if sup is not None and sup.columns.has_duplicates:
+        raise ValueError("Duplicate event_id columns detected in --support matrix.")
 
     md["cell_id"] = md["cell_id"].astype(str).str.strip()
     dup_cid = md["cell_id"].duplicated(keep=False)
@@ -67,7 +79,7 @@ def main() -> int:
     pcol = str(args.population_col).strip()
     pval = str(args.population_value).strip()
     pop_filters: list[list[str]] = []
-    if pcol and pcol.upper() not in ("ALL", "*", "NONE") and pval.upper() not in ("ALL", "*"):
+    if pcol and pcol.upper() not in ("ALL", "*", "NONE"):
         if ":" in pcol or ":" in pval:
             p_cols = [x.strip() for x in pcol.split(":")]
             p_vals = [x.strip() for x in pval.split(":")]
@@ -76,11 +88,15 @@ def main() -> int:
                     f"Malformed composite population filter --population-col={pcol!r}, --population-value={pval!r}."
                 )
             for k_c, v_c in zip(p_cols, p_vals):
+                if k_c.upper() in ("ALL", "*", "NONE"):
+                    continue
                 if k_c not in md.columns:
                     raise ValueError(
                         f"Population column {k_c!r} not found in cell metadata columns: {list(md.columns)}"
                     )
                 pop_filters.append([k_c, v_c])
+                if v_c.upper() in ("ALL", "*"):
+                    continue
                 if v_c.startswith("!"):
                     md = md[~md[k_c].astype(str).str.lower().eq(v_c[1:].lower())].copy()
                 else:
@@ -90,7 +106,8 @@ def main() -> int:
             md = md[~md["flag_top2pct"].astype(str).str.lower().isin(("true", "1"))].copy()
         elif pcol in md.columns:
             pop_filters.append([pcol, pval])
-            md = md[md[pcol].astype(str).eq(pval)].copy()
+            if pval.upper() not in ("ALL", "*"):
+                md = md[md[pcol].astype(str).eq(pval)].copy()
         else:
             raise ValueError(f"Population column {pcol!r} not found in cell metadata columns: {list(md.columns)}")
 
@@ -98,11 +115,13 @@ def main() -> int:
         raise ValueError(f"Group column {args.group_col!r} not found in cell metadata columns: {list(md.columns)}")
     if args.group_col != "condition":
         md["condition"] = md[args.group_col].astype(str)
+    if str(args.numerator).strip() == str(args.denominator).strip():
+        raise ValueError(f"--numerator and --denominator must name two distinct groups (got {args.numerator!r}).")
 
-    m1 = md["condition"].astype(str).eq(str(args.numerator)).to_numpy()
-    m2 = md["condition"].astype(str).eq(str(args.denominator)).to_numpy()
-    n_num_cells = int(m1.sum())
-    n_den_cells = int(m2.sum())
+    m1_full = md["condition"].astype(str).eq(str(args.numerator)).to_numpy()
+    m2_full = md["condition"].astype(str).eq(str(args.denominator)).to_numpy()
+    n_num_cells = int(m1_full.sum())
+    n_den_cells = int(m2_full.sum())
     eff_min = max(1, int(args.min_cells))
     if n_num_cells == 0 or n_den_cells == 0:
         receipt_err = {
@@ -119,7 +138,7 @@ def main() -> int:
             "denominator_cells": n_den_cells,
             "min_cells_requested": int(args.min_cells),
             "passing_events": 0,
-            "n_cells": int(len(md)),
+            "n_cells": int(n_num_cells + n_den_cells),
             "n_events": 0,
         }
         (args.outdir / "slice_receipt.json").write_text(json.dumps(receipt_err, indent=2), encoding="utf-8")
@@ -128,16 +147,30 @@ def main() -> int:
             f"denominator={args.denominator!r}: {n_den_cells} cells)."
         )
 
+    # Restrict strictly to the two requested contrast arms so off-contrast groups never inflate eligibility or leak into scSpliceNet
+    md = md.loc[m1_full | m2_full].reset_index(drop=True)
+    m1 = md["condition"].astype(str).eq(str(args.numerator)).to_numpy()
+    m2 = md["condition"].astype(str).eq(str(args.denominator)).to_numpy()
+
     cids = md["cell_id"].tolist()
     eids = ev["event_id"].astype(str).tolist()
     p_sub = psi.reindex(index=cids, columns=eids)
     s_sub = sup.reindex(index=cids, columns=eids).fillna(0.0) if sup is not None else None
 
     arr = p_sub.to_numpy(dtype=float)
-    n_obs = np.isfinite(arr).sum(axis=0)
+    if sup is not None:
+        s_arr = s_sub.to_numpy(dtype=float)  # type: ignore[union-attr]
+        obs_mask = np.isfinite(arr) & np.isfinite(s_arr) & (s_arr > 0.0)
+        arr_masked = np.where(obs_mask, arr, np.nan)
+    else:
+        obs_mask = np.isfinite(arr)
+        arr_masked = arr
+    n_obs = obs_mask.sum(axis=0)
+    n_obs_num = obs_mask[m1, :].sum(axis=0)
+    n_obs_den = obs_mask[m2, :].sum(axis=0)
     with np.errstate(invalid="ignore"):
-        m_psi = np.nanmean(arr, axis=0)
-    keep = (n_obs >= eff_min) & np.isfinite(m_psi) & (m_psi >= 0.01) & (m_psi <= 0.99)
+        m_psi = np.nanmean(arr_masked, axis=0)
+    keep = (n_obs >= eff_min) & (n_obs_num >= 1) & (n_obs_den >= 1) & np.isfinite(m_psi) & (m_psi >= 0.01) & (m_psi <= 0.99)
 
     ev_k = ev.loc[keep].reset_index(drop=True)
     kept_ids = ev_k["event_id"].astype(str).tolist()

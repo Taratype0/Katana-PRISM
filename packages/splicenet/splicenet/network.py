@@ -12,38 +12,118 @@ from scipy.spatial.distance import squareform
 from sklearn.metrics import adjusted_rand_score
 
 
+def _weighted_row_quantiles(X: np.ndarray, weights: np.ndarray, probs: tuple[float, ...]) -> list[np.ndarray]:
+    """Row-wise weighted quantiles with tie-aggregated midpoint interpolation for inverse-replicate library weights."""
+    n_ev, _ = X.shape
+    w = np.asarray(weights, dtype=float)
+    w = w / np.maximum(float(w.sum()), 1e-12)
+    ord_idx = np.argsort(X, axis=1)
+    X_s = np.take_along_axis(X, ord_idx, axis=1)
+    W_s = w[ord_idx]
+    out: list[np.ndarray] = [np.empty((n_ev, 1), dtype=float) for _ in probs]
+    for r in range(n_ev):
+        u_vals, idx_start = np.unique(X_s[r], return_index=True)
+        u_w = np.add.reduceat(W_s[r], idx_start)
+        cum = np.cumsum(u_w) - 0.5 * u_w
+        for p_i, p in enumerate(probs):
+            out[p_i][r, 0] = float(np.interp(p, cum, u_vals))
+    return out
+
+
+def _derive_unit_sample_weights(sample_ids: list[str], meta: pd.DataFrame | None) -> np.ndarray | None:
+    if meta is None or meta.empty or "sample_id" not in meta.columns or "biological_sample_id" not in meta.columns:
+        return None
+    sub = meta.drop_duplicates(subset=["sample_id"]).set_index("sample_id")
+    if not all(s in sub.index for s in sample_ids):
+        return None
+    bios = [str(sub.loc[s, "biological_sample_id"]).strip() for s in sample_ids]
+    if "condition" in sub.columns and int(sub.loc[sample_ids, "condition"].astype(str).nunique()) >= 2:
+        conds = [str(sub.loc[s, "condition"]).strip() for s in sample_ids]
+        keys = [f"{b}||{c}" for b, c in zip(bios, conds)]
+    else:
+        keys = bios
+    vc = pd.Series(keys).value_counts()
+    if int(vc.max()) <= 1:
+        return None
+    return np.array([1.0 / float(vc[k]) for k in keys], dtype=float)
+
+
 def compute_tukey_bicor_matrix(
     data_events_by_samples: np.ndarray,
     *,
     max_p_outliers: float = 0.10,
+    sample_weights: np.ndarray | None = None,
+    donor_ids: list[str] | pd.Series | None = None,
 ) -> np.ndarray:
     """Vectorized Langfelder & Horvath (2012) subgroup-safe Tukey biweight midcorrelation (`bicor`).
 
     Protects genuine biological replicate subgroups (`>=2` replicates in `N>=12` cohorts) by anchoring
     the tail reference quantile at `u_ref = 0.65`, while single-sample technical spikes (`|u| >= 1`)
-    receive zero weight.
+    receive zero weight. Supports optional inverse-replicate `sample_weights` / `donor_ids`.
     """
     X = np.asarray(data_events_by_samples, dtype=float)
     n_ev, n_samp = X.shape
-    med = np.median(X, axis=1, keepdims=True)
-    diff = X - med
-    mad = np.median(np.abs(diff), axis=1, keepdims=True)
-    p_tail = min(0.25, max(max_p_outliers / 2.0, 1.25 / max(n_samp, 4)))
-    q_lo = np.quantile(X, p_tail, axis=1, keepdims=True)
-    q_hi = np.quantile(X, 1.0 - p_tail, axis=1, keepdims=True)
+    if sample_weights is None and donor_ids is not None:
+        d_list = [str(d).strip() for d in list(donor_ids)]
+        if len(d_list) == n_samp:
+            vc = pd.Series(d_list).value_counts()
+            if int(vc.max()) > 1:
+                sample_weights = np.array([1.0 / float(vc[d]) for d in d_list], dtype=float)
+
+    use_weights = (
+        sample_weights is not None
+        and len(sample_weights) == n_samp
+        and np.all(np.isfinite(sample_weights))
+        and float(np.min(sample_weights)) > 0.0
+        and not np.allclose(sample_weights, sample_weights[0])
+    )
+    eff_n = float(np.sum(sample_weights)) if use_weights else float(n_samp)
+    p_tail = min(0.25, max(max_p_outliers / 2.0, 1.25 / max(eff_n, 4.0)))
+
+    if use_weights:
+        w_samp = np.asarray(sample_weights, dtype=float)
+        med, q_lo, q_hi = _weighted_row_quantiles(X, w_samp, (0.5, p_tail, 1.0 - p_tail))
+        diff = X - med
+        mad = _weighted_row_quantiles(np.abs(diff), w_samp, (0.5,))[0]
+    else:
+        w_samp = None
+        med = np.median(X, axis=1, keepdims=True)
+        diff = X - med
+        mad = np.median(np.abs(diff), axis=1, keepdims=True)
+        q_lo = np.quantile(X, p_tail, axis=1, keepdims=True)
+        q_hi = np.quantile(X, 1.0 - p_tail, axis=1, keepdims=True)
 
     scale_neg = np.maximum(9.0 * mad, (med - q_lo) / 0.65)
     scale_pos = np.maximum(9.0 * mad, (q_hi - med) / 0.65)
+    if n_samp >= 12 and not use_weights and (2.0 / float(n_samp)) >= (max_p_outliers / 2.0) - 1e-12:
+        # Correct (N-1) linear-quantile fencepost when a >=2-replicate subgroup meets max_p_outliers/2 while still zeroing single spikes
+        part_lo = np.partition(X, 1, axis=1)[:, 1:2]
+        part_hi = np.partition(X, n_samp - 2, axis=1)[:, n_samp - 2 : n_samp - 1]
+        step_span = np.maximum(part_hi - med, med - part_lo)
+        near_const_mask = (9.0 * mad) < (0.25 * step_span)
+        if np.any(near_const_mask):
+            scale_neg = np.where(near_const_mask, np.maximum(scale_neg, (med - part_lo) / 0.65), scale_neg)
+            scale_pos = np.where(near_const_mask, np.maximum(scale_pos, (part_hi - med) / 0.65), scale_pos)
+
     denom = np.where(diff < 0.0, scale_neg, scale_pos)
     u = np.divide(diff, denom, out=np.zeros_like(diff), where=denom > 1e-12)
     w = np.where(np.abs(u) < 1.0, (1.0 - u * u) ** 2, 0.0)
-    xw = diff * w
+    if use_weights and w_samp is not None:
+        sqrt_g = np.sqrt(w_samp)[None, :]
+        xw = diff * w * sqrt_g
+    else:
+        xw = diff * w
     nrm = np.linalg.norm(xw, axis=1, keepdims=True)
     z = np.divide(xw, nrm, out=np.zeros_like(xw), where=nrm > 1e-12)
     zero_mad = mad[:, 0] <= 1e-12
     if np.any(zero_mad):
         # Match WGCNA::bicor(..., pearsonFallback="individual") when median absolute deviation vanishes
-        xc = X[zero_mad] - np.mean(X[zero_mad], axis=1, keepdims=True)
+        if use_weights and w_samp is not None:
+            w_norm = w_samp / float(w_samp.sum())
+            w_mean = (X[zero_mad] * w_norm[None, :]).sum(axis=1, keepdims=True)
+            xc = (X[zero_mad] - w_mean) * np.sqrt(w_samp)[None, :]
+        else:
+            xc = X[zero_mad] - np.mean(X[zero_mad], axis=1, keepdims=True)
         xc_nrm = np.linalg.norm(xc, axis=1, keepdims=True)
         z[zero_mad] = np.divide(xc, xc_nrm, out=np.zeros_like(xc), where=xc_nrm > 1e-12)
     bc = np.clip(z @ z.T, -1.0, 1.0)
@@ -188,9 +268,41 @@ def _cut_dendrogram_into_modules(dissim: np.ndarray, min_module_size: int = 20, 
         if sc > best_score:
             best_score = sc
             best_labels = mapped
-    if int(best_labels.max()) >= 2 or cand_lbl is None:
+    if int(best_labels.max()) >= 2:
         return best_labels
-    return cand_lbl
+    if cand_lbl is not None and int(cand_lbl.max()) >= 1:
+        return cand_lbl
+    if int(best_labels.max()) >= 1:
+        return best_labels
+    # Rescue tight single-block co-switching modules (e.g. exact-tie TOM >= 0.85) matching R WGCNA behavior
+    adj_strong = W >= 0.85
+    visited = np.zeros(n, dtype=bool)
+    strong_comps: list[list[int]] = []
+    for start in range(n):
+        if visited[start]:
+            continue
+        stack = [start]
+        visited[start] = True
+        comp: list[int] = []
+        while stack:
+            cur = stack.pop()
+            comp.append(cur)
+            nbrs = np.flatnonzero(adj_strong[cur] & (~visited)).tolist()
+            for nb in nbrs:
+                visited[nb] = True
+                stack.append(nb)
+        if len(comp) >= int(min_module_size):
+            sub_w = W[np.ix_(comp, comp)]
+            off_diag = (float(sub_w.sum()) - 0.0) / max(1, len(comp) * (len(comp) - 1))
+            if off_diag >= 0.85:
+                strong_comps.append(comp)
+    if strong_comps:
+        strong_comps.sort(key=len, reverse=True)
+        rescued = np.zeros(n, dtype=int)
+        for mod_id, comp in enumerate(strong_comps, start=1):
+            rescued[comp] = mod_id
+        return rescued
+    return best_labels if cand_lbl is None else cand_lbl
 
 
 def _merge_close_modules_and_kme(
@@ -268,6 +380,8 @@ def fit_splicenet(
     return_matrices: bool = False,
     backend: str = "python",
     rscript: Path | str | None = None,
+    meta: pd.DataFrame | None = None,
+    sample_weights: np.ndarray | None = None,
 ) -> pd.DataFrame | tuple[pd.DataFrame, np.ndarray, np.ndarray]:
     """Fit single-block signed bicor TOM co-splicing network in pure Python (default) or via R WGCNA (`backend='r-wgcna'`)."""
     raw_vals = selected_usage.to_numpy(dtype=float)
@@ -281,6 +395,9 @@ def fit_splicenet(
 
     means = selected_usage.mean(axis=1)
     complete = selected_usage.T.fillna(means).T
+    eff_weights = sample_weights if sample_weights is not None else _derive_unit_sample_weights(
+        [str(c) for c in complete.columns], meta
+    )
 
     X = complete.to_numpy(dtype=float)
     if backend not in {"python", "r-wgcna"}:
@@ -294,7 +411,7 @@ def fit_splicenet(
             )
         eff_r_power = int(power)
         if eff_r_power <= 0:
-            bc_tmp = compute_tukey_bicor_matrix(X, max_p_outliers=max_p_outliers)
+            bc_tmp = compute_tukey_bicor_matrix(X, max_p_outliers=max_p_outliers, sample_weights=eff_weights)
             eff_r_power = pick_soft_threshold(bc_tmp)
         max_block = int(len(complete)) if single_block else 2000
         export_mats_flag = "1" if return_matrices else "0"
@@ -343,7 +460,7 @@ def fit_splicenet(
             return df_r
 
     # Pure-Python exact execution (works offline everywhere without R!)
-    bc = compute_tukey_bicor_matrix(X, max_p_outliers=max_p_outliers)
+    bc = compute_tukey_bicor_matrix(X, max_p_outliers=max_p_outliers, sample_weights=eff_weights)
     eff_power = pick_soft_threshold(bc) if int(power) <= 0 else int(power)
     tom = compute_signed_tom_from_bicor(bc, power=eff_power)
     raw_mods = _cut_dendrogram_into_modules(1.0 - tom, min_module_size=min_module_size, deep_split=deep_split)

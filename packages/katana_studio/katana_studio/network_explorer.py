@@ -315,6 +315,13 @@ def build_chapter6_splicenet_suite(
     # Align or compute sample/unit eigengene scores (units x modules)
     unit_ids = [str(s["sample_id"]) for s in samples_list]
     cond_by_unit = {str(s["sample_id"]): str(s["condition"]) for s in samples_list}
+    _blank_bio = {"", "nan", "none", "na", "null", "n/a"}
+    bio_by_unit: dict[str, str] = {}
+    for s in samples_list:
+        sid_s = str(s["sample_id"]).strip()
+        raw_b = s.get("biological_sample_id") or s.get("donor_id") or s.get("subject") or ""
+        bio_s = str(raw_b).strip()
+        bio_by_unit[sid_s] = bio_s if (bio_s and bio_s.lower() not in _blank_bio) else sid_s
 
     scores_mat = pd.DataFrame(index=unit_ids, columns=sorted_mods, dtype=float)
     if scores_df_raw is not None and not scores_df_raw.empty:
@@ -354,28 +361,95 @@ def build_chapter6_splicenet_suite(
     scores_mat = scores_mat.dropna(how="all")
     valid_units = scores_mat.index.tolist()
 
-    # Compute Omnibus ANOVA & Per-Contrast Welch t-test Associations
+    # Compute Omnibus ANOVA (subject-blocked RM-ANOVA when fully crossed paired) & Per-Contrast (paired t vs Welch t)
     assoc_rows: list[dict[str, Any]] = []
-    omnibus_raw_p = []
+    omnibus_raw_p: list[tuple[str, float, float, int, str, int]] = []
     for m_name in sorted_mods:
         vals = scores_mat[m_name].dropna()
-        grps = [vals[[u for u in vals.index if cond_by_unit.get(u) == cond]].to_numpy(dtype=float)
-                for cond in dict.fromkeys(cond_by_unit.get(u, "") for u in vals.index)]
-        grps = [g for g in grps if len(g) >= 2]
-        if len(grps) >= 2:
-            f_stat, p_om = stats.f_oneway(*grps)
-            f_stat = float(f_stat) if math.isfinite(f_stat) else 0.0
-            p_om = float(p_om) if math.isfinite(p_om) else 1.0
-        else:
-            f_stat, p_om = 0.0, 1.0
-        omnibus_raw_p.append((m_name, f_stat, p_om, int(len(vals))))
+        u_vals = vals.index.tolist()
+        conds_u = [cond_by_unit.get(u, "") for u in u_vals]
+        subjs_u = [bio_by_unit.get(u, u) for u in u_vals]
+        uniq_c = list(dict.fromkeys(c for c in conds_u if c))
+        cell_cnts: dict[tuple[str, str], int] = {}
+        subj_conds: dict[str, set[str]] = {}
+        subj_uids: dict[str, list[str]] = {}
+        for u, su, cu in zip(u_vals, subjs_u, conds_u):
+            cell_cnts[(su, cu)] = cell_cnts.get((su, cu), 0) + 1
+            subj_conds.setdefault(su, set()).add(cu)
+            subj_uids.setdefault(su, []).append(u)
+        paired_subjs_m = [
+            su for su, cs in subj_conds.items()
+            if len(cs) >= 2 and any(uu != su for uu in subj_uids[su])
+        ]
+        all_crossed_paired = (
+            (not is_single_cell)
+            and len(uniq_c) >= 2
+            and len(paired_subjs_m) >= 2
+            and max(cell_cnts.values(), default=0) == 1
+            and len(subj_conds) == len(paired_subjs_m)
+            and all(cs == set(uniq_c) for cs in subj_conds.values())
+        )
+        used_rm = False
+        if all_crossed_paired and len(vals) >= len(paired_subjs_m) + len(uniq_c):
+            y = vals.to_numpy(dtype=float)
+            y_c = y - float(np.mean(y))
+            n_obs = len(y_c)
+            uniq_s = list(dict.fromkeys(subjs_u))
+            Z_s = np.zeros((n_obs, len(uniq_s)), dtype=float)
+            s_map = {s: i for i, s in enumerate(uniq_s)}
+            for ri, su in enumerate(subjs_u):
+                Z_s[ri, s_map[su]] = 1.0
+            X_s = Z_s - Z_s.mean(axis=0, keepdims=True)
+            u_s, sv_s, _ = np.linalg.svd(X_s, full_matrices=False)
+            Q_s = u_s[:, sv_s > 1e-10]
+            y_res_s = y_c - (Q_s @ (Q_s.T @ y_c) if Q_s.shape[1] > 0 else 0.0)
+            rss_red = float(np.dot(y_res_s, y_res_s))
+
+            Z_c = np.zeros((n_obs, len(uniq_c)), dtype=float)
+            c_map = {c: i for i, c in enumerate(uniq_c)}
+            for ri, cu in enumerate(conds_u):
+                Z_c[ri, c_map[cu]] = 1.0
+            X_c = Z_c - Z_c.mean(axis=0, keepdims=True)
+            X_cs = X_c - (Q_s @ (Q_s.T @ X_c) if Q_s.shape[1] > 0 else 0.0)
+            u_c, sv_c, _ = np.linalg.svd(X_cs, full_matrices=False)
+            Q_c = u_c[:, sv_c > 1e-10]
+            df_c = int(Q_c.shape[1])
+            df_den = n_obs - 1 - int(Q_s.shape[1]) - df_c
+            if df_c >= 1 and df_den >= 1:
+                y_full = y_res_s - Q_c @ (Q_c.T @ y_res_s)
+                rss_full = float(np.dot(y_full, y_full))
+                if rss_full > 1e-12:
+                    f_stat = max(0.0, ((rss_red - rss_full) / df_c) / (rss_full / df_den))
+                    p_om = float(stats.f.sf(f_stat, df_c, df_den))
+                elif rss_red > 1e-12:
+                    f_stat, p_om = 1e6, 0.0
+                else:
+                    f_stat, p_om = 0.0, 1.0
+                f_stat = float(f_stat) if math.isfinite(f_stat) else 0.0
+                p_om = float(p_om) if math.isfinite(p_om) else 1.0
+                omnibus_raw_p.append((m_name, f_stat, p_om, len(paired_subjs_m), "paired_rm_anova", len(paired_subjs_m)))
+                used_rm = True
+
+        if not used_rm:
+            grps = [vals[[u for u in vals.index if cond_by_unit.get(u) == cond]].to_numpy(dtype=float)
+                    for cond in dict.fromkeys(cond_by_unit.get(u, "") for u in vals.index)]
+            grps = [g for g in grps if len(g) >= 2]
+            if len(grps) >= 2:
+                f_stat, p_om = stats.f_oneway(*grps)
+                f_stat = float(f_stat) if math.isfinite(f_stat) else 0.0
+                p_om = float(p_om) if math.isfinite(p_om) else 1.0
+            else:
+                f_stat, p_om = 0.0, 1.0
+            omnibus_raw_p.append((m_name, f_stat, p_om, int(len(vals)), "oneway_anova", 0))
 
     om_q = _bh_fdr(np.array([x[2] for x in omnibus_raw_p], dtype=float))
-    for (m_name, f_stat, p_om, n_u), q_v in zip(omnibus_raw_p, om_q):
+    for (m_name, f_stat, p_om, n_u, om_type, om_paired), q_v in zip(omnibus_raw_p, om_q):
         assoc_rows.append({
             "module": m_name,
             "kind": "omnibus",
             "contrast_id": "ALL_CONDITIONS",
+            "test_type": om_type,
+            "paired_subjects": om_paired,
             "effect": round(f_stat, 4),
             "ci95": None,
             "statistic": round(f_stat, 4),
@@ -388,34 +462,86 @@ def build_chapter6_splicenet_suite(
         cid = str(c_spec["contrast_id"])
         num_ids = [str(u) for u in c_spec["numerator"]["sample_ids"] if str(u) in scores_mat.index]
         den_ids = [str(u) for u in c_spec["denominator"]["sample_ids"] if str(u) in scores_mat.index]
-        c_tmp = []
+        explicit_paired = c_spec.get("paired")
+        num_by_bio: dict[str, list[str]] = {}
+        for u in num_ids:
+            num_by_bio.setdefault(bio_by_unit.get(u, u), []).append(u)
+        den_by_bio: dict[str, list[str]] = {}
+        for u in den_ids:
+            den_by_bio.setdefault(bio_by_unit.get(u, u), []).append(u)
+        shared_bio = [
+            b for b in num_by_bio.keys()
+            if b in den_by_bio and any(b != u for u in (num_by_bio[b] + den_by_bio[b]))
+        ]
+        if explicit_paired is True:
+            allow_paired = len(shared_bio) >= 2
+        elif explicit_paired is False:
+            allow_paired = False
+        else:
+            allow_paired = (not is_single_cell) and len(shared_bio) >= 2
+
+        c_tmp: list[tuple[str, float, float, float, float, int, str, int]] = []
         for m_name in sorted_mods:
-            va = scores_mat.loc[num_ids, m_name].dropna().to_numpy(dtype=float)
-            vb = scores_mat.loc[den_ids, m_name].dropna().to_numpy(dtype=float)
-            if len(va) >= 2 and len(vb) >= 2:
-                diff = float(np.mean(va) - np.mean(vb))
-                va_var = float(np.var(va, ddof=1)) / len(va)
-                vb_var = float(np.var(vb, ddof=1)) / len(vb)
-                se = float(np.sqrt(va_var + vb_var))
-                t_res = stats.ttest_ind(va, vb, equal_var=False)
-                pv = float(t_res.pvalue) if math.isfinite(t_res.pvalue) else 1.0
-                t_val = float(t_res.statistic) if math.isfinite(t_res.statistic) else 0.0
-                denom_df = (va_var ** 2) / max(1, len(va) - 1) + (vb_var ** 2) / max(1, len(vb) - 1)
-                welch_df = ((va_var + vb_var) ** 2) / denom_df if denom_df > 1e-18 else float(len(va) + len(vb) - 2)
-                t_crit = float(stats.t.ppf(0.975, df=max(1.0, welch_df))) if math.isfinite(welch_df) else 1.96
-                ci95 = t_crit * se
-            elif len(va) >= 1 and len(vb) >= 1:
-                diff = float(np.mean(va) - np.mean(vb))
-                ci95, t_val, pv = 0.0, 0.0, 1.0
-            else:
-                diff, ci95, t_val, pv = 0.0, 0.0, 0.0, 1.0
-            c_tmp.append((m_name, diff, ci95, t_val, pv, len(va) + len(vb)))
+            did_paired = False
+            if allow_paired:
+                pa_vals: list[float] = []
+                pb_vals: list[float] = []
+                for b in shared_bio:
+                    a_s = pd.to_numeric(scores_mat.loc[num_by_bio[b], m_name], errors="coerce").dropna()
+                    b_s = pd.to_numeric(scores_mat.loc[den_by_bio[b], m_name], errors="coerce").dropna()
+                    if not a_s.empty and not b_s.empty:
+                        pa_vals.append(float(a_s.mean()))
+                        pb_vals.append(float(b_s.mean()))
+                if len(pa_vals) >= 2:
+                    va_p = np.asarray(pa_vals, dtype=float)
+                    vb_p = np.asarray(pb_vals, dtype=float)
+                    diffs = va_p - vb_p
+                    n_p = len(diffs)
+                    diff = float(np.mean(diffs))
+                    sd_d = float(np.std(diffs, ddof=1))
+                    se = sd_d / math.sqrt(n_p)
+                    df_p = n_p - 1
+                    if sd_d > 1e-12:
+                        t_res = stats.ttest_rel(va_p, vb_p)
+                        pv = float(t_res.pvalue) if math.isfinite(t_res.pvalue) else 1.0
+                        t_val = float(t_res.statistic) if math.isfinite(t_res.statistic) else 0.0
+                        ci95 = float(stats.t.ppf(0.975, df=max(1, df_p))) * se
+                    else:
+                        t_val = 0.0 if abs(diff) <= 1e-12 else math.copysign(1e6, diff)
+                        pv = 1.0 if abs(diff) <= 1e-12 else 0.0
+                        ci95 = 0.0
+                    c_tmp.append((m_name, diff, ci95, t_val, pv, n_p, "paired_t", n_p))
+                    did_paired = True
+
+            if not did_paired:
+                va = scores_mat.loc[num_ids, m_name].dropna().to_numpy(dtype=float)
+                vb = scores_mat.loc[den_ids, m_name].dropna().to_numpy(dtype=float)
+                if len(va) >= 2 and len(vb) >= 2:
+                    diff = float(np.mean(va) - np.mean(vb))
+                    va_var = float(np.var(va, ddof=1)) / len(va)
+                    vb_var = float(np.var(vb, ddof=1)) / len(vb)
+                    se = float(np.sqrt(va_var + vb_var))
+                    t_res = stats.ttest_ind(va, vb, equal_var=False)
+                    pv = float(t_res.pvalue) if math.isfinite(t_res.pvalue) else 1.0
+                    t_val = float(t_res.statistic) if math.isfinite(t_res.statistic) else 0.0
+                    denom_df = (va_var ** 2) / max(1, len(va) - 1) + (vb_var ** 2) / max(1, len(vb) - 1)
+                    welch_df = ((va_var + vb_var) ** 2) / denom_df if denom_df > 1e-18 else float(len(va) + len(vb) - 2)
+                    t_crit = float(stats.t.ppf(0.975, df=max(1.0, welch_df))) if math.isfinite(welch_df) else 1.96
+                    ci95 = t_crit * se
+                elif len(va) >= 1 and len(vb) >= 1:
+                    diff = float(np.mean(va) - np.mean(vb))
+                    ci95, t_val, pv = 0.0, 0.0, 1.0
+                else:
+                    diff, ci95, t_val, pv = 0.0, 0.0, 0.0, 1.0
+                c_tmp.append((m_name, diff, ci95, t_val, pv, len(va) + len(vb), "welch_t", 0))
         c_q = _bh_fdr(np.array([x[4] for x in c_tmp], dtype=float))
-        for (m_name, diff, ci95, t_val, pv, n_u), q_v in zip(c_tmp, c_q):
+        for (m_name, diff, ci95, t_val, pv, n_u, t_type, n_p_subj), q_v in zip(c_tmp, c_q):
             assoc_rows.append({
                 "module": m_name,
                 "kind": "contrast",
                 "contrast_id": cid,
+                "test_type": t_type,
+                "paired_subjects": n_p_subj,
                 "effect": round(diff, 4),
                 "ci95": round(ci95, 4),
                 "statistic": round(t_val, 4),
@@ -690,6 +816,7 @@ def build_chapter6_splicenet_suite(
     _render_static_module_overview(
         scores_mat, cond_by_unit, modules_json, df, outdir, fig_dir, tbl_dir, panels, is_single_cell,
         panel_id_prefix=id_pref, title_suffix=scope_slug, comparison_ids=comparison_ids,
+        bio_by_unit=bio_by_unit,
     )
     for c_spec in contrasts_spec:
         _render_static_contrast_forest(assoc_df, str(c_spec["contrast_id"]), outdir, fig_dir, tbl_dir, panels)
@@ -721,10 +848,12 @@ def _render_static_module_overview(
     panel_id_prefix: str = "",
     title_suffix: str | None = None,
     comparison_ids: list[str] | None = None,
+    bio_by_unit: dict[str, str] | None = None,
 ) -> None:
     if scores_mat.empty or not modules_json:
         return
-    unit_order = sorted(scores_mat.index.tolist(), key=lambda u: (cond_by_unit.get(u, ""), u))
+    bio_lu = bio_by_unit or {}
+    unit_order = sorted(scores_mat.index.tolist(), key=lambda u: (cond_by_unit.get(u, ""), bio_lu.get(u, u), u))
     top_mods = [m["module"] for m in modules_json[:10]]
     mat = scores_mat.loc[unit_order, top_mods].to_numpy(dtype=float).T
     mat_z = (mat - np.nanmean(mat, axis=1, keepdims=True)) / np.maximum(np.nanstd(mat, axis=1, keepdims=True), 1e-8)
@@ -742,8 +871,23 @@ def _render_static_module_overview(
     ax0.set_yticks(range(len(top_mods)))
     ax0.set_yticklabels([f"{m} ({mod_meta[m]['unique_annotated_genes']}g / {mod_meta[m]['events']}ev)" for m in top_mods], fontsize=8.6, fontweight="bold", color=ED_NAVY)
     if len(unit_order) <= 24:
+        bio_conds: dict[str, set[str]] = {}
+        for u in unit_order:
+            b = bio_lu.get(u, u)
+            if b != u:
+                bio_conds.setdefault(b, set()).add(cond_by_unit.get(u, ""))
+        has_paired_lbl = (not is_single_cell) and any(len(cs) >= 2 for cs in bio_conds.values())
+        x_lbls = []
+        for u in unit_order:
+            b = bio_lu.get(u, u)
+            c = cond_by_unit.get(u, "")
+            if has_paired_lbl and b != u:
+                lbl_s = f"{u} [{b}] ({c})"
+                x_lbls.append(lbl_s[:32] + "…" if len(lbl_s) > 33 else lbl_s)
+            else:
+                x_lbls.append(f"{u} ({c})")
         ax0.set_xticks(range(len(unit_order)))
-        ax0.set_xticklabels([f"{u} ({cond_by_unit.get(u, '')})" for u in unit_order], rotation=45, ha="right", fontsize=7.6, color=ED_NAVY)
+        ax0.set_xticklabels(x_lbls, rotation=45, ha="right", fontsize=7.4 if has_paired_lbl else 7.6, color=ED_NAVY)
     else:
         ax0.set_xticks([])
         ax0.set_xlabel(f"{len(unit_order)} biological replicate / donor-celltype units ordered by condition", fontsize=8.5, color=ED_NAVY)
@@ -838,12 +982,23 @@ def _render_static_contrast_forest(
             zorder=4,
         )
 
+    is_paired_forest = "test_type" in sub.columns and (sub["test_type"].astype(str) == "paired_t").any()
+    n_p_forest = int(pd.to_numeric(sub["paired_subjects"], errors="coerce").max()) if (is_paired_forest and "paired_subjects" in sub.columns) else 0
+
     ax.set_yticks(range(len(sub)))
     ax.set_yticklabels(sub["module"].tolist(), fontsize=9.2, fontweight="bold", color=ED_NAVY)
     ax.set_xlim(-max_extent, max_extent)
     ax.set_ylim(-0.48, len(sub) - 0.28)
-    ax.set_xlabel(f"Welch Module Eigengene Difference ({cid}, ±95% CI)", fontsize=9.0, fontweight="bold", color=ED_NAVY)
-    ax.set_title(f"Module Eigengene Contrast Response | {cid}", loc="left", fontsize=10.6, fontweight="bold", color=ED_NAVY)
+    if is_paired_forest:
+        ax.set_xlabel(f"Paired Within-Subject ΔME ({cid}, n={n_p_forest} paired subjects, ±95% CI)", fontsize=9.0, fontweight="bold", color=ED_NAVY)
+        ax.set_title(f"Module Eigengene Paired Contrast Response | {cid}", loc="left", fontsize=10.6, fontweight="bold", color=ED_NAVY)
+        panel_title = f"Module eigengene paired contrast response (±95% CI & BH FDR) | {cid}"
+        panel_caption = f"Within-subject paired t-test (df = {max(1, n_p_forest - 1)}) on module eigengene differences across {n_p_forest} paired subjects; ★ marks BH FDR ≤ 0.05."
+    else:
+        ax.set_xlabel(f"Welch Module Eigengene Difference ({cid}, ±95% CI)", fontsize=9.0, fontweight="bold", color=ED_NAVY)
+        ax.set_title(f"Module Eigengene Contrast Response | {cid}", loc="left", fontsize=10.6, fontweight="bold", color=ED_NAVY)
+        panel_title = f"Module eigengene Welch contrast response (±95% CI & BH FDR) | {cid}"
+        panel_caption = "Module-level directional splicing shifts across independent biological units; ★ marks BH FDR ≤ 0.05."
 
     png_p = fig_dir / f"{slug}_module_contrast_forest.png"
     svg_p = _save_fig(fig, png_p)
@@ -851,8 +1006,8 @@ def _render_static_contrast_forest(
         "id": f"{slug}-splicenet-forest",
         "chapter": 6,
         "contrast_id": cid,
-        "title": f"Module eigengene Welch contrast response (±95% CI & BH FDR) | {cid}",
-        "caption": "Module-level directional splicing shifts across independent biological units; ★ marks BH FDR ≤ 0.05.",
+        "title": panel_title,
+        "caption": panel_caption,
         "image": png_p.relative_to(outdir).as_posix(),
         "svg": svg_p.relative_to(outdir).as_posix(),
         "metadata": {"analysis_id": "programs.splicenet"},
@@ -1525,11 +1680,20 @@ def _render_network_explorer_html(payload: dict[str, Any]) -> str:
       </div>`;
     }} else if (state.tab === 'associations') {{
       const rows = DATA.associations.filter(a => isAll || a.module === state.scope);
+      const fmtTest = r => {{
+        const t = String(r.test_type || '');
+        const np = Number(r.paired_subjects || 0);
+        if (t === 'paired_t') return `Paired t (n=${{np}})`;
+        if (t === 'paired_rm_anova') return `RM-ANOVA (n=${{np}})`;
+        if (t === 'welch_t') return 'Welch t';
+        if (t === 'oneway_anova') return 'One-way ANOVA';
+        return esc(r.kind);
+      }};
       bodyHtml = `<div class="canvas-card">
         <div class="canvas-head"><h3>Module Omnibus &amp; Pairwise Contrast Significance</h3>
           <button type="button" class="link-btn" id="dl-assoc">Export TSV</button></div>
-        <table><thead><tr><th>Module</th><th>Test Kind</th><th>Comparison</th><th class="num">Effect (F / ΔME)</th><th class="num">P-Value</th><th class="num">BH FDR</th></tr></thead>
-        <tbody>${{rows.map(r => `<tr><td><strong>${{esc(r.module)}}</strong></td><td>${{esc(r.kind)}}</td><td>${{esc(r.contrast_id)}}</td><td class="num">${{Number(r.effect ?? 0).toFixed(3)}}</td><td class="num">${{fmtP(r.p_value)}}</td><td class="num"><strong>${{fmtP(r.q_value)}}</strong></td></tr>`).join('')}}</tbody></table>
+        <table><thead><tr><th>Module</th><th>Test Kind</th><th>Method</th><th>Comparison</th><th class="num">Effect (F / ΔME)</th><th class="num">P-Value</th><th class="num">BH FDR</th></tr></thead>
+        <tbody>${{rows.map(r => `<tr><td><strong>${{esc(r.module)}}</strong></td><td>${{esc(r.kind)}}</td><td>${{fmtTest(r)}}</td><td>${{esc(r.contrast_id)}}</td><td class="num">${{Number(r.effect ?? 0).toFixed(3)}}</td><td class="num">${{fmtP(r.p_value)}}</td><td class="num"><strong>${{fmtP(r.q_value)}}</strong></td></tr>`).join('')}}</tbody></table>
       </div>`;
     }} else if (state.tab === 'genes') {{
       const q = state.search.toLowerCase();
@@ -1619,7 +1783,7 @@ def _render_network_explorer_html(payload: dict[str, Any]) -> str:
       const el = document.getElementById('tbl-search');
       if (el) {{ el.focus(); el.setSelectionRange(el.value.length, el.value.length); }}
     }});
-    document.getElementById('dl-assoc')?.addEventListener('click', () => downloadTsv('SpliceNet_Associations.tsv', ['module','kind','contrast_id','effect','p_value','q_value'], DATA.associations));
+    document.getElementById('dl-assoc')?.addEventListener('click', () => downloadTsv('SpliceNet_Associations.tsv', ['module','kind','contrast_id','test_type','paired_subjects','effect','p_value','q_value'], DATA.associations));
     document.getElementById('dl-genes')?.addEventListener('click', () => downloadTsv('SpliceNet_Hub_Genes.tsv', ['module','gene_symbol','gene_id','event_type','events_in_module','max_abs_kME'], DATA.genes));
     document.getElementById('dl-events')?.addEventListener('click', () => downloadTsv('SpliceNet_Events.tsv', ['module','gene_symbol','event_type','event_key','kME'], DATA.members));
     document.getElementById('dl-pathways')?.addEventListener('click', () => downloadTsv('SpliceNet_Pathways.tsv', ['module','ontology','pathway','overlap','p_value','q_BH','hit_genes'], DATA.pathways));

@@ -1,4 +1,4 @@
-"""scSpliceTrace 1.0.5 — Smart-seq3 RBP discovery, mature-mRNA motif, Module-RBP bridge & GTF/UniProt ORF/NMD engine."""
+"""scSpliceTrace 1.0.6 — Smart-seq3 RBP discovery, mature-mRNA motif, Module-RBP bridge & GTF/UniProt ORF/NMD engine."""
 from scsplicetrace.contrast_discovery import (
     SCSpliceTraceContrastResult,
     compute_sc_splicing_contrast,
@@ -84,4 +84,4 @@ try:
 except ImportError:
     pass
 
-__version__ = "1.0.5"
+__version__ = "1.0.6"

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scsplicenet"
-version = "1.0.5"
+version = "1.0.6"
 description = "scSpliceNet: Single-cell Smart-seq3 donor-aware support-precision co-splicing network and module discovery"
 readme = "README.md"
 requires-python = ">=3.10"

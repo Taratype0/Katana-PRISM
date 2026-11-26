@@ -39,9 +39,12 @@ class InputError(ValueError):
 def read_sheet(path: Path, required: set[str]) -> tuple[list[str], list[dict[str, str]]]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t" if path.suffix.lower() == ".tsv" else ",")
-        fields = reader.fieldnames or []
-        if len(fields) != len(set(fields)):
-            raise InputError(f"Duplicate column names in {path}")
+        raw_fields = reader.fieldnames or []
+        fields = [str(f).strip() for f in raw_fields]
+        if any(not f for f in fields):
+            raise InputError(f"Blank column name in {path}")
+        if len(fields) != len({f.casefold() for f in fields}):
+            raise InputError(f"Duplicate or case-colliding column names in {path}: {raw_fields}")
         missing = sorted(required - set(fields))
         if missing:
             raise InputError(f"{path.name} is missing columns: {', '.join(missing)}")
@@ -49,7 +52,7 @@ def read_sheet(path: Path, required: set[str]) -> tuple[list[str], list[dict[str
         for line, raw in enumerate(reader, start=2):
             if None in raw:
                 raise InputError(f"{path.name}:{line}: too many columns")
-            row = {key: (value or "").strip() for key, value in raw.items()}
+            row = {str(key).strip(): (value or "").strip() for key, value in raw.items()}
             if any(row.values()):
                 rows.append(row)
         if not rows:
@@ -147,12 +150,12 @@ def validate_samples(rows: list[dict[str, str]], base: Path, *, check: bool, rea
                 observed_paths[row[field]] = sample
         for field in ("subject", "batch"):
             row.setdefault(field, "")
-        row_lower = {str(k).strip().lower(): str(k) for k in row}
+        alias_set = {a.casefold() for a in BIO_UNIT_ALIASES}
+        matching_bio_cols = [str(k) for k in row if str(k).strip().casefold() in alias_set]
+        if len(matching_bio_cols) != len({c.strip().casefold() for c in matching_bio_cols}):
+            raise InputError(f"{sample}: duplicate case-variant biological unit columns: {matching_bio_cols}")
         populated_bio: list[tuple[str, str]] = []
-        for alias in BIO_UNIT_ALIASES:
-            orig_k = row_lower.get(alias)
-            if orig_k is None:
-                continue
+        for orig_k in matching_bio_cols:
             raw_bio = (row.get(orig_k) or "").strip()
             if raw_bio.lower() not in BLANK_BIO_TOKENS:
                 populated_bio.append((orig_k, raw_bio))

@@ -40,6 +40,18 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def uncompressed_sha256_and_bytes(path: Path, raw_sha: str | None = None) -> tuple[str, int]:
+    if not path.name.lower().endswith(".gz"):
+        return raw_sha or sha256(path), path.stat().st_size
+    digest = hashlib.sha256()
+    total = 0
+    with gzip.open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+            total += len(block)
+    return digest.hexdigest(), total
+
+
 def fasta_lengths(path: Path) -> dict[str, int]:
     """Store one length per contig, without retaining genome sequence in memory."""
     lengths: dict[str, int] = {}
@@ -159,6 +171,10 @@ def validate_reference(fasta: Path, gtf: Path, *, reference_build: str | None = 
             raise ReferenceError(f"{kind} file is missing or empty: {path}")
     contigs = fasta_lengths(fasta)
     annotation = annotation_summary(gtf, contigs)
+    fa_sha = sha256(fasta)
+    fa_uncomp_sha, fa_uncomp_bytes = uncompressed_sha256_and_bytes(fasta, fa_sha)
+    gtf_sha = sha256(gtf)
+    gtf_uncomp_sha, gtf_uncomp_bytes = uncompressed_sha256_and_bytes(gtf, gtf_sha)
     return {
         "schema_version": "katana.reference_audit",
         "status": "passed",
@@ -172,12 +188,21 @@ def validate_reference(fasta: Path, gtf: Path, *, reference_build: str | None = 
         "declaration_verification": "not_independently_verified",
         "biological_annotation_validity": "not_established_by_structural_checks",
         "fasta": {
-            "path": str(fasta), "bytes": fasta.stat().st_size, "sha256": sha256(fasta),
+            "path": str(fasta), "bytes": fasta.stat().st_size, "sha256": fa_sha,
+            "compressed": fasta.name.lower().endswith(".gz"),
+            "uncompressed_bytes": fa_uncomp_bytes,
+            "uncompressed_sha256": fa_uncomp_sha,
             "contig_count": len(contigs), "total_bases": sum(contigs.values()),
             "contig_lengths": contigs,
             "contigs_without_annotation": sorted(set(contigs) - set(annotation["annotation_contigs"])),
         },
-        "gtf": {"path": str(gtf), "bytes": gtf.stat().st_size, "sha256": sha256(gtf), **annotation},
+        "gtf": {
+            "path": str(gtf), "bytes": gtf.stat().st_size, "sha256": gtf_sha,
+            "compressed": gtf.name.lower().endswith(".gz"),
+            "uncompressed_bytes": gtf_uncomp_bytes,
+            "uncompressed_sha256": gtf_uncomp_sha,
+            **annotation,
+        },
     }
 
 

@@ -420,11 +420,13 @@ workflow KATANA_PIPELINE {
     ch_export_inputs = ch_artifacts.mix(ch_dtu_artifacts, ch_rmats_artifacts, ch_suppa_artifacts, ch_suppa_isoform_artifacts).collect(flat: false)
         .map { artifacts -> exportArtifactInputs(artifacts) }
     ch_resolved_rows_container = ch_resolved_samples.splitCsv(header: true).collect().map { [records: it] }
-    ch_study_metadata = ch_resolved_rows_container.combine(ch_contrasts_container).map { row_container, contrast_container ->
+    ch_study_metadata = ch_resolved_rows_container.combine(ch_contrasts_container).combine(VALIDATE_REFERENCE.out.audit.first()).map { row_container, contrast_container, ref_audit ->
         def rows = row_container.records
         def contrasts = contrast_container.records
+        def ref_meta = new groovy.json.JsonSlurper().parse(ref_audit.toFile())
         [analysis_purpose: params.analysis_purpose, design: params.design,
             assay: 'bulk_rna_seq', assay_validation: 'user_declared_or_defaulted_not_inferred_from_files',
+            reference: ref_meta,
             reference_declarations: [genome_build: params.reference_build ?: params.genome ?: null,
                 annotation_release: params.annotation_release ?: null,
                 validation: 'user_declared_labels_not_independently_verified'],

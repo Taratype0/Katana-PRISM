@@ -130,13 +130,26 @@ def _infer_order_from_rmats_bam_lists(
     return m1, m2
 
 
+def _validate_unique_headers_rb(columns: list[Any], source_label: str = "metadata") -> None:
+    trimmed = [str(c).strip() for c in columns]
+    if any(not c for c in trimmed):
+        raise ValueError(f"Blank column name in {source_label}: {columns}")
+    if len(trimmed) != len({c.casefold() for c in trimmed}):
+        raise ValueError(f"Duplicate or case-colliding column headers in {source_label}: {columns}")
+
+
 def _read_tabular(path: Path, *, as_metadata: bool = False, string_index: bool = False) -> pd.DataFrame:
     name = path.name.lower()
     if name.endswith(".parquet"):
-        return pd.read_parquet(path)
+        df = pd.read_parquet(path)
+        if as_metadata:
+            _validate_unique_headers_rb(list(df.columns), str(path))
+        return df
     sep = "," if (name.endswith(".csv") or name.endswith(".csv.gz")) else "\t"
     if as_metadata:
-        return pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False)
+        df = pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False)
+        _validate_unique_headers_rb(list(df.columns), str(path))
+        return df
     if string_index:
         return pd.read_csv(path, sep=sep, dtype={0: str})
     return pd.read_csv(path, sep=sep)
@@ -499,6 +512,61 @@ def _discover_rmats_contrasts(rmats_arg: str | Path | dict[str, Path], declared_
     return out
 
 
+def _parse_bool_flag_rb(val: Any) -> bool | None:
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(val, bool):
+        return val
+    tok = str(val).strip().strip('"').strip("'").lower()
+    if tok in {"true", "1", "yes", "t", "y"}:
+        return True
+    if tok in {"false", "0", "no", "f", "n"}:
+        return False
+    return None
+
+
+def _pca_panel_meta(rec: dict[str, Any], *, manifold_prefix: str = "") -> tuple[str, str]:
+    strata_m = str(rec.get("permanova_strata") or "free")
+    r2_g = float(rec.get("permanova_r2") or 0.0)
+    p_g_txt = _fmt_permanova_p(rec.get("permanova_p"))
+    ws_r2 = rec.get("permanova_within_subject_r2")
+    subj_r2 = rec.get("permanova_subject_r2")
+    p_ws = rec.get("permanova_p_within_subject")
+    p_ws_txt = _fmt_permanova_p(p_ws)
+    n_ps = int(rec.get("paired_subjects") or 0)
+    if strata_m == "subject_paired" and ws_r2 is not None and p_ws is not None:
+        ttl = f"Global splicing PCA ({manifold_prefix}Within-subject R² = {float(ws_r2):.3f}, Paired {p_ws_txt}; Global R² = {r2_g:.3f})"
+        cap = f"Empirical-Bayes depth-stabilized splicing manifold with paired-subject restricted PERMANOVA across {n_ps} paired subjects (subject baseline R² = {float(subj_r2 or 0.0):.3f})."
+    elif strata_m == "split_plot_paired" and ws_r2 is not None:
+        ttl = f"Global splicing PCA ({manifold_prefix}Within-subject R² = {float(ws_r2):.3f}, Paired {p_ws_txt}; Global R² = {r2_g:.3f})"
+        cap = f"Split-plot cohort with {n_ps} paired subjects (dashed subject trajectories; subject R² = {float(subj_r2 or 0.0):.3f}, within-subject paired {p_ws_txt})."
+    else:
+        ttl = f"Global splicing PCA ({manifold_prefix}PERMANOVA R² = {r2_g:.3f}, {p_g_txt})"
+        cap = "Empirical-Bayes depth-stabilized splicing manifold across measurable cohort events."
+    return ttl, cap
+
+
+def _find_enclosing_bundle_rb(start_path: Path | None) -> Path | None:
+    if start_path is None:
+        return None
+    cur = Path(start_path).resolve()
+    if cur.is_file():
+        cur = cur.parent
+    for cand in (cur, *list(cur.parents)[:5]):
+        if (
+            (cand / "manifest.json").is_file()
+            or (cand / "pipeline_info" / "input_audit.json").is_file()
+            or (cand / "rmats" / "bamlist").is_dir()
+        ):
+            return cand
+    return None
+
+
 def _resolve_rmats_dir_for_contrast(
     rmats_map: dict[str, Path],
     c_spec: dict[str, Any],
@@ -799,8 +867,16 @@ def _finalize_consulting_report_and_zip(
             self.create_archive = True
             n_units = len({s.get("biological_sample_id", s.get("sample_id")) for s in samples_list})
             n_conds = len({s.get("condition") for s in samples_list})
+            paired_cids = [str(c.get("contrast_id")) for c in contrasts_list if c.get("paired")]
+            ch1_callout = (
+                f"Audited {len(samples_list):,} {'cells/nuclei' if mode == 'single-cell' else 'RNA-seq libraries'} "
+                f"across {n_units:,} independent biological units and {n_conds} conditions "
+                f"({len(contrasts_list)} declared contrast{'s' if len(contrasts_list) != 1 else ''})."
+            )
+            if mode != "single-cell" and paired_cids:
+                ch1_callout += f" Paired-subject design active for {len(paired_cids)}/{len(contrasts_list)} contrast(s) (~ subject + condition; {n_units:,} biological subjects)."
             self.chapter_callouts: dict[int, str] = {
-                1: f"Audited {len(samples_list):,} {'cells/nuclei' if mode == 'single-cell' else 'RNA-seq libraries'} across {n_units:,} independent biological units and {n_conds} conditions ({len(contrasts_list)} declared contrast{'s' if len(contrasts_list) != 1 else ''}).",
+                1: ch1_callout,
                 2: "Empirical-Bayes Binomial support-shrunk PSI landscape separating biological splicing variation from sampling noise.",
                 3: "Differential host-gene transcription (DEG), precision-supported alternative splicing (DAS), and lossless orthogonal SUPPA2 / DEXSeq / DRIMSeq-stageR DTU tables.",
                 4: "Host transcription vs post-transcriptional splicing decoupling, pairwise cross-comparison overlaps, and ΔPSI directional concordance.",
@@ -862,6 +938,7 @@ def run_bulk(
     manifold_top_n: int = 2000,
     heatmap_top_n: int = 150,
     dummy: bool = False,
+    require_verified_sample_order: bool = False,
 ) -> dict[str, Any]:
     """Execute or assemble the complete Original-Katana-compliant Bulk Suite (Ch 01..07 + Appendix A)."""
     from katana_next.science.bulk import apply_stable_event_qc, parse_number_list, significance_columns
@@ -895,30 +972,37 @@ def run_bulk(
         raise FileNotFoundError(f"Explicit contrasts file not found: {contrasts}")
 
     s_df = samples.copy() if isinstance(samples, pd.DataFrame) else _read_tabular(Path(samples), as_metadata=True)
-    sid_col = next((c for c in ("sample_id", "sample", "id") if c in s_df.columns), s_df.columns[0])
-    cond_col = next((c for c in ("condition", "group") if c in s_df.columns), s_df.columns[1])
+    if isinstance(samples, pd.DataFrame):
+        _validate_unique_headers_rb(list(s_df.columns), "samples DataFrame")
+    _s_cols_l = {str(c).strip().casefold(): str(c) for c in s_df.columns}
+    sid_col = next((_s_cols_l[k] for k in ("sample_id", "sample", "id") if k in _s_cols_l), s_df.columns[0])
+    cond_col = next((_s_cols_l[k] for k in ("condition", "group") if k in _s_cols_l), s_df.columns[1])
     _missing_bio = {"", "nan", "none", "na", "null", "n/a"}
-    _s_cols_l = {str(c).strip().lower(): str(c) for c in s_df.columns}
     _bio_aliases = (
         "biological_sample_id", "donor_id", "donor", "mouse_id",
         "subject_id", "subject", "patient_id", "patient",
         "individual", "individual_id", "animal_id",
     )
-    _bio_cands = []
-    for _al in _bio_aliases:
-        _oc = _s_cols_l.get(_al)
-        if _oc is not None and _oc not in _bio_cands:
-            _bio_cands.append(_oc)
-    bio_col = None
-    best_cnt = -1
-    for _bc in _bio_cands:
-        _vcnt = sum(1 for v in s_df[_bc].tolist() if pd.notna(v) and str(v).strip().lower() not in _missing_bio)
-        if _vcnt == len(s_df) and len(s_df) > 0:
-            bio_col = _bc
-            break
-        if _vcnt > 0 and _vcnt > best_cnt:
-            best_cnt = _vcnt
-            bio_col = _bc
+
+    def _row_bio_id_strict(row: pd.Series, fallback_sid: str) -> str:
+        found: list[tuple[str, str]] = []
+        for col_k in row.keys():
+            if str(col_k).strip().casefold() not in _bio_aliases:
+                continue
+            val = row[col_k]
+            if pd.notna(val):
+                sv = str(val).strip().strip('"').strip("'")
+                if sv and sv.lower() not in _missing_bio:
+                    found.append((str(col_k), sv))
+        if not found:
+            return fallback_sid
+        distinct = list(dict.fromkeys(v for _, v in found))
+        if len(distinct) > 1:
+            raise ValueError(
+                f"Conflicting biological unit alias values on sample {fallback_sid!r}: "
+                + ", ".join(f"{c}={v!r}" for c, v in found)
+            )
+        return distinct[0]
 
     samples_list = []
     seen_bulk_sids: set[str] = set()
@@ -928,24 +1012,37 @@ def run_bulk(
             raise ValueError(f"Duplicate physical sample_id {sid_v!r} in bulk sample metadata.")
         if sid_v:
             seen_bulk_sids.add(sid_v)
-        raw_bio = r[bio_col] if bio_col else None
-        bio_v = str(raw_bio).strip() if (bio_col and pd.notna(raw_bio) and str(raw_bio).strip().lower() not in _missing_bio) else sid_v
+        bio_v = _row_bio_id_strict(r, sid_v)
         cond_v = str(r[cond_col]).strip()
         samples_list.append({
             "sample_id": sid_v,
             "condition": cond_v,
             "biological_sample_id": bio_v,
+            "donor_id": bio_v,
             "cell_type": cond_v,
         })
+    bio_by_sid = {s["sample_id"]: s["biological_sample_id"] for s in samples_list}
     cond_to_sids: dict[str, list[str]] = {}
     for s in samples_list:
         cond_to_sids.setdefault(s["condition"], []).append(s["sample_id"])
 
+    def _shared_paired_subjects(num_sids: list[str], den_sids: list[str]) -> list[str]:
+        den_set = {bio_by_sid.get(s, s) for s in den_sids}
+        return [
+            b for b in dict.fromkeys(bio_by_sid.get(s, s) for s in num_sids)
+            if b in den_set and any(bio_by_sid.get(s, s) != s for s in (num_sids + den_sids))
+        ]
+
     if contrasts is not None:
         c_df = contrasts.copy() if isinstance(contrasts, pd.DataFrame) else _read_tabular(Path(contrasts), as_metadata=True)
-        cid_c = next((c for c in ("contrast_id", "contrast", "comparison_id") if c in c_df.columns), c_df.columns[0])
-        num_c = next((c for c in ("treatment", "numerator", "group_a") if c in c_df.columns), c_df.columns[1])
-        den_c = next((c for c in ("control", "denominator", "group_b") if c in c_df.columns), c_df.columns[2])
+        if isinstance(contrasts, pd.DataFrame):
+            _validate_unique_headers_rb(list(c_df.columns), "contrasts DataFrame")
+        _c_cols_l = {str(c).strip().casefold(): str(c) for c in c_df.columns}
+        cid_c = next((_c_cols_l[k] for k in ("contrast_id", "contrast", "comparison_id") if k in _c_cols_l), c_df.columns[0])
+        num_c = next((_c_cols_l[k] for k in ("treatment", "numerator", "group_a") if k in _c_cols_l), c_df.columns[1])
+        den_c = next((_c_cols_l[k] for k in ("control", "denominator", "group_b") if k in _c_cols_l), c_df.columns[2])
+        paired_c = next((_c_cols_l[k] for k in ("paired", "is_paired") if k in _c_cols_l), None)
+        design_c = next((_c_cols_l[k] for k in ("design", "formula", "model") if k in _c_cols_l), None)
         contrasts_list = []
         seen_cids_bulk: set[str] = set()
         for _, r in c_df.iterrows():
@@ -955,21 +1052,38 @@ def run_bulk(
             seen_cids_bulk.add(cid_s.lower())
             num_s = str(r[num_c]).strip()
             den_s = str(r[den_c]).strip()
+            num_sids_c = cond_to_sids.get(num_s, [])
+            den_sids_c = cond_to_sids.get(den_s, [])
+            exp_paired = _parse_bool_flag_rb(r[paired_c]) if paired_c else None
+            shared_subj = _shared_paired_subjects(num_sids_c, den_sids_c)
+            is_paired = bool(exp_paired) if exp_paired is not None else (len(shared_subj) >= 2)
+            raw_design = str(r[design_c]).strip() if (design_c and pd.notna(r[design_c]) and str(r[design_c]).strip()) else ""
+            design_str = raw_design or ("~ subject + condition" if is_paired else "~ condition")
             contrasts_list.append({
                 "contrast_id": cid_s,
                 "label": f"{num_s} vs {den_s}",
-                "numerator": {"label": num_s, "sample_ids": cond_to_sids.get(num_s, [])},
-                "denominator": {"label": den_s, "sample_ids": cond_to_sids.get(den_s, [])},
+                "numerator": {"label": num_s, "sample_ids": num_sids_c},
+                "denominator": {"label": den_s, "sample_ids": den_sids_c},
+                "paired": bool(is_paired),
+                "paired_subjects": int(len(shared_subj)),
+                "design": design_str,
             })
     else:
         conds = list(cond_to_sids.keys())
         if len(conds) < 2:
             raise ValueError("At least 2 conditions in samples table are required when --contrasts is omitted.")
+        num_sids_c = cond_to_sids[conds[0]]
+        den_sids_c = cond_to_sids[conds[1]]
+        shared_subj = _shared_paired_subjects(num_sids_c, den_sids_c)
+        is_paired = len(shared_subj) >= 2
         contrasts_list = [{
             "contrast_id": f"{conds[0]}_vs_{conds[1]}",
             "label": f"{conds[0]} vs {conds[1]}",
-            "numerator": {"label": conds[0], "sample_ids": cond_to_sids[conds[0]]},
-            "denominator": {"label": conds[1], "sample_ids": cond_to_sids[conds[1]]},
+            "numerator": {"label": conds[0], "sample_ids": num_sids_c},
+            "denominator": {"label": conds[1], "sample_ids": den_sids_c},
+            "paired": bool(is_paired),
+            "paired_subjects": int(len(shared_subj)),
+            "design": "~ subject + condition" if is_paired else "~ condition",
         }]
 
     rmats_map = _discover_rmats_contrasts(rmats, contrasts_list, rmats_mode=rmats_mode)
@@ -981,7 +1095,7 @@ def run_bulk(
     motif_summaries: list[dict[str, Any]] = []
 
     # Chapter 01: Biological design + Alignment/Strandedness QC + MultiQC 5'-to-3' coverage
-    render_biological_design_panel(samples_list, out, panels, is_single_cell=False)
+    render_biological_design_panel(samples_list, out, panels, is_single_cell=False, contrasts_list=contrasts_list)
     render_bulk_sequencing_qc_panel(bundle_path, samples_list, out, panels, tables)
 
     cov_candidates = []
@@ -1055,11 +1169,14 @@ def run_bulk(
     if eff_mode_req not in {"JCEC", "JC"}:
         raise ValueError(f"Unsupported rmats_mode: {rmats_mode}")
 
-    # Authoritative rMATS sample order & arm orientation from bundle manifest.json (if present)
+    # Authoritative rMATS sample order & arm orientation from bundle manifest.json (explicit bundle or enclosing bundle)
     manifest_rmats_order: dict[str, list[str]] = {}
     manifest_comps: dict[str, dict[str, Any]] = {}
-    if bundle_path is not None and (bundle_path / "manifest.json").is_file():
-        mpath_b = bundle_path / "manifest.json"
+    eff_bundle_for_order = bundle_path
+    if eff_bundle_for_order is None and isinstance(rmats, (str, Path)):
+        eff_bundle_for_order = _find_enclosing_bundle_rb(Path(rmats))
+    if eff_bundle_for_order is not None and (eff_bundle_for_order / "manifest.json").is_file():
+        mpath_b = eff_bundle_for_order / "manifest.json"
         try:
             bm = json.loads(mpath_b.read_text(encoding="utf-8"))
             if not isinstance(bm, dict):
@@ -1106,7 +1223,9 @@ def run_bulk(
                     manifest_comps[c_key] = comp_rec
                     manifest_comps.setdefault(c_low, comp_rec)
         except (json.JSONDecodeError, ValueError, TypeError) as exc:
-            raise ValueError(f"Malformed manifest.json in {mpath_b}: {exc}") from exc
+            if bundle_path is not None:
+                raise ValueError(f"Malformed manifest.json in {mpath_b}: {exc}") from exc
+            manifest_rmats_order, manifest_comps = {}, {}
 
     cond_by_sid = {str(s["sample_id"]): str(s["condition"]) for s in samples_list}
     has_declared_samples = bool(samples_list)
@@ -1116,7 +1235,7 @@ def run_bulk(
         mc = manifest_comps.get(cid) or manifest_comps.get(cid.lower()) or {}
         num_lbl = str(c_spec["numerator"]["label"])
         den_lbl = str(c_spec["denominator"]["label"])
-        has_manifest_arms = bool(mc.get("rmats_group1") and mc.get("rmats_group2"))
+        has_manifest_arms = bool(bundle_path is not None and mc.get("rmats_group1") and mc.get("rmats_group2"))
         g1_lbl = mc.get("rmats_group1") or num_lbl
         g2_lbl = mc.get("rmats_group2") or den_lbl
         if has_manifest_arms and {g1_lbl, g2_lbl} != {num_lbl, den_lbl}:
@@ -1144,10 +1263,16 @@ def run_bulk(
         rmats_inverted = (g1_lbl == den_lbl and g2_lbl == num_lbl) if has_manifest_arms else dir_inverted
         arm1_lbl = den_lbl if rmats_inverted else num_lbl
         arm2_lbl = num_lbl if rmats_inverted else den_lbl
-        cm_order = mc.get("rmats_sample_order") or {}
+        dir_lbl_r = _dir_contrast_label(rdir)
+        mc_ord_rec = mc or manifest_comps.get(dir_lbl_r) or manifest_comps.get(dir_lbl_r.lower()) or {}
+        cm_order = mc_ord_rec.get("rmats_sample_order") or {}
         ord1 = cm_order.get(arm1_lbl) if arm1_lbl in cm_order else manifest_rmats_order.get(arm1_lbl)
         ord2 = cm_order.get(arm2_lbl) if arm2_lbl in cm_order else manifest_rmats_order.get(arm2_lbl)
-        explicit_order = bool(cm_order or manifest_rmats_order or ord1 is not None or ord2 is not None)
+        raw_g1 = c_spec["denominator"]["sample_ids"] if rmats_inverted else c_spec["numerator"]["sample_ids"]
+        raw_g2 = c_spec["numerator"]["sample_ids"] if rmats_inverted else c_spec["denominator"]["sample_ids"]
+        explicit_order = bool(
+            bundle_path is not None and (cm_order or manifest_rmats_order or ord1 is not None or ord2 is not None)
+        )
         if explicit_order:
             a1 = [str(x).strip() for x in (ord1 or [])]
             a2 = [str(x).strip() for x in (ord2 or [])]
@@ -1164,16 +1289,51 @@ def run_bulk(
             sample_order_source = "manifest_rmats_sample_order"
             sample_order_verified = True
         else:
-            g1_sids = c_spec["denominator"]["sample_ids"] if rmats_inverted else c_spec["numerator"]["sample_ids"]
-            g2_sids = c_spec["numerator"]["sample_ids"] if rmats_inverted else c_spec["denominator"]["sample_ids"]
+            g1_sids, g2_sids = list(raw_g1), list(raw_g2)
             inferred_ord = _infer_order_from_rmats_bam_lists(rdir, g1_sids, g2_sids)
             if inferred_ord is not None:
                 g1_sids, g2_sids = inferred_ord
                 sample_order_source = "rmats_b1_b2_list"
                 sample_order_verified = True
+            elif (
+                ord1 is not None
+                and ord2 is not None
+                and len(ord1) == len(g1_sids)
+                and len(ord2) == len(g2_sids)
+                and set(ord1) == set(g1_sids)
+                and set(ord2) == set(g2_sids)
+            ):
+                g1_sids, g2_sids = list(ord1), list(ord2)
+                sample_order_source = "enclosing_bundle_manifest"
+                sample_order_verified = True
             else:
                 sample_order_source = "samplesheet_positional_unverified"
                 sample_order_verified = False
+                enc_cand = eff_bundle_for_order or _find_enclosing_bundle_rb(rdir)
+                if enc_cand is not None and (enc_cand / "pipeline_info" / "input_audit.json").is_file():
+                    try:
+                        ia_obj = json.loads((enc_cand / "pipeline_info" / "input_audit.json").read_text(encoding="utf-8"))
+                        for comp_ia in ia_obj.get("comparisons") or []:
+                            if not isinstance(comp_ia, dict):
+                                continue
+                            ia_map = {
+                                str(comp_ia.get("treatment") or "").strip(): [str(x).strip() for x in (comp_ia.get("rmats_group1_samples") or [])],
+                                str(comp_ia.get("control") or "").strip(): [str(x).strip() for x in (comp_ia.get("rmats_group2_samples") or [])],
+                            }
+                            ca1, ca2 = ia_map.get(arm1_lbl), ia_map.get(arm2_lbl)
+                            if (
+                                ca1 is not None and ca2 is not None
+                                and len(ca1) == len(g1_sids) and len(ca2) == len(g2_sids)
+                                and set(ca1) == set(g1_sids) and set(ca2) == set(g2_sids)
+                            ):
+                                g1_sids, g2_sids = ca1, ca2
+                                sample_order_source = "enclosing_input_audit"
+                                sample_order_verified = True
+                                break
+                    except Exception:
+                        pass
+            if require_verified_sample_order and not sample_order_verified and (len(g1_sids) > 1 or len(g2_sids) > 1):
+                raise ValueError(f"Unverified within-arm sample order for '{cid}' in {rdir}; supply manifest rmats_sample_order or b1.txt/b2.txt.")
         num_sids = g2_sids if rmats_inverted else g1_sids
         den_sids = g1_sids if rmats_inverted else g2_sids
         frames = []
@@ -1526,8 +1686,9 @@ def run_bulk(
         pca_tsv_dst = out / "outputs/landscape/psi-pca-coordinates.tsv"
         pca_tsv_dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(sm_bulk_dir / "sample_manifold_coordinates.tsv", pca_tsv_dst)
+        pca_ttl_sm, pca_cap_sm = _pca_panel_meta(sm_rec)
         for src_name, dst_name, pid, ttl, cap, dpath, dunit in [
-            ("psi_pca.png", "psi-pca.png", "psi-pca", f"Global splicing PCA (PERMANOVA R² = {(sm_rec.get('permanova_r2') or 0.0):.3f}, {_fmt_permanova_p(sm_rec.get('permanova_p'))})", "Empirical-Bayes depth-stabilized splicing manifold across measurable cohort events.", pca_tsv_dst, "biological_sample"),
+            ("psi_pca.png", "psi-pca.png", "psi-pca", pca_ttl_sm, pca_cap_sm, pca_tsv_dst, "biological_sample"),
             ("psi_clustermap.png", "psi-heatmap.png", "psi-heatmap", "Depth-stabilized PSI Z-score clustermap", "Separated Sample Group vs Splicing Subtype legends with representative gene callouts.", psi_pq, "splicing_event"),
         ]:
             sp = sm_bulk_dir / "figures" / src_name
@@ -1565,10 +1726,13 @@ def run_bulk(
             render_editorial_psi_pca(land, pca_png, pca_png.with_suffix(".svg"), title=f"Global Splicing PCA ({land['manifold_events']:,} Events) & PERMANOVA — {study_name}")
             pca_tsv = out / "outputs/landscape/psi-pca-coordinates.tsv"
             pd.DataFrame(land["samples"]).to_csv(pca_tsv, sep="\t", index=False)
+            pca_ttl_fb, pca_cap_fb = _pca_panel_meta(
+                land, manifold_prefix=f"{land['manifold_events']:,} events · PC1 {land['pca_variance_pct'][0]:.1f}%, "
+            )
             panels.append({
                 "id": "psi-pca", "chapter": 2, "contrast_id": "all",
-                "title": f"Global splicing PCA ({land['manifold_events']:,} events · PC1 {land['pca_variance_pct'][0]:.1f}%, PERMANOVA {_fmt_permanova_p(land.get('permanova_p'))})",
-                "caption": "Empirical-Bayes depth-stabilized splicing manifold across measurable cohort events.",
+                "title": pca_ttl_fb,
+                "caption": pca_cap_fb,
                 "image": pca_png.relative_to(out).as_posix(), "svg": pca_png.with_suffix(".svg").relative_to(out).as_posix(),
                 "data_links": [{"role": "plot_data", "label": "PCA coordinates (TSV)", "path": pca_tsv.relative_to(out).as_posix(), "unit": "biological_sample", "contrast_id": "all", "policy": None}],
             })
@@ -1617,7 +1781,7 @@ def run_bulk(
             if len(selected_sn) >= max(10, min_mod * 2):
                 sn_fit_dir = out / "outputs/splicenet_tables"
                 sn_fit_dir.mkdir(parents=True, exist_ok=True)
-                sn_members_df = fit_splicenet(selected_sn, sn_fit_dir / "wgcna_fit", power=0, min_module_size=min_mod, backend="python")
+                sn_members_df = fit_splicenet(selected_sn, sn_fit_dir / "wgcna_fit", power=0, min_module_size=min_mod, backend="python", meta=meta_sn)
                 sn_scores_df, _, _, _ = score_modules(selected_sn, sn_members_df)
                 sn_mod_tsv_for_bridge = sn_fit_dir / "module_assignments.tsv"
                 sn_members_df.to_csv(sn_mod_tsv_for_bridge, sep="\t", index=False)

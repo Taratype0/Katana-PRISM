@@ -1,4 +1,4 @@
-"""Portable public benchmark runner for Katana-PRISM v1.0.5 (Nucleic Acids Research).
+"""Portable public benchmark runner for Katana-PRISM v1.0.6 (Nucleic Acids Research).
 
 Reproduces & verifies:
   1. 13-channel (`distal_intron_nt = 500`, mature-RNA path + 12 spatial windows) FWL-orthogonalized `SpliceTrace`
@@ -208,6 +208,11 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert int(pt2_c["cont_evaluated_events"]) == 51941 and int(pt2_c["cont_fg_events"]) == 9095
     assert int(pt2_c["cont_exact_rank"]) == 4 and int(pt2_c["cont_sig_rbps_fwer05"]) == 73
     assert abs(float(pt2_c["cont_exact_Z"]) - 7.689) < 0.01
+    f2c_idx = f2c.set_index("case")
+    assert abs(float(f2c_idx.loc["SRSF1", "cont_exact_P_FWER"]) - 0.001) < 1e-6
+    assert abs(float(f2c_idx.loc["HNRNPF", "cont_exact_P_FWER"]) - 0.0025) < 1e-6
+    assert abs(float(f2c_idx.loc["SRSF3", "cont_exact_P_FWER"]) - 0.0315) < 1e-6
+    assert list(f2c_idx.loc[["HNRNPA1", "SRSF3", "ZRANB2"], "cont_sig_rbps_fwer05"].astype(int)) == [6, 3, 3]
     lb = f2c[f2c["role"].eq("low_block_positive")]
     assert len(lb) == 10 and lb["disc_exact_rbp_P_FWER"].notna().all() and lb["disc_exact_rank"].notna().all()
     assert int((lb["disc_exact_rbp_P_FWER"] <= 0.05).sum()) == 0
@@ -246,22 +251,29 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert len(f3d) == 14 and "evaluable_coherence_donors" in f3d.columns
     ref_sub = f3d[f3d["method"].eq("Locked_CoSplice_v4_3_3")].set_index("budget")
     assert list(ref_sub.loc[[1000, 2000, 5000], "evaluable_coherence_donors"].astype(int)) == [19, 19, 19]
-    assert abs(float(ref_sub.loc[1000, "median_coherence_gap"]) - 0.3834) < 1e-3
-    assert abs(float(ref_sub.loc[2000, "median_coherence_gap"]) - 0.3426) < 1e-3
-    assert abs(float(ref_sub.loc[5000, "median_coherence_gap"]) - 0.3155) < 1e-3
+    assert abs(float(ref_sub.loc[1000, "median_coherence_gap"]) - 0.3654) < 1e-3
+    assert abs(float(ref_sub.loc[2000, "median_coherence_gap"]) - 0.3495) < 1e-3
+    assert abs(float(ref_sub.loc[5000, "median_coherence_gap"]) - 0.3097) < 1e-3
     py_sub = f3d[f3d["method"].eq("Pure_Python_SpliceNet")].set_index("budget")
     assert list(py_sub.loc[[1000, 2000, 5000], "evaluable_coherence_donors"].astype(int)) == [19, 19, 19]
-    assert abs(float(py_sub.loc[1000, "median_coherence_gap"]) - 0.1470) < 1e-3
-    assert abs(float(py_sub.loc[2000, "median_coherence_gap"]) - 0.0759) < 1e-3
-    assert abs(float(py_sub.loc[5000, "median_coherence_gap"]) - 0.0300) < 1e-3
+    assert abs(float(py_sub.loc[1000, "median_coherence_gap"]) - 0.1491) < 1e-3
+    assert abs(float(py_sub.loc[2000, "median_coherence_gap"]) - 0.0760) < 1e-3
+    assert abs(float(py_sub.loc[5000, "median_coherence_gap"]) - 0.0298) < 1e-3
     wrap_sub = f3d[f3d["method"].eq("R_Backed_Python_Wrapper_v2")].set_index("budget")
     assert abs(float(wrap_sub.loc[5000, "median_coherence_gap"]) - 0.3079) < 1e-3
     w5k = f3d[(f3d["budget"] == 5000) & f3d["method"].eq("Standard_WGCNA_SameUsageRatio")].iloc[0]
-    assert abs(float(w5k["median_coherence_gap"]) - 0.0159) < 1e-3
+    assert abs(float(w5k["median_coherence_gap"]) - 0.0187) < 1e-3 and str(w5k["paired_wins_py_vs_method"]) == "19/19"
+    dj5k = f3d[(f3d["budget"] == 5000) & f3d["method"].eq("Peer_DJExpress_JCNA1pass")].iloc[0]
+    assert abs(float(dj5k["median_coherence_gap"]) - 0.0439) < 1e-3 and str(dj5k["paired_wins_py_vs_method"]) == "7/19"
+    assert abs(float(dj5k["paired_delta_r_py_vs_method"]) - 0.0101) < 5e-4
 
     f3_per = _read("fig3d_gse122380_per_donor_5000.tsv")
     assert len(f3_per) == 76 and f3_per["donor"].nunique() == 19
-    assert {"Locked_CoSplice_v4_3_3", "Pure_Python_SpliceNet", "Standard_WGCNA_SameUsageRatio"}.issubset(set(f3_per["method"]))
+    assert {"Locked_CoSplice_v4_3_3", "Pure_Python_SpliceNet", "Standard_WGCNA_SameUsageRatio", "Peer_DJExpress_JCNA1pass"}.issubset(set(f3_per["method"]))
+    piv_per = f3_per.pivot(index="donor", columns="method", values="coherence_gap")
+    assert int((piv_per["Pure_Python_SpliceNet"] > piv_per["Peer_DJExpress_JCNA1pass"]).sum()) == 7
+    assert int((piv_per["Pure_Python_SpliceNet"] > piv_per["Standard_WGCNA_SameUsageRatio"]).sum()) == 19
+    assert int((piv_per["Locked_CoSplice_v4_3_3"] > piv_per["Peer_DJExpress_JCNA1pass"]).sum()) == 19
 
     geuv = _read("geuvadis_464donors_matched_events_summary.tsv").set_index("method")
     assert len(geuv) == 8 and abs(float(geuv.loc["raw_WGCNA", "mean_heldout_top_r"]) - 0.689458) < 1e-4
@@ -271,7 +283,10 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert abs(float(g62.loc["Peer_Mantel_CoSplicEx", "fixed_feature_subsample_ARI_median"]) - 0.8130) < 1e-3
     cf3e = _read("fig3e_gse122380_crossfold_stability.tsv")
     assert len(cf3e) == 6
-    assert abs(float(cf3e[(cf3e["budget"] == 5000) & cf3e["method"].eq("Katana_PRISM_SpliceNet")]["cross_fold_ARI_median"].iloc[0]) - 0.5753) < 1e-3
+    cf_py = cf3e[cf3e["method"].eq("Katana_PRISM_SpliceNet")].set_index("budget")["cross_fold_ARI_median"]
+    cf_wg = cf3e[cf3e["method"].eq("Standard_WGCNA_SameUsageRatio")].set_index("budget")["cross_fold_ARI_median"]
+    assert np.allclose(cf_py.loc[[1000, 2000, 5000]].astype(float), [0.8306, 0.7514, 0.5692], atol=1e-3)
+    assert np.allclose(cf_wg.loc[[1000, 2000, 5000]].astype(float), [0.6925, 0.5816, 0.4141], atol=1e-3)
     f2m = _read("fig2_bulk_manifold_vs_jutils_marvel.tsv")
     assert len(f2m) == 16 and abs(float(f2m.loc[f2m["dropout_rate"].eq(0.45) & f2m["method"].str.contains("SpliceManifold"), "permanova_r2"].iloc[0]) - 0.1992) < 1e-4
     assert float(f2m.loc[f2m["method"].str.contains("SpliceManifold"), "donor_centroid_signflip_p"].max()) <= 0.0001 + 1e-9
@@ -313,6 +328,10 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert int(prism_4d["fwer05_donor_null_M3_M4_fp_rbps"]) == 0 and abs(float(prism_4d["fwer05_null_50trial_familywise_FPR_pct"]) - 0.0) < 1e-4
     assert abs(float(prism_4d["bh05_study_null_50trial_familywise_FPR_pct"]) - 0.0) < 1e-4
     assert abs(float(prism_4d["bh05_permod_null_50trial_familywise_FPR_pct"]) - 0.0) < 1e-4
+    assert abs(float(prism_4d["fwer05_b4999_null_50trial_FPR_pct"]) - 0.0) < 1e-4
+    assert abs(float(prism_4d["per_mod_fwer05_b4999_null_50trial_FPR_pct"]) - 10.0) < 1e-4
+    assert abs(float(prism_4d["bh05_study_b4999_null_50trial_FPR_pct"]) - 2.0) < 1e-4
+    assert abs(float(prism_4d["bh05_permod_b4999_null_50trial_FPR_pct"]) - 16.0) < 1e-4
     mwu_4d = f4d.loc["SpliceNet + Unadjusted MWU"]
     assert abs(float(mwu_4d["fwer05_null_50trial_familywise_FPR_pct"]) - 52.0) < 1e-4
     assert int(mwu_4d["fwer05_developmental_rbps_called"]) == 22 and int(mwu_4d["fwer05_donor_null_M3_M4_fp_rbps"]) == 0
@@ -330,10 +349,14 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert abs(float(f5a.loc["MARVEL (Mean-Imputed, Same 1,000 HVEs)", "permanova_r2"]) - 0.0118) < 1e-4
     assert "input_representation" in f5a.columns and "kallisto" in str(f5a["input_representation"].iloc[0])
 
-    f5b = _read("fig5b_gse270928_sc_proteome_consequences.tsv")
+    f5b = _read("fig5b_gse270928_sc_proteome_consequences.tsv", keep_default_na=False)
     f5b_cod = f5b[f5b["frame_status"].isin(["frameshift", "in_frame_indel", "in_frame_PTC", "translation_start_altered"])]
-    assert len(f5b_cod) == 167
-    assert int(f5b_cod["contributing_donors"].eq(1).sum()) == 89 and int(f5b_cod["contributing_donors"].ge(2).sum()) == 78
+    assert len(f5b) == 195 and len(f5b_cod) == 167
+    assert int(f5b["frame_status"].eq("utr_cis_regulatory_only").sum()) == 14
+    assert int(f5b["frame_status"].eq("noncoding_transcript").sum()) == 13
+    assert int(f5b["frame_status"].eq("annotation_unmatched").sum()) == 1
+    assert f5b.loc[f5b["frame_status"].eq("annotation_unmatched"), "nmd_switch_class"].iloc[0] == "unannotated"
+    assert int(f5b_cod["contributing_donors"].astype(int).eq(1).sum()) == 89 and int(f5b_cod["contributing_donors"].astype(int).ge(2).sum()) == 78
     slam_b = f5b_cod[f5b_cod["gene_symbol"].eq("SLAMF1")].iloc[0]
     assert abs(float(slam_b["raw_dpsi"]) - 0.095456) < 1e-4 and abs(float(slam_b["eb_shrunk_dpsi"]) - 0.077136) < 1e-4
     ptprc_b = f5b_cod[f5b_cod["gene_symbol"].eq("PTPRC")].iloc[0]
@@ -379,7 +402,11 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert abs(float(up_m["acorde_native_usage_only"]) - 0.009657) < 2e-5
     assert abs(float(up_m["acorde_native_N117_selected"]) - 0.009517) < 2e-5
 
-    assert len(_read("suite4_gse270928_task3_paired_bootstrap_ci.tsv")) == 6
+    boot3 = _read("suite4_gse270928_task3_paired_bootstrap_ci.tsv")
+    assert len(boot3) == 6
+    cas_row = boot3[boot3["comparator"].astype(str).str.contains("CASREL")].iloc[0]
+    assert abs(float(cas_row["v2_full_mse_reduction"]) - 0.006544) < 1e-5
+    assert abs(float(cas_row["ci95_low"]) - 0.004912) < 1e-5 and abs(float(cas_row["ci95_high"]) - 0.008268) < 1e-5
     assert len(_read("upgrade3_sc_cosplice_v21_tasic_gaba_glut.tsv")) == 12
     miss_c = _read("tableS6_missing_coverage_null_check.tsv")
     assert len(miss_c) == 2 and (miss_c["rbp_P_FWER"] == 1.0).all() and (miss_c["stat_Z"].abs() < 1e-10).all()
@@ -402,9 +429,15 @@ def verify_bundled_tables(tables_path: Path) -> None:
 
     s7a = _read("tableS7a_ps_das_tau_sensitivity.tsv")
     assert int(s7a.loc[s7a["is_default"].eq(True), "NegA_called_events"].iloc[0]) == 1041
-    assert len(_read("tableS7b_splicetrace_exon_gc_ablation.tsv")) == 18
-    s7b2 = _read("tableS7b2_splicetrace_component_and_vif_ablations.tsv")
+    s7b = _read("tableS7b_splicetrace_exon_gc_ablation.tsv").set_index("case")
+    assert len(s7b) == 18
+    assert list(s7b.loc[f2c_idx.index, "FWL_default_omitExonGC_sig"].astype(int)) == list(f2c_idx["cont_sig_rbps_fwer05"].astype(int))
+    pos_cases = [c for c in f2c_idx.index if "negative" not in str(f2c_idx.loc[c, "role"])]
+    assert np.allclose(s7b.loc[pos_cases, "FWL_default_omitExonGC_exact_P_FWER"].astype(float), f2c_idx.loc[pos_cases, "cont_exact_P_FWER"].astype(float), atol=1e-6)
+    s7b2 = _read("tableS7b2_splicetrace_component_and_vif_ablations.tsv").set_index("case")
     assert len(s7b2) == 18 and float(s7b2["FWL_standardized_design_cond_number"].max()) < 10.0
+    assert list(s7b2.loc[f2c_idx.index, "Full13ch_GeneBlock_sig"].astype(int)) == list(f2c_idx["cont_sig_rbps_fwer05"].astype(int))
+    assert np.allclose(s7b2.loc[pos_cases, "Full13ch_GeneBlock_exact_P_FWER"].astype(float), f2c_idx.loc[pos_cases, "cont_exact_P_FWER"].astype(float), atol=1e-6)
     s7c = _read("tableS7c_splicenet_biweight_tail_sensitivity.tsv")
     s7c_bicor = s7c[~s7c["configuration"].str.contains("Pearson")]
     assert float(s7c_bicor["GSE62669_N60_partition_ARI_vs_default"].min()) > 0.92
@@ -423,21 +456,23 @@ def verify_bundled_tables(tables_path: Path) -> None:
     assert abs(float(het_sw.iloc[-1]["scSpliceTrace_DonorMaxT_FPR_pct"]) - 5.0) < 1e-2
     s1_bam = _read("tableS1_zero_resort_bam_concordance.tsv")
     assert len(s1_bam) == 11 and float(s1_bam["exact_coordinate_overlap_pct"].min()) == 100.0 and float(s1_bam["max_abs_delta_dpsi"].max()) == 0.0
-    s6_map = _read("tableS6_event_coordinate_mapping_audit.tsv")
-    assert (
-        len(s6_map) == 5
-        and int(s6_map.iloc[0]["final_evaluated_binary_events"]) == 563
-        and int(s6_map.iloc[1]["initial_annotated_or_cluster_denominator"]) == 53663
-        and int(s6_map.iloc[1]["final_evaluated_binary_events"]) == 2169
-        and int(s6_map.iloc[2]["initial_annotated_or_cluster_denominator"]) == 66391
-        and int(s6_map.iloc[2]["final_evaluated_binary_events"]) == 1000
-        and int(s6_map.iloc[3]["initial_annotated_or_cluster_denominator"]) == 5000
-        and int(s6_map.iloc[3]["intermediate_quantified_events"]) == 4310
-        and int(s6_map.iloc[3]["final_evaluated_binary_events"]) == 707
-        and int(s6_map.iloc[4]["initial_annotated_or_cluster_denominator"]) == 7591
-        and int(s6_map.iloc[4]["intermediate_quantified_events"]) == 7452
-        and int(s6_map.iloc[4]["final_evaluated_binary_events"]) == 7138
-    )
+    s6_map = _read("tableS6_event_coordinate_mapping_audit.tsv", keep_default_na=False)
+    assert len(s6_map) == 5
+    init_den = s6_map["initial_annotated_or_cluster_denominator"].astype(int).tolist()
+    inter_cnt = s6_map["intermediate_same_unit_events"].astype(int).tolist()
+    inter_pct = s6_map["intermediate_retained_pct"].astype(float).tolist()
+    final_cnt = s6_map["final_evaluated_binary_events"].astype(int).tolist()
+    final_pct = s6_map["final_retained_of_initial_pct"].astype(float).tolist()
+    quar_cnt = s6_map["quarantined_or_filtered_count"].astype(int).tolist()
+    assert init_den == [10436, 53663, 66391, 5000, 7591]
+    assert inter_cnt == [10436, 7763, 66391, 4310, 7452]
+    assert final_cnt == [563, 2169, 1000, 707, 7138]
+    assert quar_cnt == [9873, 51494, 65391, 690, 139]
+    assert np.allclose(inter_pct, [100.0, 14.47, 100.0, 86.2, 98.17], atol=0.01)
+    assert np.allclose(final_pct, [5.39, 4.04, 1.51, 14.14, 94.03], atol=0.01)
+    assert np.allclose(inter_pct, [round(100.0 * b / a, 2) for a, b in zip(init_den, inter_cnt)], atol=0.01)
+    assert np.allclose(final_pct, [round(100.0 * c / a, 2) for a, c in zip(init_den, final_cnt)], atol=0.01)
+    assert "14488" in str(s6_map.iloc[2]["auxiliary_host_gene_callable_loci"])
 
     on_disk = {p.name for p in tables_path.glob("*.tsv")}
     assert verified == on_disk, f"Unverified TSVs: {sorted(on_disk - verified)}; unexpected: {sorted(verified - on_disk)}"
@@ -445,7 +480,7 @@ def verify_bundled_tables(tables_path: Path) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Reproduce or verify Katana-PRISM v1.0.5 NAR benchmarks.")
+    ap = argparse.ArgumentParser(description="Reproduce or verify Katana-PRISM v1.0.6 NAR benchmarks.")
     ap.add_argument("--verify-bundled", action="store_true", help="Verify bundled summary TSV invariants.")
     ap.add_argument("--splicetools-dir", type=Path, default=None, help="Directory with public ENCODE rMATS tables.")
     ap.add_argument("--hg38-fasta", type=Path, default=None, help="Indexed hg38 FASTA for sequence extraction.")

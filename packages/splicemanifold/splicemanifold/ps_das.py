@@ -40,12 +40,23 @@ _DONOR_ID_ALIASES = (
     "donor_id",
     "donor",
     "mouse_id",
+    "subject_id",
     "subject",
+    "patient_id",
     "patient",
+    "individual_id",
     "individual",
     "animal_id",
 )
 _BLANK_DONOR_TOKENS = {"", "nan", "none", "na", "null", "n/a"}
+
+
+def _validate_unique_headers(columns: list[Any], source_label: str = "metadata") -> None:
+    trimmed = [str(c).strip() for c in columns]
+    if any(not c for c in trimmed):
+        raise ValueError(f"Blank column name in {source_label}: {columns}")
+    if len(trimmed) != len({c.casefold() for c in trimmed}):
+        raise ValueError(f"Duplicate or case-colliding column headers in {source_label}: {columns}")
 
 _COORD_KEY_COLS = {
     "SE": ("exonStart_0base", "exonEnd", "upstreamES", "upstreamEE", "downstreamES", "downstreamEE"),
@@ -68,13 +79,13 @@ def _clean_id(val: object) -> str:
 
 
 def _extract_donor_id(row: pd.Series | dict[str, Any], fallback_sid: str) -> str:
-    """Resolve biological donor identity across canonical metadata aliases, falling back to sample_id."""
-    col_map = {str(k).strip().lower(): k for k in row.keys()}
-    for alias in _DONOR_ID_ALIASES:
-        orig_col = col_map.get(alias)
-        if orig_col is None:
+    """Resolve biological donor identity across canonical metadata aliases, rejecting conflicting row aliases."""
+    found: list[tuple[str, str]] = []
+    for k in row.keys():
+        k_low = str(k).strip().casefold()
+        if k_low not in _DONOR_ID_ALIASES:
             continue
-        raw_val = row[orig_col]
+        raw_val = row[k]
         try:
             if pd.isna(raw_val):
                 continue
@@ -82,8 +93,16 @@ def _extract_donor_id(row: pd.Series | dict[str, Any], fallback_sid: str) -> str
             pass
         cleaned = str(raw_val).strip().strip('"').strip("'")
         if cleaned.lower() not in _BLANK_DONOR_TOKENS:
-            return cleaned
-    return fallback_sid
+            found.append((str(k), cleaned))
+    if not found:
+        return fallback_sid
+    distinct = list(dict.fromkeys(v for _, v in found))
+    if len(distinct) > 1:
+        raise ValueError(
+            f"Conflicting biological unit alias values on sample {fallback_sid!r}: "
+            + ", ".join(f"{col}={val!r}" for col, val in found)
+        )
+    return distinct[0]
 
 
 def _has_rmats_files(d: Path, mode: str = "JCEC") -> bool:
@@ -590,7 +609,125 @@ def qualify_ps_das_events(
 
 def _read_delimited(path: Path) -> pd.DataFrame:
     sep = "\t" if path.name.lower().endswith((".tsv", ".tsv.gz", ".txt", ".txt.gz")) else ","
-    return pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False)
+    df = pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False)
+    _validate_unique_headers(list(df.columns), str(path))
+    return df
+
+
+def _find_enclosing_bundle(start_path: Path | None) -> Path | None:
+    if start_path is None:
+        return None
+    cur = Path(start_path).resolve()
+    if cur.is_file():
+        cur = cur.parent
+    for cand in (cur, *list(cur.parents)[:5]):
+        if (
+            (cand / "manifest.json").is_file()
+            or (cand / "pipeline_info" / "input_audit.json").is_file()
+            or (cand / "rmats" / "bamlist").is_dir()
+        ):
+            return cand
+    return None
+
+
+def _infer_order_from_bamlist_files(
+    b1_p: Path, b2_p: Path, arm1_sids: list[str], arm2_sids: list[str],
+) -> tuple[list[str], list[str]] | None:
+    def _map_arm(bpath: Path, sids: list[str]) -> list[str] | None:
+        raw = bpath.read_text(encoding="utf-8", errors="replace")
+        tokens = [t.strip() for chunk in raw.splitlines() for t in chunk.split(",") if t.strip()]
+        if len(tokens) != len(sids):
+            return None
+        mapped: list[str] = []
+        used: set[str] = set()
+        for tok in tokens:
+            name = Path(tok.replace("\\", "/")).name
+            stem = name.split(".", 1)[0]
+            exact = [s for s in sids if stem == s]
+            cands = exact if len(exact) == 1 else [
+                s for s in sids
+                if name.startswith(f"{s}.") or name.startswith(f"{s}_") or name.startswith(f"{s}-")
+                or stem.startswith(f"{s}_") or stem.startswith(f"{s}-")
+            ]
+            if len(cands) != 1 or cands[0] in used:
+                return None
+            used.add(cands[0])
+            mapped.append(cands[0])
+        return mapped if len(mapped) == len(sids) else None
+
+    m1 = _map_arm(b1_p, arm1_sids)
+    m2 = _map_arm(b2_p, arm2_sids)
+    if m1 is None or m2 is None:
+        return None
+    return m1, m2
+
+
+def _resolve_verified_arm_order(
+    rdir: Path,
+    arm1_lbl: str,
+    arm2_lbl: str,
+    raw_arm1: list[str],
+    raw_arm2: list[str],
+    cid: str,
+    enclosing_bundle: Path | None = None,
+) -> tuple[list[str], list[str], bool]:
+    import json as _json
+
+    inferred = _infer_order_from_rmats_bam_lists(rdir, raw_arm1, raw_arm2)
+    if inferred is not None:
+        return inferred[0], inferred[1], True
+    bdir = enclosing_bundle or _find_enclosing_bundle(rdir)
+    if bdir is not None:
+        b1_bl = bdir / "rmats" / "bamlist" / f"{arm1_lbl}_bamlist.txt"
+        b2_bl = bdir / "rmats" / "bamlist" / f"{arm2_lbl}_bamlist.txt"
+        if b1_bl.is_file() and b2_bl.is_file():
+            bl_ord = _infer_order_from_bamlist_files(b1_bl, b2_bl, raw_arm1, raw_arm2)
+            if bl_ord is not None:
+                return bl_ord[0], bl_ord[1], True
+        try:
+            m_ord, m_comps = _parse_manifest_rmats(bdir)
+        except Exception:
+            m_ord, m_comps = {}, {}
+        dir_lbl = _dir_contrast_label(rdir)
+        mc = m_comps.get(cid) or m_comps.get(cid.lower()) or m_comps.get(dir_lbl) or m_comps.get(dir_lbl.lower()) or {}
+        cm_ord = mc.get("rmats_sample_order") or {}
+        o1 = cm_ord.get(arm1_lbl) if arm1_lbl in cm_ord else m_ord.get(arm1_lbl)
+        o2 = cm_ord.get(arm2_lbl) if arm2_lbl in cm_ord else m_ord.get(arm2_lbl)
+        if (
+            o1 is not None
+            and o2 is not None
+            and len(o1) == len(raw_arm1)
+            and len(o2) == len(raw_arm2)
+            and set(o1) == set(raw_arm1)
+            and set(o2) == set(raw_arm2)
+        ):
+            return list(o1), list(o2), True
+        ia_p = bdir / "pipeline_info" / "input_audit.json"
+        if ia_p.is_file():
+            try:
+                ia = _json.loads(ia_p.read_text(encoding="utf-8"))
+                for comp in ia.get("comparisons") or []:
+                    if not isinstance(comp, dict):
+                        continue
+                    t_l = str(comp.get("treatment") or "").strip()
+                    c_l = str(comp.get("control") or "").strip()
+                    g1_s = [str(x).strip() for x in (comp.get("rmats_group1_samples") or [])]
+                    g2_s = [str(x).strip() for x in (comp.get("rmats_group2_samples") or [])]
+                    cand_map = {t_l: g1_s, c_l: g2_s}
+                    ca1 = cand_map.get(arm1_lbl)
+                    ca2 = cand_map.get(arm2_lbl)
+                    if (
+                        ca1 is not None
+                        and ca2 is not None
+                        and len(ca1) == len(raw_arm1)
+                        and len(ca2) == len(raw_arm2)
+                        and set(ca1) == set(raw_arm1)
+                        and set(ca2) == set(raw_arm2)
+                    ):
+                        return ca1, ca2, True
+            except Exception:
+                pass
+    return raw_arm1, raw_arm2, False
 
 
 def _validate_manifest_sample_order(
@@ -694,6 +831,7 @@ def load_rmats_study(
     contrasts_file: Path | None = None,
     rmats_mode: str = "JCEC",
     contrast_id: str = "contrast_1",
+    require_verified_sample_order: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[dict[str, Any]], dict[str, dict[str, Any]]]:
     """Load rMATS events, sample PSI matrix, read-support matrix, sample metadata, and event metadata."""
     mode = rmats_mode.upper()
@@ -790,10 +928,12 @@ def load_rmats_study(
                 else:
                     raw_arm1 = [s["sample_id"] for s in sample_meta if s["condition"] == arm1_lbl]
                     raw_arm2 = [s["sample_id"] for s in sample_meta if s["condition"] == arm2_lbl]
-                    inferred = _infer_order_from_rmats_bam_lists(rdir, raw_arm1, raw_arm2)
-                    if inferred is not None:
-                        raw_arm1, raw_arm2 = inferred
-                        explicit_order = True
+                    raw_arm1, raw_arm2, ver_ord = _resolve_verified_arm_order(
+                        rdir, arm1_lbl, arm2_lbl, raw_arm1, raw_arm2, cid, enclosing_bundle=bdir
+                    )
+                    if require_verified_sample_order and not ver_ord and (len(raw_arm1) > 1 or len(raw_arm2) > 1):
+                        raise ValueError(f"Unverified within-arm sample order for '{cid}' in {rdir}.")
+                    explicit_order = ver_ord
                     num_s = raw_arm2 if rev_dir else raw_arm1
                     den_s = raw_arm1 if rev_dir else raw_arm2
                 contrast_specs.append({
@@ -804,6 +944,7 @@ def load_rmats_study(
                 })
     elif rmats_dir is not None:
         rdir = Path(rmats_dir)
+        enc_bdir = _find_enclosing_bundle(rdir)
         if samples_file is not None:
             sf = Path(samples_file)
             if not sf.is_file():
@@ -817,7 +958,7 @@ def load_rmats_study(
                     if sid in seen_sids:
                         raise ValueError(f"Duplicate physical sample_id {sid!r} in sample metadata ({sf}).")
                     seen_sids.add(sid)
-                    sample_meta.append({"sample_id": sid, "biological_sample_id": bio, "condition": cond})
+                    sample_meta.append({"sample_id": sid, "biological_sample_id": bio, "donor_id": bio, "condition": cond})
         if contrasts_file is not None:
             cf = Path(contrasts_file)
             if not cf.is_file():
@@ -850,18 +991,21 @@ def load_rmats_study(
                 seen_rdirs[c_res] = cid
                 raw_n = [s["sample_id"] for s in sample_meta if s["condition"] == num_lbl]
                 raw_d = [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl]
+                a1_lbl, a2_lbl = (den_lbl, num_lbl) if rev_dir else (num_lbl, den_lbl)
                 a1_l, a2_l = (raw_d, raw_n) if rev_dir else (raw_n, raw_d)
-                inferred = _infer_order_from_rmats_bam_lists(cand, a1_l, a2_l)
-                if inferred is not None:
-                    a1_l, a2_l = inferred
-                    raw_n, raw_d = (a2_l, a1_l) if rev_dir else (a1_l, a2_l)
+                a1_l, a2_l, ver_ord = _resolve_verified_arm_order(
+                    cand, a1_lbl, a2_lbl, a1_l, a2_l, cid, enclosing_bundle=enc_bdir
+                )
+                if require_verified_sample_order and not ver_ord and (len(a1_l) > 1 or len(a2_l) > 1):
+                    raise ValueError(f"Unverified within-arm sample order for '{cid}' in {cand}.")
+                raw_n, raw_d = (a2_l, a1_l) if rev_dir else (a1_l, a2_l)
                 contrast_specs.append({
                     "contrast_id": cid, "numerator": num_lbl, "denominator": den_lbl,
                     "rmats_dir": cand,
                     "num_samples": raw_n,
                     "den_samples": raw_d,
                     "reverse_direction": rev_dir,
-                    "explicit_order": inferred is not None,
+                    "explicit_order": ver_ord,
                 })
         else:
             # Single rMATS directory mode (lock arm order from directory contrast label when available)
@@ -906,15 +1050,18 @@ def load_rmats_study(
                 den_s = [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl]
             else:
                 num_lbl, den_lbl, num_s, den_s, rev_dir = "Group1", "Group2", [], [], False
+            a1_lbl, a2_lbl = (den_lbl, num_lbl) if rev_dir else (num_lbl, den_lbl)
             a1_l, a2_l = (den_s, num_s) if rev_dir else (num_s, den_s)
-            inferred = _infer_order_from_rmats_bam_lists(rdir, a1_l, a2_l)
-            if inferred is not None:
-                a1_l, a2_l = inferred
-                num_s, den_s = (a2_l, a1_l) if rev_dir else (a1_l, a2_l)
+            a1_l, a2_l, ver_ord = _resolve_verified_arm_order(
+                rdir, a1_lbl, a2_lbl, a1_l, a2_l, contrast_id, enclosing_bundle=enc_bdir
+            )
+            if require_verified_sample_order and not ver_ord and (len(a1_l) > 1 or len(a2_l) > 1):
+                raise ValueError(f"Unverified within-arm sample order for '{contrast_id}' in {rdir}.")
+            num_s, den_s = (a2_l, a1_l) if rev_dir else (a1_l, a2_l)
             contrast_specs.append({
                 "contrast_id": contrast_id, "numerator": num_lbl, "denominator": den_lbl,
                 "rmats_dir": rdir, "num_samples": num_s, "den_samples": den_s,
-                "reverse_direction": rev_dir, "explicit_order": inferred is not None,
+                "reverse_direction": rev_dir, "explicit_order": ver_ord,
             })
     else:
         raise ValueError("Either bundle_dir or rmats_dir must be supplied.")

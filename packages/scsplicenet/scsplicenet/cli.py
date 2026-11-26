@@ -1,4 +1,4 @@
-"""Standalone CLI for scsplicenet (1.0.5) — Smart-seq3 support-precision co-splicing network & modules."""
+"""Standalone CLI for scsplicenet (1.0.6) — Smart-seq3 support-precision co-splicing network & modules."""
 from __future__ import annotations
 
 import argparse
@@ -15,7 +15,7 @@ from scsplicenet.qc_and_selection import (
     select_sc_events,
 )
 
-__version__ = "1.0.5"
+__version__ = "1.0.6"
 def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SCSPLICENET") -> None:
     """Emit standard nf-core `versions.yml` recording tool and Python versions."""
     import platform
@@ -23,7 +23,7 @@ def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SCSP
     p.parent.mkdir(parents=True, exist_ok=True)
     yml = (
         f'"{process_name}":\n'
-        f'    scsplicenet: "1.0.5"\n'
+        f'    scsplicenet: "1.0.6"\n'
         f'    python: "{platform.python_version()}"\n'
     )
     p.write_text(yml, encoding="utf-8")
@@ -32,13 +32,16 @@ def write_nfcore_versions_yml(path: Path | str, process_name: str = "KATANA_SCSP
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="scsplicenet",
-        description="scSpliceNet 1.0.5: Smart-seq3 Hybrid-Manifold ExcessBioVar & support-precision TOM co-splicing network.",
+        description="scSpliceNet 1.0.6: Smart-seq3 Hybrid-Manifold ExcessBioVar & support-precision TOM co-splicing network.",
     )
     p.add_argument("--version", action="version", version=f"scsplicenet {__version__}")
     p.add_argument("--usage", type=Path, required=False, help="TSV(.gz): cell_id rows x event_id columns observed usage")
     p.add_argument("--metadata", type=Path, required=False, help="TSV/CSV: QC-passed cell metadata (cell_id, donor_id, cell_type, condition, qc_pass)")
     p.add_argument("--event-genes", type=Path, required=False, help="TSV: event_id, gene_id[, gene_symbol]")
     p.add_argument("--donor-col", default=None, help="Explicit donor/animal column name (auto-detects unambiguous donor aliases if omitted)")
+    p.add_argument("--group-col", default=None, help="Optional group/condition column when restricting network to two contrast arms")
+    p.add_argument("--numerator", default=None, help="Optional numerator condition label (requires --denominator)")
+    p.add_argument("--denominator", default=None, help="Optional denominator condition label (requires --numerator)")
     p.add_argument("--support", type=Path, default=None, help="Optional TSV(.gz): cell_id x event_id count denominators")
     p.add_argument("--host-expr", type=Path, default=None, help="Optional TSV(.gz): cell_id x gene_id log-expression for Hybrid Manifold selector")
     p.add_argument("--select-budget", type=int, default=0, help="If > 0, select top-K splicing events first using --selector")
@@ -90,10 +93,33 @@ def main(argv: list[str] | None = None) -> int:
     usage = _read_id_mat(args.usage)
     md_sep = "," if str(args.metadata).lower().endswith((".csv", ".csv.gz")) else "\t"
     metadata = pd.read_csv(args.metadata, sep=md_sep, dtype=str, keep_default_na=False)
+    if len(metadata.columns) != len({str(c).strip().casefold() for c in metadata.columns}):
+        raise ValueError(f"Case-colliding or duplicate column headers in {args.metadata}: {list(metadata.columns)}")
     eg_df = pd.read_csv(args.event_genes, sep="\t", dtype={"event_id": str, "gene_id": str, "gene_symbol": str})
     eg_df["event_id"] = eg_df["event_id"].astype(str)
     eg_df["gene_id"] = eg_df["gene_id"].astype(str)
     support = _read_id_mat(args.support) if args.support else None
+    if (args.numerator is None) != (args.denominator is None):
+        raise ValueError("Specify both --numerator and --denominator (or neither) for contrast-scoped scSpliceNet.")
+    if args.numerator is not None and args.denominator is not None:
+        num_s = str(args.numerator).strip()
+        den_s = str(args.denominator).strip()
+        if not num_s or not den_s or num_s == den_s:
+            raise ValueError(f"--numerator ({num_s!r}) and --denominator ({den_s!r}) must be distinct non-empty labels.")
+        gcol = str(args.group_col or "condition").strip()
+        if gcol not in metadata.columns:
+            raise ValueError(f"--group-col {gcol!r} not found in metadata columns: {list(metadata.columns)}")
+        cid_col = "cell_id" if "cell_id" in metadata.columns else metadata.columns[0]
+        gvals = metadata[gcol].astype(str).str.strip()
+        m_num = gvals.eq(num_s)
+        m_den = gvals.eq(den_s)
+        if int(m_num.sum()) == 0 or int(m_den.sum()) == 0:
+            raise ValueError(f"Contrast {num_s!r} vs {den_s!r} has empty arm(s) in {gcol!r}: n_num={int(m_num.sum())}, n_den={int(m_den.sum())}.")
+        metadata = metadata.loc[m_num | m_den].reset_index(drop=True)
+        keep_cells = [c for c in metadata[cid_col].astype(str).str.strip().tolist() if c in usage.index]
+        usage = usage.loc[keep_cells]
+        if support is not None:
+            support = support.loc[[c for c in keep_cells if c in support.index]]
     eg_ser = eg_df.set_index("event_id")["gene_id"].astype(str)
 
     if args.select_budget > 0 and usage.shape[1] > args.select_budget:

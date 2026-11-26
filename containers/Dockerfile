@@ -1,9 +1,13 @@
 FROM python:3.12-slim
 
+ARG APP_VERSION=1.0.6
+ARG VCS_REF=unknown
+
 LABEL org.opencontainers.image.title="Katana-PRISM" \
       org.opencontainers.image.authors="Dhruba Tara Maharjan <dhruba.tara.maharjan@ki.se>" \
       org.opencontainers.image.source="https://github.com/Taratype0/Katana-PRISM" \
-      org.opencontainers.image.version="1.0.5" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.description="Standalone & nf-core downstream runtime for SpliceManifold, SpliceNet, SpliceTrace, scSpliceNet, scSpliceTrace, and Katana Studio"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
