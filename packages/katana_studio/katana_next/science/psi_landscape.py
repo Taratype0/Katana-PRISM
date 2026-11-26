@@ -21,6 +21,7 @@
 """
 from __future__ import annotations
 
+import itertools
 import math
 from pathlib import Path
 import re
@@ -65,17 +66,38 @@ def infer_event_type(eid: str) -> str:
     return "SE"
 
 
-def permanova_r2(dist_mat: np.ndarray, groups: list[str], n_perm: int = 499, seed: int = 42) -> tuple[float, float]:
-    """Non-parametric Anderson (2001) PERMANOVA R^2 and permutation p-value on distance matrix."""
+def _fmt_permanova_p(val: object) -> str:
+    if val is None:
+        return "P = N/A (descriptive)"
+    try:
+        fv = float(val)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "P = N/A (descriptive)"
+    if not math.isfinite(fv):
+        return "P = N/A (descriptive)"
+    return f"P = {fv:.3g}"
+
+
+def permanova_r2(
+    dist_mat: np.ndarray,
+    groups: list[str],
+    n_perm: int = 499,
+    seed: int = 42,
+    *,
+    units: list[str] | None = None,
+    return_details: bool = False,
+) -> tuple[Any, ...]:
+    """Non-parametric Anderson (2001) PERMANOVA R^2 with biological-unit-aware permutation."""
     n = len(groups)
     if n < 4 or len(set(groups)) < 2:
-        return 0.0, 1.0
+        return (0.0, None, "insufficient_samples", False) if return_details else (0.0, 1.0)
     D2 = np.asarray(dist_mat, dtype=float) ** 2
-    H = np.eye(n) - np.ones((n, n)) / n
-    G = -0.5 * (H @ D2 @ H)
-    ss_total = float(np.trace(G))
-    if ss_total <= 1e-12:
-        return 0.0, 1.0
+    if D2.shape != (n, n) or not np.all(np.isfinite(D2)):
+        return (0.0, None, "invalid_distance_matrix", False) if return_details else (0.0, 1.0)
+    np.fill_diagonal(D2, 0.0)
+    ss_t = float(D2.sum()) / (2.0 * n)
+    if ss_t <= 1e-12:
+        return (0.0, None, "zero_total_dispersion", False) if return_details else (0.0, 1.0)
 
     uniq = sorted(set(groups))
     g_arr = np.asarray(groups)
@@ -89,10 +111,78 @@ def permanova_r2(dist_mat: np.ndarray, groups: list[str], n_perm: int = 499, see
                 ss_w += float(sub_d2.sum()) / (2.0 * len(idx))
         return ss_w
 
-    ss_t = float(D2.sum()) / (2.0 * n)
     ss_w_obs = _ss_within(g_arr)
     ss_b_obs = max(0.0, ss_t - ss_w_obs)
     r2_obs = ss_b_obs / max(1e-12, ss_t)
+    r2_round = round(r2_obs, 4)
+
+    blank_u = {"", "nan", "none", "na", "null", "n/a"}
+    clean_units: list[str] | None = None
+    if units is not None and len(units) == n:
+        clean_units = [("" if str(u).strip().lower() in blank_u else str(u).strip()) for u in units]
+
+    if clean_units is not None and all(clean_units) and len(set(clean_units)) < n:
+        unit_idx: dict[str, np.ndarray] = {}
+        unit_conds: dict[str, set[str]] = {}
+        for u in dict.fromkeys(clean_units):
+            idxs = np.array([i for i, cu in enumerate(clean_units) if cu == u], dtype=int)
+            unit_idx[u] = idxs
+            unit_conds[u] = set(g_arr[idxs].tolist())
+        if all(len(cs) == 1 for cs in unit_conds.values()):
+            u_names = list(unit_idx.keys())
+            u_labels = [next(iter(unit_conds[u])) for u in u_names]
+            if len(u_names) < 4 or len(set(u_labels)) < 2:
+                return (r2_round, None, "insufficient_biological_units", False) if return_details else (r2_round, math.nan)
+            cond_counts: dict[str, int] = {}
+            for lbl in u_labels:
+                cond_counts[lbl] = cond_counts.get(lbl, 0) + 1
+            if min(cond_counts.values()) < 2:
+                return (r2_round, None, "insufficient_biological_units", False) if return_details else (r2_round, math.nan)
+            total_comb = math.factorial(len(u_labels))
+            for cnt in cond_counts.values():
+                total_comb //= math.factorial(cnt)
+            if len(cond_counts) == 2 and total_comb <= 2000:
+                g0, g1 = sorted(cond_counts.keys())
+                n_g0 = cond_counts[g0]
+                ge_count = 0
+                for comb in itertools.combinations(range(len(u_names)), n_g0):
+                    comb_set = set(comb)
+                    perm = np.empty(n, dtype=object)
+                    for ui, u in enumerate(u_names):
+                        perm[unit_idx[u]] = g0 if ui in comb_set else g1
+                    ss_b_p = max(0.0, ss_t - _ss_within(perm))
+                    if ss_b_p >= ss_b_obs - 1e-12:
+                        ge_count += 1
+                p_val = round(ge_count / total_comb, 4)
+            else:
+                rng = np.random.default_rng(seed)
+                u_lbl_arr = np.asarray(u_labels, dtype=object)
+                ge_count = 1
+                for _ in range(n_perm):
+                    perm_u = rng.permutation(u_lbl_arr)
+                    perm = np.empty(n, dtype=object)
+                    for ui, u in enumerate(u_names):
+                        perm[unit_idx[u]] = perm_u[ui]
+                    ss_b_p = max(0.0, ss_t - _ss_within(perm))
+                    if ss_b_p >= ss_b_obs - 1e-12:
+                        ge_count += 1
+                p_val = round(ge_count / (n_perm + 1), 4)
+            return (r2_round, p_val, "between_biological_unit", True) if return_details else (r2_round, p_val)
+        multi_cond_units = [u for u, cs in unit_conds.items() if len(cs) >= 2]
+        if len(multi_cond_units) >= 2 and len(multi_cond_units) == len(unit_conds):
+            rng = np.random.default_rng(seed)
+            ge_count = 1
+            for _ in range(n_perm):
+                perm = g_arr.copy()
+                for u in multi_cond_units:
+                    idxs = unit_idx[u]
+                    perm[idxs] = rng.permutation(perm[idxs])
+                ss_b_p = max(0.0, ss_t - _ss_within(perm))
+                if ss_b_p >= ss_b_obs - 1e-12:
+                    ge_count += 1
+            p_val = round(ge_count / (n_perm + 1), 4)
+            return (r2_round, p_val, "within_biological_unit", True) if return_details else (r2_round, p_val)
+        return (r2_round, None, "unsupported_mixed_unit_design", False) if return_details else (r2_round, math.nan)
 
     rng = np.random.default_rng(seed)
     ge_count = 1
@@ -101,7 +191,8 @@ def permanova_r2(dist_mat: np.ndarray, groups: list[str], n_perm: int = 499, see
         ss_b_p = max(0.0, ss_t - _ss_within(perm))
         if ss_b_p >= ss_b_obs - 1e-12:
             ge_count += 1
-    return round(r2_obs, 4), round(ge_count / (n_perm + 1), 4)
+    p_val = round(ge_count / (n_perm + 1), 4)
+    return (r2_round, p_val, "independent_samples", True) if return_details else (r2_round, p_val)
 
 
 def compute_beyond_jutils_landscape(
@@ -121,6 +212,7 @@ def compute_beyond_jutils_landscape(
     run_umap: bool = True,
     umap_neighbors: int = 12,
     umap_min_dist: float = 0.18,
+    allow_coverage_fallback: bool = False,
 ) -> dict[str, Any]:
     """Compute Empirical-Bayes precision-shrunk PSI Z-scores, hierarchical clustermap, PCA, and Precision-Kernel UMAP."""
     s_ids = [str(s["sample_id"]) for s in sample_meta if str(s["sample_id"]) in psi_matrix.columns]
@@ -139,21 +231,49 @@ def compute_beyond_jutils_landscape(
         ], index=P_raw.index)
         P_raw = P_raw.loc[et_series.isin(allowed_et)]
 
-    present_frac = P_raw.notna().mean(axis=1)
-    P_obs = P_raw.loc[present_frac >= min_present_fraction].copy()
-    if len(P_obs) < 5:
-        P_obs = P_raw.loc[present_frac >= 0.25].copy()
-    if len(P_obs) < 3:
-        return {"available": False, "reason": "Insufficient multi-sample splicing events after coverage filtering."}
-
-    # Align junction read depth matrix N_{e,s}; if absent in compact matrix, use conservative effective depth N=25 where observed, 0 where NA
+    # Align junction read depth matrix N_{e,s} BEFORE coverage filtering so zero-support cells do not inflate coverage
     if depth_matrix is not None and not depth_matrix.empty:
-        N_mat = depth_matrix.reindex(index=P_obs.index, columns=s_ids).fillna(0.0).to_numpy(dtype=float)
+        d_aligned = depth_matrix.copy()
+        d_aligned.index = d_aligned.index.astype(str)
+        d_aligned.columns = d_aligned.columns.astype(str)
+        N_raw_all = d_aligned.reindex(index=P_raw.index, columns=s_ids).fillna(0.0).to_numpy(dtype=float)
+        P_raw_np = P_raw.to_numpy(dtype=float)
+        usable_raw = np.isfinite(P_raw_np) & np.isfinite(N_raw_all) & (N_raw_all > 0.0)
     else:
-        N_mat = np.where(P_obs.notna().to_numpy(), 25.0, 0.0)
+        N_raw_all = np.where(P_raw.notna().to_numpy(), 25.0, 0.0)
+        usable_raw = np.isfinite(P_raw.to_numpy(dtype=float))
+
+    present_frac = usable_raw.mean(axis=1)
+    keep_mask = present_frac >= float(min_present_fraction)
+    eff_min_present = float(min_present_fraction)
+    coverage_fallback_applied = False
+    if int(keep_mask.sum()) < (5 if allow_coverage_fallback else 3):
+        if allow_coverage_fallback:
+            keep_mask = present_frac >= 0.25
+            eff_min_present = 0.25
+            coverage_fallback_applied = True
+        else:
+            return {
+                "available": False,
+                "reason": (
+                    f"Only {int(keep_mask.sum())} splicing events met min_present_fraction={eff_min_present:.2f} "
+                    "with positive read support."
+                ),
+                "effective_min_present_fraction": eff_min_present,
+                "coverage_fallback_applied": False,
+            }
+    if int(keep_mask.sum()) < 3:
+        return {
+            "available": False,
+            "reason": "Insufficient multi-sample splicing events after coverage filtering.",
+            "effective_min_present_fraction": eff_min_present,
+            "coverage_fallback_applied": coverage_fallback_applied,
+        }
+    P_obs = P_raw.loc[keep_mask].copy()
+    N_mat = N_raw_all[keep_mask, :]
 
     P_np = P_obs.to_numpy(dtype=float)
-    obs_mask = np.isfinite(P_np) & (N_mat > 0)
+    obs_mask = np.isfinite(P_np) & np.isfinite(N_mat) & (N_mat > 0)
 
     # Weighted event prior mean mu_e
     w_sum = np.where(obs_mask, N_mat, 0.0).sum(axis=1, keepdims=True)
@@ -170,12 +290,20 @@ def compute_beyond_jutils_landscape(
         mu_e,
     )
 
-    # ExcessBioVar = max(0, Var_obs - E[mu*(1-mu)/(N+1)])
-    obs_var = np.nanvar(np.where(obs_mask, P_np, np.nan), axis=1)
-    binom_noise = np.nanmean(
-        np.where(obs_mask, (mu_e * (1.0 - mu_e)) / np.maximum(1.0, N_mat + 1.0), np.nan),
-        axis=1,
-    )
+    # ExcessBioVar = max(0, Var_obs(ddof=1) - E[mu*(1-mu)/(N+1)])
+    n_obs_row = obs_mask.sum(axis=1)
+    P_masked = np.where(obs_mask, P_np, np.nan)
+    obs_var = np.zeros(P_np.shape[0], dtype=float)
+    ge2 = n_obs_row >= 2
+    if np.any(ge2):
+        obs_var[ge2] = np.nanvar(P_masked[ge2], axis=1, ddof=1)
+    binom_noise = np.zeros(P_np.shape[0], dtype=float)
+    ge1 = n_obs_row >= 1
+    if np.any(ge1):
+        binom_noise[ge1] = np.nanmean(
+            np.where(obs_mask[ge1], (mu_e[ge1] * (1.0 - mu_e[ge1])) / np.maximum(1.0, N_mat[ge1] + 1.0), np.nan),
+            axis=1,
+        )
     excess_biovar = np.maximum(0.0, np.nan_to_num(obs_var - binom_noise, nan=0.0))
 
     eids_all = P_obs.index.to_numpy()
@@ -200,6 +328,31 @@ def compute_beyond_jutils_landscape(
     P_man = P_shrunk[man_idx, :]
     N_man = N_mat[man_idx, :]
     mask_man = obs_mask[man_idx, :]
+    n_s = len(s_ids)
+    if int(mask_man.sum()) == 0:
+        return {
+            "available": False,
+            "reason": "Selected manifold events have zero positive-support observations.",
+            "effective_min_present_fraction": eff_min_present,
+            "coverage_fallback_applied": coverage_fallback_applied,
+        }
+    m_int = mask_man.astype(int)
+    shared_mat = m_int.T @ m_int
+    tri_i, tri_j = np.triu_indices(n_s, k=1)
+    pair_shared = shared_mat[tri_i, tri_j] if len(tri_i) > 0 else np.array([0], dtype=int)
+    min_shared = int(pair_shared.min()) if len(pair_shared) > 0 else 0
+    med_shared = float(np.median(pair_shared)) if len(pair_shared) > 0 else 0.0
+    zero_shared_pairs = int((pair_shared == 0).sum())
+    if len(pair_shared) > 0 and int(pair_shared.max()) == 0:
+        return {
+            "available": False,
+            "reason": "No sample pairs share any co-measured positive-support splicing events.",
+            "effective_min_present_fraction": eff_min_present,
+            "coverage_fallback_applied": coverage_fallback_applied,
+            "min_shared_events_per_pair": min_shared,
+            "median_shared_events_per_pair": med_shared,
+            "zero_shared_pairs": zero_shared_pairs,
+        }
 
     # Heatmap Display uses `hm_idx` (top `top_n` events for readable row resolution)
     P_sel = P_shrunk[hm_idx, :]
@@ -246,7 +399,6 @@ def compute_beyond_jutils_landscape(
         var_exp.append(0.0)
 
     # Precision-Kernel Pairwise Distance Matrix D_PSI on global manifold events
-    n_s = len(s_ids)
     D_prec = np.zeros((n_s, n_s), dtype=float)
     W_eff = np.where(mask_man, N_man, 0.0)  # (E_man, S)
     for i in range(n_s):
@@ -263,7 +415,25 @@ def compute_beyond_jutils_landscape(
     np.fill_diagonal(D_prec, 0.0)
 
     conditions = [str(meta_by_id[sid].get("condition", "Unknown")) for sid in s_ids]
-    perm_r2, perm_p = permanova_r2(D_prec, conditions)
+    units_raw = [
+        str(
+            meta_by_id[sid].get("biological_sample_id")
+            or meta_by_id[sid].get("donor_id")
+            or meta_by_id[sid].get("subject")
+            or ""
+        ).strip()
+        for sid in s_ids
+    ]
+    units_arg = units_raw if all(u and u.lower() not in {"nan", "none", "na", "null", "n/a"} for u in units_raw) else None
+    if selection_mode == "supervised_ps_das":
+        perm_r2, _, _, _ = permanova_r2(D_prec, conditions, units=units_arg, return_details=True)
+        perm_p = None
+        perm_scope = "descriptive_only_post_selection_supervised"
+        perm_valid = False
+        perm_warning = "Supervised PS-DAS selection conditions on group labels; inferential PERMANOVA P is suppressed."
+    else:
+        perm_r2, perm_p, perm_scope, perm_valid = permanova_r2(D_prec, conditions, units=units_arg, return_details=True)
+        perm_warning = "" if perm_valid else f"PERMANOVA P suppressed ({perm_scope})."
 
     # Precision-Kernel UMAP (if requested and n_samples >= 6)
     umap_coords = np.zeros((n_s, 2), dtype=float)
@@ -330,6 +500,14 @@ def compute_beyond_jutils_landscape(
         "heatmap_events": int(len(sel_eids)),
         "permanova_r2": perm_r2,
         "permanova_p": perm_p,
+        "permanova_scope": perm_scope,
+        "permanova_inference_valid": perm_valid,
+        "permanova_warning": perm_warning,
+        "effective_min_present_fraction": eff_min_present,
+        "coverage_fallback_applied": coverage_fallback_applied,
+        "min_shared_events_per_pair": min_shared,
+        "median_shared_events_per_pair": med_shared,
+        "zero_shared_pairs": zero_shared_pairs,
         "pca_variance_pct": var_exp,
         "samples": sample_out,
         "ordered_samples": ordered_samples,
@@ -341,6 +519,7 @@ def compute_beyond_jutils_landscape(
             "col_order": col_order,
             "row_order": row_order,
             "sel_eids": [sel_eids[i] for i in row_order],
+            "man_eids": eids_all[man_idx].tolist(),
             "obs_frac_ordered": mean_cov_per_sample[col_order],
             "D_prec": D_prec,
         },
@@ -778,7 +957,7 @@ def render_editorial_psi_pca(
     ax_pca.set_xlabel(f"PC1 ({vexp[0]:.1f}% splicing variance)", fontweight="bold", color=EDITORIAL_NAVY)
     ax_pca.set_ylabel(f"PC2 ({vexp[1]:.1f}% splicing variance)", fontweight="bold", color=EDITORIAL_NAVY)
     ax_pca.set_title(
-        f"A. Sample splicing manifold (PERMANOVA R² = {landscape['permanova_r2']*100:.1f}%, P = {landscape['permanova_p']:.3g})",
+        f"A. Sample splicing manifold (PERMANOVA R² = {landscape['permanova_r2']*100:.1f}%, {_fmt_permanova_p(landscape.get('permanova_p'))})",
         loc="left", fontsize=10.2, fontweight="bold", color=EDITORIAL_NAVY,
     )
     ax_pca.legend(frameon=True, facecolor="#FFFFFF", framealpha=0.88, edgecolor="#E2E8F0", fontsize=8.0, loc="upper left")

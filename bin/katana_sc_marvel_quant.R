@@ -239,7 +239,13 @@ main <- function() {
     # Assign global `gtf` explicitly because MARVEL v2.0.5 Preprocess_rMATS references lowercase `gtf`
     assign("gtf", gtf_df, envir = .GlobalEnv)
 
-    pheno_orig <- utils::read.delim(file.path(opt$prep_dir, "marvel_pheno.tsv"), stringsAsFactors = FALSE, check.names = FALSE)
+    pheno_orig <- utils::read.delim(
+        file.path(opt$prep_dir, "marvel_pheno.tsv"),
+        colClasses = "character",
+        stringsAsFactors = FALSE,
+        check.names = FALSE,
+        na.strings = character(0)
+    )
     orig_ids <- as.character(pheno_orig[["sample.id"]])
     safe_ids <- sprintf("CELL_%06d", seq_along(orig_ids))
     safe_to_orig <- stats::setNames(orig_ids, safe_ids)
@@ -248,7 +254,12 @@ main <- function() {
     pheno_m <- pheno_orig
     pheno_m[["sample.id"]] <- safe_ids
 
-    gf_df <- utils::read.delim(file.path(opt$prep_dir, "marvel_gene_feature.tsv"), stringsAsFactors = FALSE, check.names = FALSE)
+    gf_df <- utils::read.delim(
+        file.path(opt$prep_dir, "marvel_gene_feature.tsv"),
+        colClasses = "character",
+        stringsAsFactors = FALSE,
+        check.names = FALSE
+    )
     sj_df <- utils::read.delim(gzfile(file.path(opt$prep_dir, "marvel_sj_counts.tsv.gz")), stringsAsFactors = FALSE, check.names = FALSE)
     sj_cell_cols <- intersect(orig_ids, names(sj_df)[-1])
     sj_df <- sj_df[, c("coord.intron", sj_cell_cols), drop = FALSE]
@@ -404,11 +415,15 @@ main <- function() {
     md_out[["sample.id"]] <- NULL
     if (!("cell_id" %in% names(md_out))) {
         cb_col <- intersect(c("cell_barcode", "barcode", "sample_id"), names(md_out))
-        md_out$cell_id <- if (length(cb_col) > 0) as.character(md_out[[cb_col[1]]]) else out_cells
+        md_out$cell_id <- if (length(cb_col) > 0) as.character(md_out[[cb_col[1]]]) else as.character(out_cells)
+    } else {
+        md_out$cell_id <- as.character(md_out$cell_id)
     }
     if (!("donor_id" %in% names(md_out))) {
-        dc <- intersect(c("mouse_id", "donor", "biological_sample_id", "subject"), names(md_out))
+        dc <- intersect(c("mouse_id", "donor", "biological_sample_id", "subject", "patient", "individual", "animal_id"), names(md_out))
         md_out$donor_id <- if (length(dc) > 0) as.character(md_out[[dc[1]]]) else "Donor1"
+    } else {
+        md_out$donor_id <- as.character(md_out$donor_id)
     }
     if (!("condition" %in% names(md_out)) && opt$group_col %in% names(md_out)) {
         md_out$condition <- as.character(md_out[[opt$group_col]])

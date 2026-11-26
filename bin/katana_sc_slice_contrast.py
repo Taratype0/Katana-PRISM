@@ -5,6 +5,7 @@ for a specific `(population_col, population_value, numerator, denominator)` cont
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -43,7 +44,11 @@ def main() -> int:
     psi = _read_id_mat(args.psi)
     if psi.index.has_duplicates:
         raise ValueError("Duplicate cell_id rows detected in --psi matrix.")
-    sup = _read_id_mat(args.support) if (args.support and args.support.is_file()) else None
+    sup = None
+    if args.support is not None and args.support.name != "NO_SUPPORT":
+        if not args.support.is_file():
+            raise FileNotFoundError(f"Missing --support matrix: {args.support}")
+        sup = _read_id_mat(args.support)
     if sup is not None and sup.index.has_duplicates:
         raise ValueError("Duplicate cell_id rows detected in --support matrix.")
 
@@ -52,53 +57,94 @@ def main() -> int:
     if dup_cid.any():
         bad_cids = md.loc[dup_cid, "cell_id"].drop_duplicates().head(5).tolist()
         raise ValueError(f"Duplicate physical cell_id entries in metadata (e.g. {bad_cids}).")
+    if "qc_pass" in md.columns:
+        qc_bad = {"false", "0", "no", "f", "fail"}
+        md = md[~md["qc_pass"].astype(str).str.strip().str.lower().isin(qc_bad)].copy()
+        if md.empty:
+            raise ValueError("Zero cells remain after qc_pass filtering.")
     md = md[md["cell_id"].isin(psi.index)].reset_index(drop=True)
 
     pcol = str(args.population_col).strip()
     pval = str(args.population_value).strip()
+    pop_filters: list[list[str]] = []
     if pcol and pcol.upper() not in ("ALL", "*", "NONE") and pval.upper() not in ("ALL", "*"):
-        if pcol == "not_doublet" and "flag_top2pct" in md.columns:
+        if ":" in pcol or ":" in pval:
+            p_cols = [x.strip() for x in pcol.split(":")]
+            p_vals = [x.strip() for x in pval.split(":")]
+            if len(p_cols) != len(p_vals) or any(not c for c in p_cols) or any(not v for v in p_vals):
+                raise ValueError(
+                    f"Malformed composite population filter --population-col={pcol!r}, --population-value={pval!r}."
+                )
+            for k_c, v_c in zip(p_cols, p_vals):
+                if k_c not in md.columns:
+                    raise ValueError(
+                        f"Population column {k_c!r} not found in cell metadata columns: {list(md.columns)}"
+                    )
+                pop_filters.append([k_c, v_c])
+                if v_c.startswith("!"):
+                    md = md[~md[k_c].astype(str).str.lower().eq(v_c[1:].lower())].copy()
+                else:
+                    md = md[md[k_c].astype(str).eq(v_c)].copy()
+        elif pcol == "not_doublet" and "flag_top2pct" in md.columns:
+            pop_filters.append([pcol, pval])
             md = md[~md["flag_top2pct"].astype(str).str.lower().isin(("true", "1"))].copy()
-        elif ":" in pcol and ":" in pval:
-            for k_c, v_c in zip(pcol.split(":"), pval.split(":")):
-                if k_c in md.columns:
-                    if v_c.startswith("!"):
-                        md = md[~md[k_c].astype(str).str.lower().eq(v_c[1:].lower())].copy()
-                    else:
-                        md = md[md[k_c].astype(str).eq(v_c)].copy()
         elif pcol in md.columns:
+            pop_filters.append([pcol, pval])
             md = md[md[pcol].astype(str).eq(pval)].copy()
         else:
             raise ValueError(f"Population column {pcol!r} not found in cell metadata columns: {list(md.columns)}")
 
-    if args.group_col in md.columns and args.group_col != "condition":
+    if args.group_col not in md.columns:
+        raise ValueError(f"Group column {args.group_col!r} not found in cell metadata columns: {list(md.columns)}")
+    if args.group_col != "condition":
         md["condition"] = md[args.group_col].astype(str)
+
+    m1 = md["condition"].astype(str).eq(str(args.numerator)).to_numpy()
+    m2 = md["condition"].astype(str).eq(str(args.denominator)).to_numpy()
+    n_num_cells = int(m1.sum())
+    n_den_cells = int(m2.sum())
+    eff_min = max(1, int(args.min_cells))
+    if n_num_cells == 0 or n_den_cells == 0:
+        receipt_err = {
+            "status": "missing_contrast_arm",
+            "support_supplied": bool(sup is not None),
+            "support_mode": "measured" if sup is not None else "missing",
+            "population_col": pcol,
+            "population_value": pval,
+            "population_filters": pop_filters,
+            "group_col": str(args.group_col),
+            "numerator": str(args.numerator),
+            "denominator": str(args.denominator),
+            "numerator_cells": n_num_cells,
+            "denominator_cells": n_den_cells,
+            "min_cells_requested": int(args.min_cells),
+            "passing_events": 0,
+            "n_cells": int(len(md)),
+            "n_events": 0,
+        }
+        (args.outdir / "slice_receipt.json").write_text(json.dumps(receipt_err, indent=2), encoding="utf-8")
+        raise ValueError(
+            f"Contrast arm(s) missing after population filtering (numerator={args.numerator!r}: {n_num_cells} cells, "
+            f"denominator={args.denominator!r}: {n_den_cells} cells)."
+        )
 
     cids = md["cell_id"].tolist()
     eids = ev["event_id"].astype(str).tolist()
     p_sub = psi.reindex(index=cids, columns=eids)
-    s_sub = sup.reindex(index=cids, columns=eids).fillna(0.0) if sup is not None else pd.DataFrame(10.0, index=cids, columns=eids)
+    s_sub = sup.reindex(index=cids, columns=eids).fillna(0.0) if sup is not None else None
 
     arr = p_sub.to_numpy(dtype=float)
     n_obs = np.isfinite(arr).sum(axis=0)
     with np.errstate(invalid="ignore"):
         m_psi = np.nanmean(arr, axis=0)
-    eff_min = max(3, min(int(args.min_cells), len(cids) // 5))
     keep = (n_obs >= eff_min) & np.isfinite(m_psi) & (m_psi >= 0.01) & (m_psi <= 0.99)
-    if not keep.any():
-        keep = n_obs >= 2
-    if not keep.any():
-        keep = np.zeros(len(ev), dtype=bool)
-        keep[: min(10, len(ev))] = True
 
     ev_k = ev.loc[keep].reset_index(drop=True)
     kept_ids = ev_k["event_id"].astype(str).tolist()
     p_k = p_sub.loc[:, kept_ids]
-    s_k = s_sub.loc[:, kept_ids]
+    s_k = s_sub.loc[:, kept_ids] if s_sub is not None else None
     arr_k = p_k.to_numpy(dtype=float)
 
-    m1 = md["condition"].astype(str).eq(str(args.numerator)).to_numpy()
-    m2 = md["condition"].astype(str).eq(str(args.denominator)).to_numpy()
     dpsi = np.full(len(ev_k), np.nan, dtype=float)
     pvals = np.full(len(ev_k), np.nan, dtype=float)
     for i in range(len(ev_k)):
@@ -130,7 +176,30 @@ def main() -> int:
     ev_k[["event_id", "gene_id", "gene_symbol"]].to_csv(args.outdir / "sc_event_genes.tsv", sep="\t", index=False)
     md.to_csv(args.outdir / "sc_cells.tsv", sep="\t", index=False)
     p_k.to_csv(args.outdir / "sc_psi.tsv.gz", sep="\t", index_label="cell_id", compression="gzip")
-    s_k.to_csv(args.outdir / "sc_support.tsv.gz", sep="\t", index_label="cell_id", compression="gzip")
+    sup_out = args.outdir / "sc_support.tsv.gz"
+    if s_k is not None:
+        s_k.to_csv(sup_out, sep="\t", index_label="cell_id", compression="gzip")
+    elif sup_out.exists():
+        sup_out.unlink()
+
+    receipt = {
+        "status": "complete" if len(ev_k) > 0 else "zero_passing_events",
+        "support_supplied": bool(s_k is not None),
+        "support_mode": "measured" if s_k is not None else "missing",
+        "population_col": pcol,
+        "population_value": pval,
+        "population_filters": pop_filters,
+        "group_col": str(args.group_col),
+        "numerator": str(args.numerator),
+        "denominator": str(args.denominator),
+        "numerator_cells": n_num_cells,
+        "denominator_cells": n_den_cells,
+        "min_cells_requested": int(args.min_cells),
+        "passing_events": int(len(ev_k)),
+        "n_cells": int(len(md)),
+        "n_events": int(len(ev_k)),
+    }
+    (args.outdir / "slice_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
 
     if args.expression and args.expression.is_file() and args.expression.name != "NO_EXPRESSION":
         expr = _read_id_mat(args.expression)

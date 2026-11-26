@@ -766,6 +766,102 @@ def _map_uniprot_domains_to_isoforms(
     return uniprot_acc, feat_str, mapped_arch
 
 
+def _strict_int_coord(rec: dict, col: str) -> int:
+    if col not in rec:
+        raise ValueError(f"Missing required coordinate column '{col}'.")
+    val = rec[col]
+    try:
+        if val is None or pd.isna(val):
+            raise ValueError(f"Missing coordinate in column '{col}'.")
+    except (TypeError, ValueError):
+        if isinstance(val, (list, tuple, dict)):
+            raise ValueError(f"Invalid coordinate in column '{col}'.")
+    if isinstance(val, bool):
+        raise ValueError(f"Boolean coordinate not allowed in '{col}'.")
+    try:
+        fv = float(str(val).strip()) if isinstance(val, str) else float(val)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Non-numeric coordinate {val!r} in column '{col}'.") from exc
+    if (not np.isfinite(fv)) or fv != np.floor(fv) or fv < 0:
+        raise ValueError(f"Non-integer or negative coordinate {val!r} in column '{col}'.")
+    return int(round(fv))
+
+
+def _validate_event_geometry_and_bounds(rec: dict, reader, stream) -> dict:
+    """Validate event coordinates/geometry strictly and verify FASTA contig presence, bounds, and .fai integrity."""
+    rec_out = dict(rec)
+    eid = str(rec_out.get("event_id") or "")
+    etype = str(rec_out.get("event_type") or "").strip()
+    strand = str(rec_out.get("strand") or "").strip()
+    chrom = str(rec_out.get("chr") or "").strip()
+    if (not chrom or not strand) and ":" in eid:
+        id_pts = eid.split(":")
+        if len(id_pts) >= 3:
+            chrom = chrom or id_pts[1].strip()
+            strand = strand or id_pts[2].strip()
+    if etype not in ("SE", "A3SS", "A5SS", "MXE", "RI") or strand not in ("+", "-"):
+        raise ValueError(f"Unsupported event_type={etype!r} or strand={strand!r} for event {eid!r}.")
+    if not chrom:
+        raise ValueError(f"Missing chromosome for event {eid!r}.")
+
+    coord_map: dict[str, int] = {}
+    if etype == "SE":
+        for c in ("upstreamES", "upstreamEE", "exonStart_0base", "exonEnd", "downstreamES", "downstreamEE"):
+            coord_map[c] = _strict_int_coord(rec_out, c)
+        u0, u1 = coord_map["upstreamES"], coord_map["upstreamEE"]
+        t0, t1 = coord_map["exonStart_0base"], coord_map["exonEnd"]
+        d0, d1 = coord_map["downstreamES"], coord_map["downstreamEE"]
+        if not (u0 < u1 < t0 < t1 < d0 < d1):
+            raise ValueError(
+                f"Invalid SE geometry for {eid}: expected u0 < u1 < exonStart < exonEnd < d0 < d1, "
+                f"got ({u0},{u1}), ({t0},{t1}), ({d0},{d1})."
+            )
+    elif etype == "MXE":
+        for c in (
+            "upstreamES", "upstreamEE", "1stExonStart_0base", "1stExonEnd",
+            "2ndExonStart_0base", "2ndExonEnd", "downstreamES", "downstreamEE",
+        ):
+            coord_map[c] = _strict_int_coord(rec_out, c)
+        u0, u1 = coord_map["upstreamES"], coord_map["upstreamEE"]
+        a0, a1 = coord_map["1stExonStart_0base"], coord_map["1stExonEnd"]
+        b0, b1 = coord_map["2ndExonStart_0base"], coord_map["2ndExonEnd"]
+        d0, d1 = coord_map["downstreamES"], coord_map["downstreamEE"]
+        if not (u0 < u1 < a0 < a1 <= b0 < b1 < d0 < d1):
+            raise ValueError(
+                f"Invalid MXE exon ordering for {eid}: expected u0 < u1 < 1st < 2nd < d0 < d1."
+            )
+    elif etype == "RI":
+        for c in ("upstreamES", "upstreamEE", "downstreamES", "downstreamEE", "riExonStart_0base", "riExonEnd"):
+            coord_map[c] = _strict_int_coord(rec_out, c)
+        u0, u1 = coord_map["upstreamES"], coord_map["upstreamEE"]
+        d0, d1 = coord_map["downstreamES"], coord_map["downstreamEE"]
+        ri0, ri1 = coord_map["riExonStart_0base"], coord_map["riExonEnd"]
+        if not (u0 < u1 < d0 < d1) or (ri0, ri1) != (u0, d1):
+            raise ValueError(
+                f"Invalid RI geometry for {eid}: riExon ({ri0},{ri1}) disagrees with flanks ({u0},{u1})-({d0},{d1})."
+            )
+    else:
+        for c in ("longExonStart_0base", "longExonEnd", "shortES", "shortEE", "flankingES", "flankingEE"):
+            coord_map[c] = _strict_int_coord(rec_out, c)
+        l0, l1 = coord_map["longExonStart_0base"], coord_map["longExonEnd"]
+        s0, s1 = coord_map["shortES"], coord_map["shortEE"]
+        f0, f1 = coord_map["flankingES"], coord_map["flankingEE"]
+        if not (l0 < l1 and s0 < s1 and f0 < f1):
+            raise ValueError(f"Empty/reversed A3SS/A5SS exon interval for {eid}.")
+
+    rec_out.update(coord_map)
+    contig = reader.resolve_chrom(chrom)
+    if hasattr(reader, "_validate_contig_index"):
+        reader._validate_contig_index(stream, contig)
+    seq_len = int(reader.index[contig][0])
+    max_coord = max(coord_map.values())
+    if max_coord > seq_len:
+        raise ValueError(
+            f"Event {eid} coordinate {max_coord} exceeds FASTA contig {contig!r} length {seq_len}."
+        )
+    return rec_out
+
+
 def trace_protein_and_nmd_consequences(
     events_df: pd.DataFrame,
     gtf_path: Path | str,
@@ -794,7 +890,8 @@ def trace_protein_and_nmd_consequences(
 
     rows: list[dict] = []
     with reader.open_stream() as stream:
-        for rec in events_df.to_dict("records"):
+        for raw_rec in events_df.to_dict("records"):
+            rec = _validate_event_geometry_and_bounds(raw_rec, reader, stream)
             eid = str(rec["event_id"])
             gid = str(rec.get("gene_id", "")).split(".")[0]
             raw_sym = rec.get("gene_symbol")
@@ -892,14 +989,36 @@ def trace_protein_and_nmd_consequences(
                         continue
                     conditional_novel_a3_a5 = True
 
-            if host is None or not host.cds_blocks:
+            if host is None:
                 rows.append({
                     "event_id": eid,
                     "gene_id": gid,
                     "gene_symbol": gsym,
                     "event_type": etype,
                     "dpsi": dpsi,
-                    "host_transcript_id": host.transcript_id if host else "unmatched",
+                    "host_transcript_id": "unmatched",
+                    "uniprot_acc": "NA",
+                    "coding_region_location": "unannotated_host",
+                    "frame_status": "annotation_unmatched",
+                    "nmd_switch_class": "unannotated",
+                    "aa_len_inclusion": 0,
+                    "aa_len_exclusion": 0,
+                    "delta_aa": 0,
+                    "ptc_to_last_ejc_nt": 0,
+                    "disrupted_protein_features": "none",
+                    "functional_consequence_summary": "Unmatched host gene/transcript in reference GTF annotation",
+                    "architecture_json": "{}",
+                })
+                continue
+
+            if not host.cds_blocks:
+                rows.append({
+                    "event_id": eid,
+                    "gene_id": gid,
+                    "gene_symbol": gsym,
+                    "event_type": etype,
+                    "dpsi": dpsi,
+                    "host_transcript_id": host.transcript_id,
                     "uniprot_acc": "NA",
                     "coding_region_location": "noncoding_host",
                     "frame_status": "noncoding_transcript",
@@ -921,14 +1040,11 @@ def trace_protein_and_nmd_consequences(
             chosen_bundle = None
             best_bundle_rank = (-1, -1)
             for cand_m in coding_pool:
-                try:
-                    c_inc_ex, c_exc_ex = _build_full_isoform_exons(cand_m.exons, rec)
-                    c_ord_inc = c_inc_ex if strand == "+" else c_inc_ex[::-1]
-                    c_ord_exc = c_exc_ex if strand == "+" else c_exc_ex[::-1]
-                    c_dna_inc = reader.fetch_blocks(stream, cand_m.chrom, strand, c_ord_inc)
-                    c_dna_exc = reader.fetch_blocks(stream, cand_m.chrom, strand, c_ord_exc)
-                except Exception:
-                    continue
+                c_inc_ex, c_exc_ex = _build_full_isoform_exons(cand_m.exons, rec)
+                c_ord_inc = c_inc_ex if strand == "+" else c_inc_ex[::-1]
+                c_ord_exc = c_exc_ex if strand == "+" else c_exc_ex[::-1]
+                c_dna_inc = reader.fetch_blocks(stream, cand_m.chrom, strand, c_ord_inc)
+                c_dna_exc = reader.fetch_blocks(stream, cand_m.chrom, strand, c_ord_exc)
                 c_start_gpos, c_phase_off = _resolve_reading_frame_start_gpos(cand_m)
                 c_st_inc = _genomic_pos_to_tx_offset(c_inc_ex, strand, c_start_gpos)
                 c_st_exc = _genomic_pos_to_tx_offset(c_exc_ex, strand, c_start_gpos)
@@ -957,30 +1073,28 @@ def trace_protein_and_nmd_consequences(
 
                 # If an alternative C-terminal reading frame ran off a clipped 3'-UTR end while sibling isoforms extend further 3', heal terminal exon
                 if (ct_inc["stop_tx_nt"] is None or ct_exc["stop_tx_nt"] is None):
+                    cand_seq_len = int(reader.index[reader.resolve_chrom(cand_m.chrom)][0])
                     ext_inc, ext_exc = list(c_inc_ex), list(c_exc_ex)
                     healed = False
-                    if strand == "+" and gene_3p_max > ext_inc[-1][1] and (gene_3p_max - ext_inc[-1][1]) <= 2500:
+                    if strand == "+" and gene_3p_max > ext_inc[-1][1] and (gene_3p_max - ext_inc[-1][1]) <= 2500 and gene_3p_max <= cand_seq_len:
                         ext_inc[-1] = (ext_inc[-1][0], gene_3p_max)
                         ext_exc[-1] = (ext_exc[-1][0], max(ext_exc[-1][1], gene_3p_max))
                         healed = True
-                    elif strand == "-" and gene_3p_min < ext_inc[0][0] and (ext_inc[0][0] - gene_3p_min) <= 2500:
+                    elif strand == "-" and gene_3p_min < ext_inc[0][0] and (ext_inc[0][0] - gene_3p_min) <= 2500 and gene_3p_min >= 0:
                         ext_inc[0] = (gene_3p_min, ext_inc[0][1])
                         ext_exc[0] = (min(ext_exc[0][0], gene_3p_min), ext_exc[0][1])
                         healed = True
                     if healed:
-                        try:
-                            o_i = ext_inc if strand == "+" else ext_inc[::-1]
-                            o_e = ext_exc if strand == "+" else ext_exc[::-1]
-                            d_i = reader.fetch_blocks(stream, cand_m.chrom, strand, o_i)
-                            d_e = reader.fetch_blocks(stream, cand_m.chrom, strand, o_e)
-                            s_i = _genomic_pos_to_tx_offset(ext_inc, strand, c_start_gpos)
-                            s_e = _genomic_pos_to_tx_offset(ext_exc, strand, c_start_gpos)
-                            t_i2 = _translate_and_evaluate_nmd(d_i, [b - a for a, b in o_i], s_i, phase_offset=c_phase_off, canonical_stop_tx_end=can_end_inc, host_baseline_ptc_dist=host_base_ptc)
-                            t_e2 = _translate_and_evaluate_nmd(d_e, [b - a for a, b in o_e], s_e, phase_offset=c_phase_off, canonical_stop_tx_end=can_end_exc, host_baseline_ptc_dist=host_base_ptc)
-                            if (t_i2["stop_tx_nt"] is not None) and (t_e2["stop_tx_nt"] is not None):
-                                c_inc_ex, c_exc_ex, c_ord_inc, c_ord_exc, c_dna_inc, c_dna_exc, ct_inc, ct_exc = ext_inc, ext_exc, o_i, o_e, d_i, d_e, t_i2, t_e2
-                        except Exception:
-                            pass
+                        o_i = ext_inc if strand == "+" else ext_inc[::-1]
+                        o_e = ext_exc if strand == "+" else ext_exc[::-1]
+                        d_i = reader.fetch_blocks(stream, cand_m.chrom, strand, o_i)
+                        d_e = reader.fetch_blocks(stream, cand_m.chrom, strand, o_e)
+                        s_i = _genomic_pos_to_tx_offset(ext_inc, strand, c_start_gpos)
+                        s_e = _genomic_pos_to_tx_offset(ext_exc, strand, c_start_gpos)
+                        t_i2 = _translate_and_evaluate_nmd(d_i, [b - a for a, b in o_i], s_i, phase_offset=c_phase_off, canonical_stop_tx_end=can_end_inc, host_baseline_ptc_dist=host_base_ptc)
+                        t_e2 = _translate_and_evaluate_nmd(d_e, [b - a for a, b in o_e], s_e, phase_offset=c_phase_off, canonical_stop_tx_end=can_end_exc, host_baseline_ptc_dist=host_base_ptc)
+                        if (t_i2["stop_tx_nt"] is not None) and (t_e2["stop_tx_nt"] is not None):
+                            c_inc_ex, c_exc_ex, c_ord_inc, c_ord_exc, c_dna_inc, c_dna_exc, ct_inc, ct_exc = ext_inc, ext_exc, o_i, o_e, d_i, d_e, t_i2, t_e2
 
                 both_closed = int((ct_inc["stop_tx_nt"] is not None) and (ct_exc["stop_tx_nt"] is not None))
                 not_dual_nmd = int(not (ct_inc["nmd_sensitive"] and ct_exc["nmd_sensitive"]))
@@ -992,7 +1106,7 @@ def trace_protein_and_nmd_consequences(
                     break
 
             if chosen_bundle is None:
-                continue
+                raise ValueError(f"Unable to assemble coding isoform bundle for annotated event {eid}.")
             host, inc_exons, exc_exons, ord_inc, ord_exc, dna_inc, dna_exc, t_inc, t_exc = chosen_bundle
 
             cds_lo, cds_hi = host.cds_blocks[0][0], host.cds_blocks[-1][1]

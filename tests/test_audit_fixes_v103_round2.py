@@ -352,7 +352,7 @@ def test_protein_consequences_a3_a5_shared_boundary_guard_and_mirror(tmp_path: P
     # Construct 300-nt chr1 sequence starting with valid in-frame ORF (ATG + 99 Ala codons GCC/GCT)
     seq = "ATG" + ("GCT" * 99) + "TAA"
     fa_p = tmp_path / "mini.fa"
-    fa_p.write_text(">chr1\n" + seq + "\n", encoding="utf-8")
+    fa_p.write_text(">chr1\n" + seq + "\n", encoding="utf-8", newline="\n")
     (tmp_path / "mini.fa.fai").write_text(f"chr1\t{len(seq)}\t6\t{len(seq)}\t{len(seq) + 1}\n", encoding="utf-8")
 
     # Two real annotated A5SS transcripts sharing downstream exon (200, 300):

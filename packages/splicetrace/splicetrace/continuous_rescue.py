@@ -235,21 +235,44 @@ def run_bulk_continuous_rescue(
     if "depth" not in df.columns:
         df["depth"] = 50.0
 
+    # Strict domain validation before probability/PSI clipping
+    raw_dpsi_in = pd.to_numeric(df["dpsi"], errors="coerce").to_numpy(dtype=float)
+    if (not np.all(np.isfinite(raw_dpsi_in))) or np.any(np.abs(raw_dpsi_in) > 1.0 + 1e-9):
+        raise ValueError("Out-of-range or non-finite dpsi values in continuous rescue input; expected finite values in [-1, 1].")
+    raw_bpsi_in = pd.to_numeric(df["baseline_PSI"], errors="coerce").to_numpy(dtype=float)
+    if np.any(np.isinf(raw_bpsi_in)) or np.any(np.isfinite(raw_bpsi_in) & ((raw_bpsi_in < 0.0) | (raw_bpsi_in > 1.0))):
+        raise ValueError("Out-of-range or non-finite baseline_PSI values in continuous rescue input; expected values in [0, 1].")
+    fdr_col_name = "fdr" if "fdr" in df.columns else ("FDR" if "FDR" in df.columns else None)
+    if fdr_col_name is not None:
+        raw_fdr_in = pd.to_numeric(df[fdr_col_name], errors="coerce").to_numpy(dtype=float)
+        if np.any(np.isinf(raw_fdr_in)) or np.any(np.isfinite(raw_fdr_in) & ((raw_fdr_in < 0.0) | (raw_fdr_in > 1.0))):
+            raise ValueError(f"Out-of-range or non-finite {fdr_col_name} values in continuous rescue input; expected [0, 1].")
+    pv_col_name = next((c for c in ("PValue", "pvalue", "p_value") if c in df.columns), None)
+    if pv_col_name is not None:
+        raw_pv_in = pd.to_numeric(df[pv_col_name], errors="coerce").to_numpy(dtype=float)
+        if np.any(np.isinf(raw_pv_in)) or np.any(np.isfinite(raw_pv_in) & ((raw_pv_in < 0.0) | (raw_pv_in > 1.0))):
+            raise ValueError(f"Out-of-range or non-finite {pv_col_name} values in continuous rescue input; expected [0, 1].")
+
     p_ctrl = np.clip(df["baseline_PSI"].to_numpy(dtype=float), 0.0, 1.0)
     p_kd = np.clip(p_ctrl + df["dpsi"].to_numpy(dtype=float), 0.0, 1.0)
-    non_const = (0.5 * (p_ctrl + p_kd) >= 0.03) & (0.5 * (p_ctrl + p_kd) <= 0.97)
+    non_const = np.isfinite(p_ctrl) & np.isfinite(p_kd) & (0.5 * (p_ctrl + p_kd) >= 0.03) & (0.5 * (p_ctrl + p_kd) <= 0.97)
     if int(non_const.sum()) >= 120:
         df = df.loc[non_const].reset_index(drop=True)
 
-    fdr_all = pd.to_numeric(df["fdr"] if "fdr" in df.columns else pd.Series(1.0, index=df.index), errors="coerce").fillna(1.0).to_numpy(dtype=float)
-    pv_ser = df["PValue"] if "PValue" in df.columns else (df["fdr"] if "fdr" in df.columns else pd.Series(1.0, index=df.index))
-    pval_all = np.clip(pd.to_numeric(pv_ser, errors="coerce").fillna(1.0).to_numpy(dtype=float), 1e-12, 1.0)
+    fdr_all = pd.to_numeric(df[fdr_col_name] if fdr_col_name is not None else pd.Series(1.0, index=df.index), errors="coerce").fillna(1.0).to_numpy(dtype=float)
+    if pv_col_name is not None:
+        pv_num = pd.to_numeric(df[pv_col_name], errors="coerce").to_numpy(dtype=float)
+        pv_fin = np.isfinite(pv_num)
+        pval_all = np.where(pv_fin, np.clip(pv_num, 1e-12, 1.0), np.nan)
+    else:
+        pv_fin = np.ones(len(df), dtype=bool)
+        pval_all = np.clip(fdr_all, 1e-12, 1.0)
     dpsi_v = df["dpsi"].to_numpy(dtype=float)
     df["log_depth"] = np.log1p(np.maximum(df["depth"].to_numpy(dtype=float), 1.0))
 
-    is_fg = (fdr_all <= 0.10) & (np.abs(dpsi_v) >= 0.05)
+    is_fg = pv_fin & (fdr_all <= 0.10) & (np.abs(dpsi_v) >= 0.05)
     if int(is_fg.sum()) < 35:
-        is_fg = (pval_all <= 0.015) & (np.abs(dpsi_v) >= 0.05)
+        is_fg = pv_fin & (pval_all <= 0.015) & (np.abs(dpsi_v) >= 0.05)
     is_bg = (fdr_all > 0.25) & (np.abs(dpsi_v) < 0.03)
 
     fg_df = df.loc[is_fg].copy()
@@ -343,8 +366,9 @@ def run_bulk_continuous_rescue(
 
     exon_gc = np.array([exon_gc_map.get(str(x), 0.5) for x in cont_df["event_id"]], dtype=float)
     exon_gc = np.where(np.isfinite(exon_gc), exon_gc, 0.5)
-    flank_gc = np.divide(prox_gc_num, prox_gc_den, out=np.full(n_c, 0.5), where=prox_gc_den > 0)
-    dist_gc = np.divide(dist_gc_num, dist_gc_den, out=flank_gc, where=dist_gc_den > 0)
+    # Single intronic-GC nuisance covariate: distal intronic GC when available, else proximal intronic GC.
+    prox_gc = np.divide(prox_gc_num, prox_gc_den, out=np.full(n_c, 0.5), where=prox_gc_den > 0)
+    intronic_gc = np.divide(dist_gc_num, dist_gc_den, out=prox_gc.copy(), where=dist_gc_den > 0)
     log_len = np.array([float(np.log1p(aff_len_map.get(str(x), 100.0))) for x in cont_df["event_id"]], dtype=float)
     b_psi = np.clip(cont_df["baseline_PSI"].to_numpy(dtype=float), 0.02, 0.98)
     etypes = cont_df["event_type"].astype(str).to_numpy()
@@ -353,10 +377,8 @@ def run_bulk_continuous_rescue(
     nuis_cols = [np.ones(n_c, dtype=float)]
     if include_exon_gc:
         nuis_cols.append(exon_gc)
-    nuis_cols.append(flank_gc)
-    if np.std(dist_gc - flank_gc) > 1e-6:
-        nuis_cols.append(dist_gc)
     nuis_cols.extend([
+        intronic_gc,
         cpg_rate,
         log_len,
         b_psi,
@@ -367,7 +389,7 @@ def run_bulk_continuous_rescue(
     X_nuis = np.column_stack(nuis_cols)
 
     dpsi_c = cont_df["dpsi"].to_numpy(dtype=float)
-    pv_c_ser = cont_df["PValue"] if "PValue" in cont_df.columns else (cont_df["fdr"] if "fdr" in cont_df.columns else pd.Series(1.0, index=cont_df.index))
+    pv_c_ser = cont_df[pv_col_name] if pv_col_name is not None else (cont_df[fdr_col_name] if fdr_col_name is not None else pd.Series(1.0, index=cont_df.index))
     pv_c = np.clip(pd.to_numeric(pv_c_ser, errors="coerce").fillna(1.0).to_numpy(dtype=float), 1e-12, 1.0)
     z_raw = np.sign(dpsi_c) * np.clip(norm.isf(0.5 * pv_c), 0.0, 8.0)
     y_sparse = np.where(cont_df["_is_fg"].to_numpy(dtype=bool), z_raw, 0.0)

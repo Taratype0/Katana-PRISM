@@ -11,9 +11,9 @@ ENCODE_HNRNPA1	HNRNPA1	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,9
 ENCODE_HNRNPF	HNRNPF	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	935	935	45	13	1.0	2.411	73.0	404.0	491.0
 ENCODE_HNRNPF	HNRNPF	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	847	847	0	13	1.0	2.33	98.0	368.0	452.0
 ENCODE_HNRNPF	HNRNPF	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	718	718	0	12	1.0	2.626	68.0	310.0	383.0
-GSE206660_PTBP2	PTBP2	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	2700	2699	53	61	0.0005	10.76	2.0		
-GSE206660_PTBP2	PTBP2	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	2499	2498	0	54	0.0005	10.571	2.0		
-GSE206660_PTBP2	PTBP2	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	2186	2186	0	62	0.0005	10.746	2.0		
+GSE206660_PTBP2	PTBP2	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	2700	2699	53	36	0.0005	7.227	3.0		
+GSE206660_PTBP2	PTBP2	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	2499	2498	0	35	0.0005	6.979	4.0		
+GSE206660_PTBP2	PTBP2	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	2186	2186	0	41	0.0005	6.821	4.0		
 GSE206660_NegA	NONE	Katana-PRISM (PS-DAS)	Continuous 13-channel FWL + 1,999 host-gene-block maxT	1041	1039	44	0					
 GSE206660_NegA	NONE	Strict All>=10 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	890	888	0	0					
 GSE206660_NegA	NONE	Stringent Mean>=20 Filter	Continuous 13-channel FWL + 1,999 host-gene-block maxT	645	644	0	0					

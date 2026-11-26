@@ -46,17 +46,31 @@ def load_qc_cells_and_aliases(
 
     bc_to_cell = {bc: bc for bc in qc_set}
     if barcode_shares_path and barcode_shares_path.is_file():
+        alias_owner: dict[str, str] = {}
         with barcode_shares_path.open("r", encoding="utf-8-sig") as fh:
             for line in fh:
                 pts = line.strip().split("\t")
                 if len(pts) >= 2:
                     b1, b2 = pts[0].strip(), pts[1].strip()
+                    if not b1 or not b2 or b1 == b2:
+                        continue
+                    if b1 in qc_set and b2 in qc_set:
+                        raise ValueError(
+                            f"Ambiguous barcode_shares entry links two distinct QC-passed cells: {b1!r} <-> {b2!r}."
+                        )
                     if b1 in qc_set:
-                        bc_to_cell[b1] = b1
-                        bc_to_cell[b2] = b1
+                        owner, alias = b1, b2
                     elif b2 in qc_set:
-                        bc_to_cell[b1] = b2
-                        bc_to_cell[b2] = b2
+                        owner, alias = b2, b1
+                    else:
+                        continue
+                    if alias in alias_owner and alias_owner[alias] != owner:
+                        raise ValueError(
+                            f"Ambiguous barcode_shares alias {alias!r} claimed by multiple QC cells: "
+                            f"{alias_owner[alias]!r} and {owner!r}."
+                        )
+                    alias_owner[alias] = owner
+                    bc_to_cell[alias] = owner
     return md, bc_to_cell
 
 

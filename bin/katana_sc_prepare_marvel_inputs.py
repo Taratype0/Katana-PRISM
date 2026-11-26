@@ -176,6 +176,7 @@ def build_marvel_sj_table(
 
     blocks_raw: list[tuple[csr_matrix, list[int], list[int], int]] = []
     obs_cells: list[str] = []
+    seen_cells: dict[str, str] = {}
     coord_to_idx: dict[str, int] = {}
     coord_list: list[str] = []
 
@@ -193,11 +194,24 @@ def build_marvel_sj_table(
         mat = mmread(str(mtx_f)).tocsr()
         with _open_text(bc_f) as fh:
             bcs = [prefix + ln.strip().split("\t")[0] for ln in fh if ln.strip()]
+        dups: list[str] = []
+        for bc in bcs:
+            if bc in seen_cells:
+                dups.append(f"{bc} ({seen_cells[bc]} vs {spec})")
+            else:
+                seen_cells[bc] = spec
+        if dups:
+            raise ValueError(
+                "Duplicate physical cell_id barcodes detected across MARVEL raw junction inputs: "
+                f"{dups[:5]}; assign unique sj-dir prefixes (`prefix::path`) or deduplicate inputs."
+            )
 
         src_rows: list[int] = []
         dst_rows: list[int] = []
+        n_feats = 0
         with _open_text(feat_f) as fh:
             for r_i, ln in enumerate(fh):
+                n_feats += 1
                 pts = ln.rstrip("\n").split("\t")
                 if len(pts) >= 3:
                     ch = _norm_chr(pts[0])
@@ -211,6 +225,10 @@ def build_marvel_sj_table(
                             coord_list.append(key_c)
                         src_rows.append(r_i)
                         dst_rows.append(dst)
+        if mat.shape[0] != n_feats or mat.shape[1] != len(bcs):
+            raise ValueError(
+                f"STARsolo matrix shape {mat.shape} disagrees with features ({n_feats}) or barcodes ({len(bcs)}) in {solo_dir}."
+            )
         blocks_raw.append((mat, src_rows, dst_rows, len(bcs)))
         obs_cells.extend(bcs)
 
@@ -225,11 +243,53 @@ def build_marvel_sj_table(
             blocks.append(csr_matrix((n_total_coords, n_bcs), dtype=np.int32))
 
     full = hstack(blocks, format="csr") if len(blocks) > 1 else blocks[0]
+    _star_suffix_re = re.compile(r"-\d+$")
     c2i = {c: i for i, c in enumerate(obs_cells)}
-    col_idx = [c2i[c] for c in keep_cells if c in c2i]
-    kept_cids = [c for c in keep_cells if c in c2i]
+    suffixed_to_obs: dict[str, list[str]] = defaultdict(list)
+    for c_obs in obs_cells:
+        if _star_suffix_re.search(c_obs):
+            suffixed_to_obs[_star_suffix_re.sub("", c_obs)].append(c_obs)
+
+    col_idx: list[int] = []
+    kept_cids: list[str] = []
+    missing_cids: list[str] = []
+    used_obs_idx: dict[int, str] = {}
+    for cid_raw in keep_cells:
+        oi: int | None = None
+        if cid_raw in c2i:
+            oi = c2i[cid_raw]
+        elif _star_suffix_re.search(cid_raw):
+            bare = _star_suffix_re.sub("", cid_raw)
+            if bare in c2i:
+                oi = c2i[bare]
+            else:
+                missing_cids.append(cid_raw)
+                continue
+        else:
+            cands = suffixed_to_obs.get(cid_raw, [])
+            if len(cands) > 1:
+                raise ValueError(
+                    f"Duplicate observed cell barcodes after terminal `-<digits>` suffix normalization for {cid_raw!r}: {cands[:5]}."
+                )
+            if len(cands) == 1:
+                oi = c2i[cands[0]]
+            else:
+                missing_cids.append(cid_raw)
+                continue
+        if oi in used_obs_idx:
+            raise ValueError(
+                f"Multiple metadata cell_id entries ({used_obs_idx[oi]!r} and {cid_raw!r}) "
+                f"resolve to the same physical STARsolo barcode {obs_cells[oi]!r}."
+            )
+        used_obs_idx[oi] = cid_raw
+        col_idx.append(oi)
+        kept_cids.append(cid_raw)
     if not kept_cids:
         raise RuntimeError("Zero overlapping barcodes between metadata and STARsolo SJ/raw.")
+    if missing_cids:
+        raise ValueError(
+            f"Metadata contains {len(missing_cids)} cell_id(s) absent from STARsolo SJ/raw barcodes (e.g. {missing_cids[:5]})."
+        )
 
     full = full[:, col_idx].tocsr()
     nonzero_mask = np.asarray(full.sum(axis=1)).ravel() > 0
@@ -417,6 +477,18 @@ def main() -> int:
 
     args.outdir.mkdir(parents=True, exist_ok=True)
     md = pd.read_csv(args.metadata, sep="," if args.metadata.suffix.lower() == ".csv" else "\t", dtype=str, keep_default_na=False)
+    for qc_col in ("qc_pass", "qc_pass_nuclei", "keep"):
+        if qc_col in md.columns:
+            qc_true = {"true", "1", "yes", "t", "pass"}
+            qc_false = {"false", "0", "no", "f", "fail"}
+            qc_vals = md[qc_col].astype(str).str.strip().str.lower()
+            bad_toks = [v for v in qc_vals if v not in qc_true and v not in qc_false]
+            if bad_toks:
+                raise ValueError(f"Invalid {qc_col} value(s) in metadata: {bad_toks[:5]}.")
+            md = md.loc[qc_vals.isin(qc_true)].copy().reset_index(drop=True)
+            if md.empty:
+                raise ValueError(f"Zero cells remain after excluding {qc_col}=False cells.")
+            break
     cid_col = next((c for c in ("cell_id", "cell_barcode", "barcode", "sample.id", "sample_id") if c in md.columns), md.columns[0])
     cid_series = md[cid_col].astype(str).str.strip()
     dup_cid = cid_series.duplicated(keep=False)
@@ -428,17 +500,31 @@ def main() -> int:
     bc_to_cell = {c: c for c in keep_cells}
     if args.barcode_shares and args.barcode_shares.is_file():
         qc_set = set(keep_cells)
+        alias_owner: dict[str, str] = {}
         with args.barcode_shares.open("r", encoding="utf-8-sig") as fh:
             for line in fh:
                 pts = line.strip().split("\t")
                 if len(pts) >= 2:
                     b1, b2 = pts[0].strip(), pts[1].strip()
+                    if not b1 or not b2 or b1 == b2:
+                        continue
+                    if b1 in qc_set and b2 in qc_set:
+                        raise ValueError(
+                            f"Ambiguous barcode_shares entry links two distinct QC-passed cells: {b1!r} <-> {b2!r}."
+                        )
                     if b1 in qc_set:
-                        bc_to_cell[b1] = b1
-                        bc_to_cell[b2] = b1
+                        owner, alias = b1, b2
                     elif b2 in qc_set:
-                        bc_to_cell[b1] = b2
-                        bc_to_cell[b2] = b2
+                        owner, alias = b2, b1
+                    else:
+                        continue
+                    if alias in alias_owner and alias_owner[alias] != owner:
+                        raise ValueError(
+                            f"Ambiguous barcode_shares alias {alias!r} claimed by multiple QC cells: "
+                            f"{alias_owner[alias]!r} and {owner!r}."
+                        )
+                    alias_owner[alias] = owner
+                    bc_to_cell[alias] = owner
 
     print("[MARVEL Prep 1/3] Normalizing host GTF & GeneFeature for MARVEL ...", flush=True)
     gf_df = normalize_gtf_for_marvel(args.gtf, args.outdir / "marvel_host.gtf")

@@ -113,6 +113,8 @@ def _run_bulk(args: argparse.Namespace) -> int:
         "manifold_available": bool(landscape.get("available", False)),
         "permanova_r2": landscape.get("permanova_r2"),
         "permanova_p": landscape.get("permanova_p"),
+        "permanova_scope": landscape.get("permanova_scope"),
+        "permanova_inference_valid": landscape.get("permanova_inference_valid"),
         "elapsed_seconds": round(time.monotonic() - t0, 2),
     }
     (out / "run_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
@@ -252,6 +254,8 @@ def _run_single_cell(args: argparse.Namespace) -> int:
         "manifold_events": landscape["manifold_events"],
         "permanova_r2": landscape["permanova_r2"],
         "permanova_p": landscape["permanova_p"],
+        "permanova_scope": landscape.get("permanova_scope"),
+        "permanova_inference_valid": landscape.get("permanova_inference_valid"),
     }
 
     if args.expression is not None:

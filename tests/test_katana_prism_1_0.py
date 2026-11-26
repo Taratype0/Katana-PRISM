@@ -137,7 +137,11 @@ def _create_synthetic_study(tmp_path: Path) -> dict[str, Path]:
         chunks.append(motifs[rng.integers(0, len(motifs))] + "".join(rng.choice(list("ACGT"), size=18)))
     seq = "".join(chunks)[:12000]
     fasta = tmp_path / "genome.fa"
-    fasta.write_text(">chr1\n" + "\n".join(seq[i : i + 80] for i in range(0, len(seq), 80)) + "\n", encoding="utf-8")
+    fasta.write_text(
+        ">chr1\n" + "\n".join(seq[i : i + 80] for i in range(0, len(seq), 80)) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     (tmp_path / "genome.fa.fai").write_text(f"chr1\t{len(seq)}\t6\t80\t81\n", encoding="utf-8")
 
     # 2. Synthetic GTF with multi-exon coding transcripts on chr1

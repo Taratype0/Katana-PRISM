@@ -76,6 +76,32 @@ def import_report(report_path, output_root, projects=None):
     contrasts = [{**c, 'label': c.get('label', c['contrast_id'])} for c in display.get('contrasts', [])]
     samples = [{k: v for k, v in s.items() if k in {'sample_id','biological_sample_id','condition','batch','attributes'}}
                for s in display.get('samples', [])]
+    cond_by_sid = {
+        str(s['sample_id']): str(s['condition'])
+        for s in samples
+        if 'sample_id' in s and 'condition' in s
+    }
+    for c_chk in contrasts:
+        for side in ('numerator', 'denominator'):
+            arm = c_chk.get(side)
+            if not isinstance(arm, dict):
+                continue
+            arm_sids = [str(x) for x in (arm.get('sample_ids') or [])]
+            if not arm_sids:
+                continue
+            missing_sids = [x for x in arm_sids if x not in cond_by_sid]
+            if missing_sids:
+                raise ValueError(
+                    f"Report contrast '{c_chk.get('contrast_id')}' {side} references unknown sample(s): {missing_sids[:5]}"
+                )
+            arm_lbl = str(arm.get('label') or '').strip()
+            if arm_lbl and arm_lbl not in {'Group1', 'Group2', 'Baseline'}:
+                actual_conds = sorted({cond_by_sid[x] for x in arm_sids})
+                if actual_conds != [arm_lbl]:
+                    raise ValueError(
+                        f"Report contrast '{c_chk.get('contrast_id')}' {side} expects condition {arm_lbl!r}, "
+                        f"but metadata assigns {actual_conds}"
+                    )
     from katana_next.services.assay import assay_identity
     assay = assay_identity(display.get('metadata', {}), recorded_mode=manifest.get('mode'))
     origin = sha(manifest_path)

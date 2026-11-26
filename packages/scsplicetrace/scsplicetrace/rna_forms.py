@@ -25,10 +25,14 @@ class IndexedFasta:
             raise FileNotFoundError(f"Indexed FASTA and .fai required: {self.fasta}")
         self.index: dict[str, tuple[int, int, int, int]] = {}
         self.aliases: dict[str, str] = {}
+        self._validated_contigs: set[str] = set()
+        self._file_size: int = int(self.fasta.stat().st_size)
         for line in fai.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
             parts = line.split("\t")
+            if len(parts) < 5:
+                raise ValueError(f"Malformed .fai entry in {fai}: {line!r}")
             contig = parts[0]
             self.index[contig] = (int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]))
             self.aliases[contig] = contig
@@ -37,6 +41,74 @@ class IndexedFasta:
                 alias = f"chr{m.group(1)}.{m.group(2)}"
                 if alias not in self.aliases:
                     self.aliases[alias] = contig
+
+    @staticmethod
+    def _read_slice(stream, start: int, length: int) -> bytes:
+        if length <= 0:
+            return b""
+        if isinstance(stream, (mmap.mmap, bytes, bytearray, memoryview)):
+            return bytes(stream[start : start + length])
+        stream.seek(start)
+        return stream.read(length)
+
+    def _validate_contig_index(self, stream, contig: str) -> None:
+        if contig in self._validated_contigs:
+            return
+        seq_len, offset, line_bases, line_width = self.index[contig]
+        if seq_len <= 0 or offset <= 0 or line_bases <= 0 or line_width < line_bases:
+            raise ValueError(f"Invalid .fai geometry for {contig} in {self.fasta}: {self.index[contig]}")
+        eol_len = line_width - line_bases
+        if eol_len not in (0, 1, 2):
+            raise ValueError(f"Unsupported .fai line_width={line_width} vs line_bases={line_bases} for {contig}")
+        last_base_byte = offset + ((seq_len - 1) // line_bases) * line_width + ((seq_len - 1) % line_bases)
+        if offset >= self._file_size or last_base_byte >= self._file_size:
+            raise ValueError(
+                f"Stale or truncated .fai index for {contig} in {self.fasta}: "
+                f"last_base_byte={last_base_byte} >= file_size={self._file_size}"
+            )
+        hdr_win = min(offset, 4096)
+        pre = self._read_slice(stream, offset - hdr_win, hdr_win)
+        if not pre.endswith(b"\n"):
+            raise ValueError(f"Stale .fai offset={offset} for {contig} in {self.fasta} (not preceded by header newline)")
+        last_nl = pre.rfind(b"\n", 0, len(pre) - 1)
+        hdr_line = pre[last_nl + 1 : -1].rstrip(b"\r")
+        if not hdr_line.startswith(b">"):
+            raise ValueError(f"Stale .fai offset={offset} for {contig} in {self.fasta} (missing FASTA '>' header)")
+        hdr_tok = hdr_line[1:].strip().split(None, 1)[0] if hdr_line[1:].strip() else b""
+        if hdr_tok != contig.encode("ascii"):
+            raise ValueError(
+                f"Stale .fai header mismatch for {contig} in {self.fasta}: found {hdr_tok!r}"
+            )
+        if seq_len > line_bases:
+            if eol_len not in (1, 2):
+                raise ValueError(f"Multi-line FASTA {contig} requires EOL length 1 or 2 in .fai (got {eol_len})")
+            first_line = self._read_slice(stream, offset, line_width)
+            if len(first_line) != line_width:
+                raise ValueError(f"Truncated sequence line at {contig} in {self.fasta}")
+            seq_part = first_line[:line_bases]
+            if b"\r" in seq_part or b"\n" in seq_part or b">" in seq_part:
+                raise ValueError(
+                    f"Stale .fai line wrapping for {contig} in {self.fasta} (EOL or header encountered inside sequence bases)"
+                )
+            exp_eol = b"\n" if eol_len == 1 else b"\r\n"
+            if first_line[line_bases:] != exp_eol:
+                raise ValueError(
+                    f"Stale .fai EOL mismatch for {contig} in {self.fasta}: expected {exp_eol!r}, got {first_line[line_bases:]!r}"
+                )
+        last_base = self._read_slice(stream, last_base_byte, 1)
+        if last_base in (b"\r", b"\n", b">", b""):
+            raise ValueError(f"Stale .fai end position for {contig} in {self.fasta}: unexpected byte {last_base!r}")
+        tail = self._read_slice(stream, last_base_byte + 1, min(4, self._file_size - (last_base_byte + 1)))
+        if tail:
+            if tail.startswith(b"\r\n"):
+                after_eol = tail[2:]
+            elif tail.startswith(b"\n"):
+                after_eol = tail[1:]
+            else:
+                raise ValueError(f"Stale .fai line/length alignment at end of {contig} in {self.fasta}: {tail!r}")
+            if after_eol and not after_eol.startswith((b">", b"\r", b"\n")):
+                raise ValueError(f"Unexpected sequence continuation past indexed length of {contig} in {self.fasta}")
+        self._validated_contigs.add(contig)
 
     @contextlib.contextmanager
     def open_stream(self):
@@ -65,6 +137,7 @@ class IndexedFasta:
 
     def fetch_blocks(self, stream, chrom: str, strand: str, blocks: list[tuple[int, int]]) -> str:
         contig = self.resolve_chrom(chrom)
+        self._validate_contig_index(stream, contig)
         seq_len, offset, line_bases, line_width = self.index[contig]
         pieces: list[bytes] = []
         is_buf = isinstance(stream, (mmap.mmap, bytes, bytearray, memoryview))
@@ -74,10 +147,16 @@ class IndexedFasta:
             start_byte = offset + (a // line_bases) * line_width + (a % line_bases)
             end_byte = offset + ((b - 1) // line_bases) * line_width + ((b - 1) % line_bases) + 1
             if is_buf:
-                raw = stream[start_byte:end_byte].replace(b"\r", b"").replace(b"\n", b"")
+                raw_slice = bytes(stream[start_byte:end_byte])
             else:
                 stream.seek(start_byte)
-                raw = stream.read(end_byte - start_byte).replace(b"\r", b"").replace(b"\n", b"")
+                raw_slice = stream.read(end_byte - start_byte)
+            raw = raw_slice.replace(b"\r", b"").replace(b"\n", b"")
+            if b">" in raw or len(raw) != (b - a):
+                raise ValueError(
+                    f"Corrupt or stale .fai sequence read for {contig}:({a},{b}) in {self.fasta} "
+                    f"(expected {b - a} bases, got {len(raw)})"
+                )
             if strand == "-":
                 raw = raw.translate(_COMPLEMENT)[::-1]
             pieces.append(raw.upper())

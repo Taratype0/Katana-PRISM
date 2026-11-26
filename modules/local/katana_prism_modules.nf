@@ -374,7 +374,14 @@ process SC_STARSOLO_SMARTSEQ {
     script:
     def r1_list = [staged_r1].flatten()
     def r2_list = staged_r2.name == 'NO_R2' ? [] : [staged_r2].flatten()
-    def is_gz   = r1_list[0].name.endsWith('.gz') ? '--readFilesCommand zcat' : ''
+    if (r2_list && r2_list.size() != r1_list.size()) {
+        error("SC_STARSOLO_SMARTSEQ received mismatched R1 (${r1_list.size()}) and R2 (${r2_list.size()}) FASTQ lists.")
+    }
+    def gz_flags = (r1_list + r2_list).collect { it.name.endsWith('.gz') }.unique()
+    if (gz_flags.size() != 1) {
+        error("SC_STARSOLO_SMARTSEQ cannot mix gzipped and uncompressed FASTQ files in --sc_fastq_manifest.")
+    }
+    def is_gz   = gz_flags[0] ? '--readFilesCommand zcat' : ''
     def lines   = []
     manifest_rows.eachWithIndex { row, idx ->
         def f1 = r1_list[idx]
@@ -797,6 +804,12 @@ process SC_SUBTYPE_DOWNSTREAM {
     SM_DIR="${contrast_id}/sc_matrices"
     EXPR_SLICE=""
     EXPR_NET=""
+    SUP_SLICE=""
+    SUP_REP=""
+    if [[ -s "\${SM_DIR}/sc_support.tsv.gz" ]]; then
+        SUP_SLICE="--support \${SM_DIR}/sc_support.tsv.gz"
+        SUP_REP="--support-matrix \${SM_DIR}/sc_support.tsv.gz"
+    fi
     if [[ -s "\${SM_DIR}/sc_expression.tsv.gz" ]]; then
         EXPR_SLICE="--expression \${SM_DIR}/sc_expression.tsv.gz"
         EXPR_NET="--host-expr \${SM_DIR}/sc_expression.tsv.gz"
@@ -806,7 +819,7 @@ process SC_SUBTYPE_DOWNSTREAM {
         --psi "\${SM_DIR}/sc_psi.tsv.gz" \
         --metadata "\${SM_DIR}/sc_cells.tsv" \
         --events "\${SM_DIR}/sc_events.tsv" \
-        --support "\${SM_DIR}/sc_support.tsv.gz" \
+        \${SUP_SLICE} \
         \${EXPR_SLICE} \
         ${don_arg} \
         --cells-as-rows \
@@ -823,7 +836,7 @@ process SC_SUBTYPE_DOWNSTREAM {
             --usage "\${SM_DIR}/sc_psi.tsv.gz" \
             --metadata "\${SM_DIR}/sc_cells.tsv" \
             --event-genes "\${SM_DIR}/sc_event_genes.tsv" \
-            --support "\${SM_DIR}/sc_support.tsv.gz" \
+            \${SUP_SLICE} \
             \${EXPR_NET} \
             ${don_arg} \
             --select-budget 1500 \
@@ -853,7 +866,7 @@ process SC_SUBTYPE_DOWNSTREAM {
             ${don_arg} \
             --numerator "${numerator}" \
             --denominator "${denominator}" \
-            --support "\${SM_DIR}/sc_support.tsv.gz" \
+            \${SUP_SLICE} \
             \${EXPR_SLICE} \
             \${NET_MOD_ARG} \
             --threads ${task.cpus} \
@@ -871,7 +884,7 @@ process SC_SUBTYPE_DOWNSTREAM {
         --events "\${SM_DIR}/sc_events.tsv" \
         --cells "\${SM_DIR}/sc_cells.tsv" \
         --psi-matrix "\${SM_DIR}/sc_psi.tsv.gz" \
-        --support-matrix "\${SM_DIR}/sc_support.tsv.gz" \
+        \${SUP_REP} \
         --gtf "\${gtf_ref}" \
         \${EXPR_SLICE} \
         \${SM_REPORT_ARG} \

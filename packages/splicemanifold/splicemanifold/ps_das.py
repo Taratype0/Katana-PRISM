@@ -93,19 +93,86 @@ def _has_rmats_files(d: Path, mode: str = "JCEC") -> bool:
     return any((d / f"{et}.MATS.{m}.txt").is_file() for et in EVENT_TYPES)
 
 
+def _strict_int_coord_series(ser: pd.Series, col_name: str, et: str) -> pd.Series:
+    out: list[str] = []
+    for r_i, raw in enumerate(ser.tolist()):
+        s = _clean_id(raw)
+        if not s:
+            raise ValueError(f"Missing required coordinate '{col_name}' at {et} row {r_i}.")
+        try:
+            f = float(s)
+        except ValueError as exc:
+            raise ValueError(f"Non-numeric coordinate {s!r} in column '{col_name}' at {et} row {r_i}.") from exc
+        if (not math.isfinite(f)) or f != math.floor(f) or f < 0:
+            raise ValueError(f"Non-integer or negative coordinate {s!r} in column '{col_name}' at {et} row {r_i}.")
+        out.append(str(int(round(f))))
+    return pd.Series(out, index=ser.index, dtype="object")
+
+
 def _coordinate_keys(frame: pd.DataFrame, event_type: str) -> pd.Series:
     """Colon-delimited event key matching splicenet/splicetrace (`SE:chr:strand:...`)."""
     cols = _COORD_KEY_COLS.get(event_type, ())
-    if cols and {"chr", "strand", *cols}.issubset(frame.columns):
-        return (
-            event_type + ":" + frame["chr"].map(_clean_id) + ":" + frame["strand"].map(_clean_id) + ":"
-            + frame[list(cols)].apply(lambda c: c.map(_clean_id)).agg(":".join, axis=1)
-        )
-    return canonical_event_ids(frame, event_type)
+    missing = [c for c in ("chr", "strand", *cols) if c not in frame.columns]
+    if missing:
+        raise ValueError(f"rMATS {event_type} table missing required coordinate column(s): {missing}.")
+    chrs = frame["chr"].map(_clean_id)
+    strands = frame["strand"].map(_clean_id)
+    if (chrs == "").any() or (~strands.isin(["+", "-"])).any():
+        raise ValueError(f"rMATS {event_type} table contains empty chromosome or invalid strand tokens.")
+    coord_parts = [_strict_int_coord_series(frame[c], c, event_type) for c in cols]
+    coord_df = pd.concat(coord_parts, axis=1)
+    return event_type + ":" + chrs + ":" + strands + ":" + coord_df.agg(":".join, axis=1)
 
 
 def _dir_contrast_label(cand: Path) -> str:
     return cand.parent.name if cand.name.lower() == "rmats_post" else cand.name
+
+
+def _infer_order_from_rmats_bam_lists(
+    rdir: Path, arm1_sids: list[str], arm2_sids: list[str],
+) -> tuple[list[str], list[str]] | None:
+    """Infer within-arm replicate order from rMATS `b1.txt`/`b2.txt` BAM lists when 1:1 unique."""
+    if not arm1_sids or not arm2_sids:
+        return None
+    cand_dirs = [rdir]
+    if rdir.name.lower() == "rmats_post" and rdir.parent != rdir:
+        cand_dirs.append(rdir.parent)
+    b1_p = next((d / "b1.txt" for d in cand_dirs if (d / "b1.txt").is_file()), None)
+    b2_p = next((d / "b2.txt" for d in cand_dirs if (d / "b2.txt").is_file()), None)
+    if b1_p is None or b2_p is None:
+        return None
+
+    def _map_arm(bpath: Path, sids: list[str]) -> list[str] | None:
+        raw = bpath.read_text(encoding="utf-8", errors="replace")
+        tokens = [t.strip() for chunk in raw.splitlines() for t in chunk.split(",") if t.strip()]
+        if len(tokens) != len(sids):
+            return None
+        mapped: list[str] = []
+        used: set[str] = set()
+        for tok in tokens:
+            name = Path(tok.replace("\\", "/")).name
+            stem = name.split(".", 1)[0]
+            exact = [s for s in sids if stem == s]
+            cands = exact if len(exact) == 1 else [
+                s
+                for s in sids
+                if name.startswith(f"{s}.")
+                or name.startswith(f"{s}_")
+                or name.startswith(f"{s}-")
+                or stem.startswith(f"{s}_")
+                or stem.startswith(f"{s}-")
+            ]
+            if len(cands) != 1 or cands[0] in used:
+                return None
+            used.add(cands[0])
+            mapped.append(cands[0])
+        return mapped if len(mapped) == len(sids) else None
+
+    m1 = _map_arm(b1_p, arm1_sids)
+    m2 = _map_arm(b2_p, arm2_sids)
+    if m1 is None or m2 is None:
+        return None
+    return m1, m2
 
 
 def _validate_bare_dir_contrast(
@@ -383,6 +450,28 @@ def _arm_support(
     }
 
 
+def _parse_bool_flag(v: object) -> bool:
+    if v is None:
+        return False
+    if isinstance(v, (bool, np.bool_)):
+        return bool(v)
+    try:
+        if pd.isna(v):
+            return False
+    except (TypeError, ValueError):
+        pass
+    if isinstance(v, (int, np.integer, float, np.floating)):
+        if v in (0, 1):
+            return bool(int(v))
+        raise ValueError(f"Invalid boolean flag {v!r} in reverse_direction.")
+    s = str(v).strip().lower()
+    if s in {"true", "1", "yes"}:
+        return True
+    if s in {"", "false", "0", "no"}:
+        return False
+    raise ValueError(f"Invalid boolean flag {v!r} in reverse_direction.")
+
+
 def qualify_ps_das_events(
     events: pd.DataFrame,
     *,
@@ -398,15 +487,34 @@ def qualify_ps_das_events(
     df = events.copy()
     if df.empty:
         return df
-    df["fdr"] = pd.to_numeric(df["FDR"] if "FDR" in df.columns else df.get("fdr"), errors="coerce")
-    raw_dpsi = pd.to_numeric(df["IncLevelDifference"] if "IncLevelDifference" in df.columns else df.get("dpsi"), errors="coerce")
-    rev = df["reverse_direction"].astype(bool) if "reverse_direction" in df.columns else pd.Series(False, index=df.index)
-    df["dpsi"] = np.where(rev, -raw_dpsi, raw_dpsi)
+    fdr_col = "FDR" if "FDR" in df.columns else ("fdr" if "fdr" in df.columns else None)
+    dpsi_col = "IncLevelDifference" if "IncLevelDifference" in df.columns else ("dpsi" if "dpsi" in df.columns else None)
+    pv_col = next((c for c in ("PValue", "pvalue", "p_value") if c in df.columns), None)
+    df["fdr"] = pd.to_numeric(df[fdr_col] if fdr_col else np.nan, errors="coerce")
+    raw_dpsi = pd.to_numeric(df[dpsi_col] if dpsi_col else np.nan, errors="coerce")
+    if "reverse_direction" in df.columns:
+        rev = pd.Series([_parse_bool_flag(v) for v in df["reverse_direction"].tolist()], index=df.index, dtype=bool)
+    else:
+        rev = pd.Series(False, index=df.index, dtype=bool)
+    df["reverse_direction"] = rev
+    df["dpsi"] = np.where(rev.to_numpy(dtype=bool), -raw_dpsi, raw_dpsi)
     df["abs_dpsi"] = df["dpsi"].abs()
 
+    fdr_arr = df["fdr"].to_numpy(dtype=float)
+    dpsi_arr = df["dpsi"].to_numpy(dtype=float)
+    domain_ok = np.isfinite(fdr_arr) & (fdr_arr >= 0.0) & (fdr_arr <= 1.0) & np.isfinite(dpsi_arr) & (dpsi_arr >= -1.0) & (dpsi_arr <= 1.0)
+    if pv_col is not None:
+        pv_raw = df[pv_col]
+        pv_nonblank = ~pv_raw.map(
+            lambda v: v is None or (isinstance(v, float) and math.isnan(v)) or str(v).strip().lower() in {"", "na", "nan", "none", "null"}
+        ).to_numpy(dtype=bool)
+        pv_arr = pd.to_numeric(pv_raw, errors="coerce").to_numpy(dtype=float)
+        pv_valid = (~pv_nonblank) | (np.isfinite(pv_arr) & (pv_arr >= 0.0) & (pv_arr <= 1.0))
+        domain_ok = domain_ok & pv_valid
+
     audits: list[dict[str, Any]] = []
-    for _, row in df.iterrows():
-        reverse = bool(row.get("reverse_direction", False))
+    for row_pos, (_, row) in enumerate(df.iterrows()):
+        reverse = bool(rev.iloc[row_pos])
         if "IncFormLen" in row and "SkipFormLen" in row and pd.notna(row["IncFormLen"]) and pd.notna(row["SkipFormLen"]):
             try:
                 eff_mult = max(1.0, min(3.0, float(row["IncFormLen"]) / max(1.0, float(row["SkipFormLen"]))))
@@ -468,7 +576,12 @@ def qualify_ps_das_events(
     for col in aud_df.columns:
         df[col] = aud_df[col]
 
-    sig_raw = df["fdr"].le(fdr_cutoff) & df["abs_dpsi"].ge(dpsi_cutoff)
+    domain_s = pd.Series(domain_ok, index=df.index, dtype=bool)
+    if (~domain_s).any():
+        df.loc[~domain_s, "passes_precision_support"] = False
+        df.loc[~domain_s, "nmd_asymmetry_rescued"] = False
+        df.loc[~domain_s, "precision_support_reason"] = "invalid_stat_domain"
+    sig_raw = df["fdr"].le(fdr_cutoff) & df["abs_dpsi"].ge(dpsi_cutoff) & domain_s
     df["passes_ordinary_das"] = sig_raw
     df["passes_ps_das"] = sig_raw & df["passes_precision_support"]
     df["passes_legacy_all10_das"] = sig_raw & df["passes_legacy_all10"]
@@ -476,7 +589,7 @@ def qualify_ps_das_events(
 
 
 def _read_delimited(path: Path) -> pd.DataFrame:
-    sep = "\t" if path.suffix.lower() in {".tsv", ".txt"} else ","
+    sep = "\t" if path.name.lower().endswith((".tsv", ".tsv.gz", ".txt", ".txt.gz")) else ","
     return pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False)
 
 
@@ -588,7 +701,9 @@ def load_rmats_study(
         raise ValueError(f"Unsupported rmats_mode: {rmats_mode}")
 
     sample_meta: list[dict[str, Any]] = []
+    seen_sids: set[str] = set()
     contrast_specs: list[dict[str, Any]] = []
+    seen_rdirs: dict[Path, str] = {}
 
     if bundle_dir is not None:
         bdir = Path(bundle_dir)
@@ -607,10 +722,13 @@ def load_rmats_study(
             raise FileNotFoundError(f"Missing samplesheet in bundle: {bdir}")
         s_df = _read_delimited(s_path)
         for _, r in s_df.iterrows():
-            sid = str(r.get("sample") or r.get("sample_id")).strip()
+            sid = str(r.get("sample") or r.get("sample_id") or "").strip()
             cond = str(r.get("condition") or r.get("group") or "Group").strip()
             bio = _extract_donor_id(r, sid)
-            if sid and not any(x["sample_id"] == sid for x in sample_meta):
+            if sid:
+                if sid in seen_sids:
+                    raise ValueError(f"Duplicate physical sample_id {sid!r} in sample metadata ({s_path}).")
+                seen_sids.add(sid)
                 sample_meta.append({"sample_id": sid, "biological_sample_id": bio, "condition": cond})
         if c_path is not None and c_path.is_file():
             manifest_order, manifest_comps = _parse_manifest_rmats(bdir)
@@ -647,6 +765,12 @@ def load_rmats_study(
                     allow_bare_root=None,
                     explicit_arm_order=has_manifest_arms,
                 )
+                r_res = rdir.resolve()
+                if r_res in seen_rdirs:
+                    raise ValueError(
+                        f"Duplicate rMATS directory {rdir} bound to multiple contrasts ({seen_rdirs[r_res]!r} and {cid!r})."
+                    )
+                seen_rdirs[r_res] = cid
                 rev_dir = (g1_lbl == den_lbl and g2_lbl == num_lbl) if has_manifest_arms else path_inverted
                 cm_order = mc.get("rmats_sample_order") or {}
                 arm1_lbl = den_lbl if rev_dir else num_lbl
@@ -661,8 +785,17 @@ def load_rmats_study(
                 explicit_order = bool(has_any_order or ord1 is not None or ord2 is not None)
                 if explicit_order:
                     _validate_manifest_sample_order(ord1 or [], ord2 or [], arm1_lbl, arm2_lbl, sample_meta, cid)
-                num_s = (ord2 if rev_dir else ord1) if explicit_order else [s["sample_id"] for s in sample_meta if s["condition"] == num_lbl]
-                den_s = (ord1 if rev_dir else ord2) if explicit_order else [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl]
+                    num_s = ord2 if rev_dir else ord1
+                    den_s = ord1 if rev_dir else ord2
+                else:
+                    raw_arm1 = [s["sample_id"] for s in sample_meta if s["condition"] == arm1_lbl]
+                    raw_arm2 = [s["sample_id"] for s in sample_meta if s["condition"] == arm2_lbl]
+                    inferred = _infer_order_from_rmats_bam_lists(rdir, raw_arm1, raw_arm2)
+                    if inferred is not None:
+                        raw_arm1, raw_arm2 = inferred
+                        explicit_order = True
+                    num_s = raw_arm2 if rev_dir else raw_arm1
+                    den_s = raw_arm1 if rev_dir else raw_arm2
                 contrast_specs.append({
                     "contrast_id": cid, "numerator": num_lbl, "denominator": den_lbl,
                     "rmats_dir": rdir, "num_samples": num_s, "den_samples": den_s,
@@ -671,14 +804,24 @@ def load_rmats_study(
                 })
     elif rmats_dir is not None:
         rdir = Path(rmats_dir)
-        if samples_file is not None and Path(samples_file).is_file():
-            s_df = _read_delimited(Path(samples_file))
+        if samples_file is not None:
+            sf = Path(samples_file)
+            if not sf.is_file():
+                raise FileNotFoundError(f"Explicit samples file not found: {samples_file}")
+            s_df = _read_delimited(sf)
             for _, r in s_df.iterrows():
-                sid = str(r.get("sample_id") or r.get("sample")).strip()
+                sid = str(r.get("sample_id") or r.get("sample") or "").strip()
                 cond = str(r.get("condition") or r.get("group") or "Group").strip()
                 bio = _extract_donor_id(r, sid)
-                if sid and not any(x["sample_id"] == sid for x in sample_meta):
+                if sid:
+                    if sid in seen_sids:
+                        raise ValueError(f"Duplicate physical sample_id {sid!r} in sample metadata ({sf}).")
+                    seen_sids.add(sid)
                     sample_meta.append({"sample_id": sid, "biological_sample_id": bio, "condition": cond})
+        if contrasts_file is not None:
+            cf = Path(contrasts_file)
+            if not cf.is_file():
+                raise FileNotFoundError(f"Explicit contrasts file not found: {contrasts_file}")
         if contrasts_file is not None and Path(contrasts_file).is_file() and sample_meta:
             c_df = _read_delimited(Path(contrasts_file))
             n_contrasts = max(1, len(c_df))
@@ -699,13 +842,26 @@ def load_rmats_study(
                     mode=mode,
                     allow_bare_root=rdir,
                 )
+                c_res = cand.resolve()
+                if c_res in seen_rdirs:
+                    raise ValueError(
+                        f"Duplicate rMATS directory {cand} bound to multiple contrasts ({seen_rdirs[c_res]!r} and {cid!r})."
+                    )
+                seen_rdirs[c_res] = cid
+                raw_n = [s["sample_id"] for s in sample_meta if s["condition"] == num_lbl]
+                raw_d = [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl]
+                a1_l, a2_l = (raw_d, raw_n) if rev_dir else (raw_n, raw_d)
+                inferred = _infer_order_from_rmats_bam_lists(cand, a1_l, a2_l)
+                if inferred is not None:
+                    a1_l, a2_l = inferred
+                    raw_n, raw_d = (a2_l, a1_l) if rev_dir else (a1_l, a2_l)
                 contrast_specs.append({
                     "contrast_id": cid, "numerator": num_lbl, "denominator": den_lbl,
                     "rmats_dir": cand,
-                    "num_samples": [s["sample_id"] for s in sample_meta if s["condition"] == num_lbl],
-                    "den_samples": [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl],
+                    "num_samples": raw_n,
+                    "den_samples": raw_d,
                     "reverse_direction": rev_dir,
-                    "explicit_order": False,
+                    "explicit_order": inferred is not None,
                 })
         else:
             # Single rMATS directory mode (lock arm order from directory contrast label when available)
@@ -750,20 +906,37 @@ def load_rmats_study(
                 den_s = [s["sample_id"] for s in sample_meta if s["condition"] == den_lbl]
             else:
                 num_lbl, den_lbl, num_s, den_s, rev_dir = "Group1", "Group2", [], [], False
+            a1_l, a2_l = (den_s, num_s) if rev_dir else (num_s, den_s)
+            inferred = _infer_order_from_rmats_bam_lists(rdir, a1_l, a2_l)
+            if inferred is not None:
+                a1_l, a2_l = inferred
+                num_s, den_s = (a2_l, a1_l) if rev_dir else (a1_l, a2_l)
             contrast_specs.append({
                 "contrast_id": contrast_id, "numerator": num_lbl, "denominator": den_lbl,
                 "rmats_dir": rdir, "num_samples": num_s, "den_samples": den_s,
-                "reverse_direction": rev_dir, "explicit_order": False,
+                "reverse_direction": rev_dir, "explicit_order": inferred is not None,
             })
     else:
         raise ValueError("Either bundle_dir or rmats_dir must be supplied.")
 
     has_declared_samples = bool(sample_meta)
 
-    psi_obs: dict[tuple[str, str], list[float]] = {}
-    sup_obs: dict[tuple[str, str], list[float]] = {}
+    psi_obs: dict[tuple[str, str], float] = {}
+    sup_obs: dict[tuple[str, str], float] = {}
     event_meta: dict[str, dict[str, Any]] = {}
     all_frames: list[pd.DataFrame] = []
+
+    def _record_obs(store: dict[tuple[str, str], float], key: tuple[str, str], val: float, kind_lbl: str) -> None:
+        if not math.isfinite(val):
+            store.setdefault(key, math.nan)
+            return
+        prev = store.get(key)
+        if prev is not None and math.isfinite(prev) and abs(prev - val) > 1e-6:
+            raise ValueError(
+                f"Conflicting {kind_lbl} observations for shared sample '{key[1]}' on event '{key[0]}' across contrasts "
+                f"({prev} vs {val})."
+            )
+        store[key] = val
 
     for spec in contrast_specs:
         cdir = Path(spec["rmats_dir"])
@@ -774,15 +947,23 @@ def load_rmats_study(
                 continue
             _str_cols = {
                 c: str
-                for c in ("IncLevel1", "IncLevel2", "IJC_SAMPLE_1", "IJC_SAMPLE_2", "SJC_SAMPLE_1", "SJC_SAMPLE_2")
+                for c in (
+                    "chr", "strand", *_COORD_KEY_COLS[et],
+                    "IncLevel1", "IncLevel2", "IJC_SAMPLE_1", "IJC_SAMPLE_2", "SJC_SAMPLE_1", "SJC_SAMPLE_2",
+                )
             }
             df = pd.read_csv(fpath, sep="\t", converters=_str_cols)
             if df.empty:
                 continue
             df = df.copy()
+            missing_coords = [c for c in ("chr", "strand", *_COORD_KEY_COLS[et]) if c not in df.columns]
+            if missing_coords:
+                raise ValueError(f"rMATS {fpath.name} ({cdir}) missing required coordinate column(s): {missing_coords}.")
+            for c_coord in _COORD_KEY_COLS[et]:
+                df[c_coord] = _strict_int_coord_series(df[c_coord], c_coord, et)
             df["event_type"] = et
-            df["event_id"] = canonical_event_ids(df, et)
             df["coordinate_key"] = _coordinate_keys(df, et)
+            df["event_id"] = canonical_event_ids(df, et)
             rev_d = bool(spec.get("reverse_direction", False))
             df["comparison_id"] = spec["contrast_id"]
             df["numerator"] = spec["numerator"]
@@ -808,10 +989,12 @@ def load_rmats_study(
             n1_names = arm1_s if len(arm1_s) == len(p1_first) else [f"{arm1_lbl}_rep{i+1}" for i in range(len(p1_first))]
             n2_names = arm2_s if len(arm2_s) == len(p2_first) else [f"{arm2_lbl}_rep{i+1}" for i in range(len(p2_first))]
             for s in n1_names:
-                if not any(x["sample_id"] == s for x in sample_meta):
+                if s not in seen_sids:
+                    seen_sids.add(s)
                     sample_meta.append({"sample_id": s, "biological_sample_id": s, "condition": arm1_lbl})
             for s in n2_names:
-                if not any(x["sample_id"] == s for x in sample_meta):
+                if s not in seen_sids:
+                    seen_sids.add(s)
                     sample_meta.append({"sample_id": s, "biological_sample_id": s, "condition": arm2_lbl})
 
             df["numerator_expected_samples"] = len(n2_names) if rev_d else len(n1_names)
@@ -838,22 +1021,26 @@ def load_rmats_study(
                         f"expected (g1={exp_n1}, g2={exp_n2}), got IncLevel=({len(p1s)},{len(p2s)}), "
                         f"IJC=({len(i1s)},{len(i2s)}), SJC=({len(s1s)},{len(s2s)})."
                     )
+                if any(math.isfinite(c) and c < 0.0 for c in (*i1s, *i2s, *s1s, *s2s)):
+                    raise ValueError(f"Negative rMATS read count at {fpath.name} row {r_idx} ({eid}).")
+                if any(math.isfinite(pv) and (pv < 0.0 or pv > 1.0) for pv in (*p1s, *p2s)):
+                    raise ValueError(f"Out-of-range IncLevel PSI outside [0, 1] at {fpath.name} row {r_idx} ({eid}).")
                 if eid not in event_meta:
                     event_meta[eid] = {"gene_id": gid, "gene_symbol": gsym or gid, "event_type": et}
                 for s_name, pv, iv, sv in zip(n1_names, p1s, i1s, s1s):
-                    psi_obs.setdefault((eid, s_name), []).append(pv)
-                    sup_obs.setdefault((eid, s_name), []).append((iv + sv) if (math.isfinite(iv) and math.isfinite(sv)) else math.nan)
+                    _record_obs(psi_obs, (eid, s_name), pv, "PSI")
+                    _record_obs(sup_obs, (eid, s_name), (iv + sv) if (math.isfinite(iv) and math.isfinite(sv)) else math.nan, "support")
                 for s_name, pv, iv, sv in zip(n2_names, p2s, i2s, s2s):
-                    psi_obs.setdefault((eid, s_name), []).append(pv)
-                    sup_obs.setdefault((eid, s_name), []).append((iv + sv) if (math.isfinite(iv) and math.isfinite(sv)) else math.nan)
+                    _record_obs(psi_obs, (eid, s_name), pv, "PSI")
+                    _record_obs(sup_obs, (eid, s_name), (iv + sv) if (math.isfinite(iv) and math.isfinite(sv)) else math.nan, "support")
 
             all_frames.append(df)
 
     if not all_frames:
         raise ValueError("No non-empty rMATS tables found.")
     events_all = pd.concat(all_frames, ignore_index=True, sort=False)
-    psi_mat = pd.Series({k: _finite_median(v) for k, v in psi_obs.items()}, dtype=float).unstack().sort_index()
-    sup_mat = pd.Series({k: _finite_median(v) for k, v in sup_obs.items()}, dtype=float).unstack().sort_index()
+    psi_mat = pd.Series(psi_obs, dtype=float).unstack().sort_index()
+    sup_mat = pd.Series(sup_obs, dtype=float).unstack().sort_index()
     psi_mat.index.name = "event_id"
     sup_mat.index.name = "event_id"
     return events_all, psi_mat, sup_mat, sample_meta, event_meta

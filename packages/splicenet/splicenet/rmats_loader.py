@@ -65,6 +65,53 @@ def _dir_contrast_label(cand: Path) -> str:
     return cand.parent.name if cand.name.lower() == "rmats_post" else cand.name
 
 
+def _infer_order_from_rmats_bam_lists(
+    rdir: Path, arm1_sids: list[str], arm2_sids: list[str],
+) -> tuple[list[str], list[str]] | None:
+    """Infer within-arm replicate order from rMATS `b1.txt`/`b2.txt` BAM lists when 1:1 unique."""
+    if not arm1_sids or not arm2_sids:
+        return None
+    cand_dirs = [rdir]
+    if rdir.name.lower() == "rmats_post" and rdir.parent != rdir:
+        cand_dirs.append(rdir.parent)
+    b1_p = next((d / "b1.txt" for d in cand_dirs if (d / "b1.txt").is_file()), None)
+    b2_p = next((d / "b2.txt" for d in cand_dirs if (d / "b2.txt").is_file()), None)
+    if b1_p is None or b2_p is None:
+        return None
+
+    def _map_arm(bpath: Path, sids: list[str]) -> list[str] | None:
+        raw = bpath.read_text(encoding="utf-8", errors="replace")
+        tokens = [t.strip() for chunk in raw.splitlines() for t in chunk.split(",") if t.strip()]
+        if len(tokens) != len(sids):
+            return None
+        mapped: list[str] = []
+        used: set[str] = set()
+        for tok in tokens:
+            name = Path(tok.replace("\\", "/")).name
+            stem = name.split(".", 1)[0]
+            exact = [s for s in sids if stem == s]
+            cands = exact if len(exact) == 1 else [
+                s
+                for s in sids
+                if name.startswith(f"{s}.")
+                or name.startswith(f"{s}_")
+                or name.startswith(f"{s}-")
+                or stem.startswith(f"{s}_")
+                or stem.startswith(f"{s}-")
+            ]
+            if len(cands) != 1 or cands[0] in used:
+                return None
+            used.add(cands[0])
+            mapped.append(cands[0])
+        return mapped if len(mapped) == len(sids) else None
+
+    m1 = _map_arm(b1_p, arm1_sids)
+    m2 = _map_arm(b2_p, arm2_sids)
+    if m1 is None or m2 is None:
+        return None
+    return m1, m2
+
+
 def _validate_bare_dir_contrast(
     cand: Path,
     *,
@@ -220,20 +267,34 @@ _COORD_COLS = {
 }
 
 
+def _strict_int_coord_series(ser: pd.Series, col_name: str, et: str) -> pd.Series:
+    out: list[str] = []
+    for r_i, raw in enumerate(ser.tolist()):
+        s = _clean(raw)
+        if not s:
+            raise ValueError(f"Missing required coordinate '{col_name}' at {et} row {r_i}.")
+        try:
+            f = float(s)
+        except ValueError as exc:
+            raise ValueError(f"Non-numeric coordinate {s!r} in column '{col_name}' at {et} row {r_i}.") from exc
+        if (not math.isfinite(f)) or f != math.floor(f) or f < 0:
+            raise ValueError(f"Non-integer or negative coordinate {s!r} in column '{col_name}' at {et} row {r_i}.")
+        out.append(str(int(round(f))))
+    return pd.Series(out, index=ser.index, dtype="object")
+
+
 def _canon_ids(df: pd.DataFrame, et: str) -> pd.Series:
     cols = _COORD_COLS.get(et, ())
-    if cols and {"chr", "strand", *cols}.issubset(df.columns):
-        return (
-            et + ":" + df["chr"].map(_clean) + ":" + df["strand"].map(_clean) + ":"
-            + df[list(cols)].apply(lambda c: c.map(_clean)).agg(":".join, axis=1)
-        )
-    ids = pd.Series(et, index=df.index, dtype="object")
-    for col in EVENT_COORDINATES:
-        if col in df.columns:
-            vals = df[col].map(_clean)
-            ok = vals.ne("")
-            ids.loc[ok] = ids.loc[ok] + "|" + col + "=" + vals.loc[ok]
-    return ids
+    missing = [c for c in ("chr", "strand", *cols) if c not in df.columns]
+    if missing:
+        raise ValueError(f"rMATS {et} table missing required coordinate column(s): {missing}.")
+    chrs = df["chr"].map(_clean)
+    strands = df["strand"].map(_clean)
+    if (chrs == "").any() or (~strands.isin(["+", "-"])).any():
+        raise ValueError(f"rMATS {et} table contains empty chromosome or invalid strand tokens.")
+    coord_parts = [_strict_int_coord_series(df[c], c, et) for c in cols]
+    coord_df = pd.concat(coord_parts, axis=1)
+    return et + ":" + chrs + ":" + strands + ":" + coord_df.agg(":".join, axis=1)
 
 
 def _med(vals: list[float]) -> float:
@@ -301,7 +362,7 @@ def _parse_manifest_rmats(bdir: Path) -> tuple[dict[str, list[str]], dict[str, d
 
 
 def _read_delimited(path: Path) -> pd.DataFrame:
-    sep = "\t" if path.suffix.lower() in {".tsv", ".txt"} else ","
+    sep = "\t" if path.name.lower().endswith((".tsv", ".tsv.gz", ".txt", ".txt.gz")) else ","
     return pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False)
 
 
@@ -350,7 +411,9 @@ def extract_matrices_from_bundle_or_rmats(
     if mode not in {"JC", "JCEC"}:
         raise ValueError(f"Unsupported rmats_mode: {rmats_mode}")
     sample_rows: list[dict[str, str]] = []
-    specs: list[tuple[Path, list[str], list[str], str, str, bool]] = []
+    seen_sids: set[str] = set()
+    specs: list[tuple[Path, list[str], list[str], str, str, bool, str]] = []
+    seen_rdirs: dict[Path, str] = {}
 
     if bundle_dir is not None:
         bdir = Path(bundle_dir)
@@ -369,10 +432,13 @@ def extract_matrices_from_bundle_or_rmats(
             raise FileNotFoundError(f"Missing samplesheet/contrastsheet in bundle: {bdir}")
         s_df = _read_delimited(s_path)
         for _, r in s_df.iterrows():
-            sid = str(r.get("sample") or r.get("sample_id")).strip()
+            sid = str(r.get("sample") or r.get("sample_id") or "").strip()
             cond = str(r.get("condition") or r.get("group") or "Group").strip()
             bio = _extract_donor_id(r, sid)
-            if sid and not any(x["sample_id"] == sid for x in sample_rows):
+            if sid:
+                if sid in seen_sids:
+                    raise ValueError(f"Duplicate physical sample_id {sid!r} in sample metadata ({s_path}).")
+                seen_sids.add(sid)
                 sample_rows.append({"sample_id": sid, "biological_sample_id": bio, "condition": cond})
         manifest_order, manifest_comps = _parse_manifest_rmats(bdir)
         c_df = _read_delimited(c_path)
@@ -408,6 +474,12 @@ def extract_matrices_from_bundle_or_rmats(
                 allow_bare_root=None,
                 explicit_arm_order=has_manifest_arms,
             )
+            r_res = rpath.resolve()
+            if r_res in seen_rdirs:
+                raise ValueError(
+                    f"Duplicate rMATS directory {rpath} bound to multiple contrasts ({seen_rdirs[r_res]!r} and {cid!r})."
+                )
+            seen_rdirs[r_res] = cid
             rev_dir = (g1_lbl == den_c and g2_lbl == num_c) if has_manifest_arms else path_inverted
             cm_order = mc.get("rmats_sample_order") or {}
             arm1_lbl = den_c if rev_dir else num_c
@@ -421,21 +493,34 @@ def extract_matrices_from_bundle_or_rmats(
             explicit_order = bool(cm_order or manifest_order or ord1 is not None or ord2 is not None)
             if explicit_order:
                 _validate_manifest_sample_order(ord1 or [], ord2 or [], arm1_lbl, arm2_lbl, sample_rows, cid)
-                specs.append((rpath, list(ord1 or []), list(ord2 or []), arm1_lbl, arm2_lbl, True))
+                specs.append((rpath, list(ord1 or []), list(ord2 or []), arm1_lbl, arm2_lbl, True, cid))
             else:
                 n1 = [s["sample_id"] for s in sample_rows if s["condition"] == arm1_lbl]
                 n2 = [s["sample_id"] for s in sample_rows if s["condition"] == arm2_lbl]
-                specs.append((rpath, n1, n2, arm1_lbl, arm2_lbl, False))
+                inferred = _infer_order_from_rmats_bam_lists(rpath, n1, n2)
+                if inferred is not None:
+                    n1, n2 = inferred
+                specs.append((rpath, n1, n2, arm1_lbl, arm2_lbl, inferred is not None, cid))
     elif rmats_dir is not None:
         rpath = Path(rmats_dir)
-        if samples_path is not None and Path(samples_path).is_file():
-            s_df = _read_delimited(Path(samples_path))
+        if samples_path is not None:
+            sp = Path(samples_path)
+            if not sp.is_file():
+                raise FileNotFoundError(f"Explicit samples file not found: {samples_path}")
+            s_df = _read_delimited(sp)
             for _, r in s_df.iterrows():
-                sid = str(r.get("sample_id") or r.get("sample")).strip()
+                sid = str(r.get("sample_id") or r.get("sample") or "").strip()
                 bio = _extract_donor_id(r, sid)
                 cond = str(r.get("condition") or r.get("group") or "Group").strip()
-                if sid and not any(x["sample_id"] == sid for x in sample_rows):
+                if sid:
+                    if sid in seen_sids:
+                        raise ValueError(f"Duplicate physical sample_id {sid!r} in sample metadata ({sp}).")
+                    seen_sids.add(sid)
                     sample_rows.append({"sample_id": sid, "biological_sample_id": bio, "condition": cond})
+        if contrasts_path is not None:
+            cp = Path(contrasts_path)
+            if not cp.is_file():
+                raise FileNotFoundError(f"Explicit contrasts file not found: {contrasts_path}")
         if contrasts_path is not None and Path(contrasts_path).is_file() and sample_rows:
             c_df = _read_delimited(Path(contrasts_path))
             n_contrasts = max(1, len(c_df))
@@ -456,12 +541,24 @@ def extract_matrices_from_bundle_or_rmats(
                     mode=mode,
                     allow_bare_root=rpath,
                 )
+                c_res = cand.resolve()
+                if c_res in seen_rdirs:
+                    raise ValueError(
+                        f"Duplicate rMATS directory {cand} bound to multiple contrasts ({seen_rdirs[c_res]!r} and {cid!r})."
+                    )
+                seen_rdirs[c_res] = cid
                 n1 = [s["sample_id"] for s in sample_rows if s["condition"] == num_c]
                 n2 = [s["sample_id"] for s in sample_rows if s["condition"] == den_c]
                 if rev_dir:
-                    specs.append((cand, n2, n1, den_c, num_c, False))
+                    inferred = _infer_order_from_rmats_bam_lists(cand, n2, n1)
+                    if inferred is not None:
+                        n2, n1 = inferred
+                    specs.append((cand, n2, n1, den_c, num_c, inferred is not None, cid))
                 else:
-                    specs.append((cand, n1, n2, num_c, den_c, False))
+                    inferred = _infer_order_from_rmats_bam_lists(cand, n1, n2)
+                    if inferred is not None:
+                        n1, n2 = inferred
+                    specs.append((cand, n1, n2, num_c, den_c, inferred is not None, cid))
         else:
             conds = list(dict.fromkeys(s["condition"] for s in sample_rows))
             if len(conds) >= 2:
@@ -483,19 +580,34 @@ def extract_matrices_from_bundle_or_rmats(
                     raise ValueError(f"Samplesheet has >2 conditions ({conds}) without contrasts file or matching rMATS directory {rpath}.")
                 n1 = [s["sample_id"] for s in sample_rows if s["condition"] == arm1_lbl]
                 n2 = [s["sample_id"] for s in sample_rows if s["condition"] == arm2_lbl]
-                specs.append((rpath, n1, n2, arm1_lbl, arm2_lbl, False))
+                inferred = _infer_order_from_rmats_bam_lists(rpath, n1, n2)
+                if inferred is not None:
+                    n1, n2 = inferred
+                specs.append((rpath, n1, n2, arm1_lbl, arm2_lbl, inferred is not None, f"{arm1_lbl}_vs_{arm2_lbl}"))
             else:
-                specs.append((rpath, [], [], "Group1", "Group2", False))
+                specs.append((rpath, [], [], "Group1", "Group2", False, "contrast_1"))
     else:
         raise ValueError("Provide either bundle_dir or rmats_dir.")
 
     has_declared_samples = bool(sample_rows)
 
-    psi_obs: dict[tuple[str, str], list[float]] = {}
-    sup_obs: dict[tuple[str, str], list[float]] = {}
+    psi_obs: dict[tuple[str, str], float] = {}
+    sup_obs: dict[tuple[str, str], float] = {}
     genes: dict[str, str] = {}
 
-    for rpath, n1_decl, n2_decl, lbl1, lbl2, explicit_order in specs:
+    def _record_obs(store: dict[tuple[str, str], float], key: tuple[str, str], val: float, kind_lbl: str) -> None:
+        if not math.isfinite(val):
+            store.setdefault(key, math.nan)
+            return
+        prev = store.get(key)
+        if prev is not None and math.isfinite(prev) and abs(prev - val) > 1e-6:
+            raise ValueError(
+                f"Conflicting {kind_lbl} observations for shared sample '{key[1]}' on event '{key[0]}' across contrasts "
+                f"({prev} vs {val})."
+            )
+        store[key] = val
+
+    for rpath, n1_decl, n2_decl, lbl1, lbl2, explicit_order, cid in specs:
         eff_mode = mode
         for et in EVENT_TYPES:
             fp = rpath / f"{et}.MATS.{eff_mode}.txt"
@@ -503,7 +615,10 @@ def extract_matrices_from_bundle_or_rmats(
                 continue
             _str_cols = {
                 c: str
-                for c in ("IncLevel1", "IncLevel2", "IJC_SAMPLE_1", "IJC_SAMPLE_2", "SJC_SAMPLE_1", "SJC_SAMPLE_2")
+                for c in (
+                    "chr", "strand", *_COORD_COLS[et],
+                    "IncLevel1", "IncLevel2", "IJC_SAMPLE_1", "IJC_SAMPLE_2", "SJC_SAMPLE_1", "SJC_SAMPLE_2",
+                )
             }
             df = pd.read_csv(fp, sep="\t", converters=_str_cols)
             if df.empty:
@@ -520,10 +635,12 @@ def extract_matrices_from_bundle_or_rmats(
             n1 = n1_decl if len(n1_decl) == len(p1_0) else [f"{lbl1}_rep{i+1}" for i in range(len(p1_0))]
             n2 = n2_decl if len(n2_decl) == len(p2_0) else [f"{lbl2}_rep{i+1}" for i in range(len(p2_0))]
             for s in n1:
-                if not any(x["sample_id"] == s for x in sample_rows):
+                if s not in seen_sids:
+                    seen_sids.add(s)
                     sample_rows.append({"sample_id": s, "biological_sample_id": s, "condition": lbl1})
             for s in n2:
-                if not any(x["sample_id"] == s for x in sample_rows):
+                if s not in seen_sids:
+                    seen_sids.add(s)
                     sample_rows.append({"sample_id": s, "biological_sample_id": s, "condition": lbl2})
 
             exp_n1, exp_n2 = len(n1), len(n2)
@@ -546,18 +663,22 @@ def extract_matrices_from_bundle_or_rmats(
                         f"expected (g1={exp_n1}, g2={exp_n2}), got IncLevel=({len(p1s)},{len(p2s)}), "
                         f"IJC=({len(i1s)},{len(i2s)}), SJC=({len(s1s)},{len(s2s)})."
                     )
+                if any(math.isfinite(c) and c < 0.0 for c in (*i1s, *i2s, *s1s, *s2s)):
+                    raise ValueError(f"Negative rMATS read count at {fp.name} row {r_idx} ({eid}).")
+                if any(math.isfinite(pv) and (pv < 0.0 or pv > 1.0) for pv in (*p1s, *p2s)):
+                    raise ValueError(f"Out-of-range IncLevel PSI outside [0, 1] at {fp.name} row {r_idx} ({eid}).")
                 genes.setdefault(eid, gid)
                 for s, pv, iv, sv in zip(n1, p1s, i1s, s1s):
-                    psi_obs.setdefault((eid, s), []).append(pv)
-                    sup_obs.setdefault((eid, s), []).append((iv + sv) if (math.isfinite(iv) and math.isfinite(sv)) else math.nan)
+                    _record_obs(psi_obs, (eid, s), pv, "PSI")
+                    _record_obs(sup_obs, (eid, s), (iv + sv) if (math.isfinite(iv) and math.isfinite(sv)) else math.nan, "support")
                 for s, pv, iv, sv in zip(n2, p2s, i2s, s2s):
-                    psi_obs.setdefault((eid, s), []).append(pv)
-                    sup_obs.setdefault((eid, s), []).append((iv + sv) if (math.isfinite(iv) and math.isfinite(sv)) else math.nan)
+                    _record_obs(psi_obs, (eid, s), pv, "PSI")
+                    _record_obs(sup_obs, (eid, s), (iv + sv) if (math.isfinite(iv) and math.isfinite(sv)) else math.nan, "support")
 
     if not psi_obs:
         raise ValueError("No non-empty rMATS tables found to construct co-splicing matrices.")
-    usage = pd.Series({k: _med(v) for k, v in psi_obs.items()}, dtype=float).unstack().sort_index()
-    support = pd.Series({k: _med(v) for k, v in sup_obs.items()}, dtype=float).unstack().sort_index()
+    usage = pd.Series(psi_obs, dtype=float).unstack().sort_index()
+    support = pd.Series(sup_obs, dtype=float).unstack().sort_index()
     usage.index.name = "event_key"
     support.index.name = "event_key"
     meta_df = pd.DataFrame(sample_rows)

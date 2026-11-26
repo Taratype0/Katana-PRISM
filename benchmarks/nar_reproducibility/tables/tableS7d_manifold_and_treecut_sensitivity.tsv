@@ -1,8 +1,8 @@
 module_tier	parameter_grid	endpoint_1_name	endpoint_1_value	endpoint_2_name	endpoint_2_value
-SpliceManifold-SC Isoform Usage (GSE270928 kallisto, n=192)	prior_kappa = 5	State PERMANOVA R2	0.0539	Retained HVIs (kallisto isoforms)	1000.0
-SpliceManifold-SC Isoform Usage (GSE270928 kallisto, n=192)	prior_kappa = 10 [default]	State PERMANOVA R2	0.0464	Retained HVIs (kallisto isoforms)	1000.0
-SpliceManifold-SC Isoform Usage (GSE270928 kallisto, n=192)	prior_kappa = 20	State PERMANOVA R2	0.0352	Retained HVIs (kallisto isoforms)	1000.0
-SpliceManifold 5-Class Event Prior (K562 Single-Batch N=16 Unique Libs: A3SS=4685, A5SS=3307, MXE=3025, RI=3064, SE=19077)	Event-type-scaled kappa_type vs uniform kappa=10 (uniform R2=0.5931)	Class-scaled PERMANOVA R2	0.5995	Pairwise distance r vs uniform	0.9996
+SpliceManifold-SC Isoform Usage (GSE270928 kallisto, n=192)	prior_kappa = 5	State PERMANOVA R2	0.0545	Retained HVIs (kallisto isoforms)	1000.0
+SpliceManifold-SC Isoform Usage (GSE270928 kallisto, n=192)	prior_kappa = 10 [default]	State PERMANOVA R2	0.0468	Retained HVIs (kallisto isoforms)	1000.0
+SpliceManifold-SC Isoform Usage (GSE270928 kallisto, n=192)	prior_kappa = 20	State PERMANOVA R2	0.0351	Retained HVIs (kallisto isoforms)	1000.0
+SpliceManifold 5-Class Event Prior (K562 Single-Batch N=16 Unique Libs: A3SS=4685, A5SS=3307, MXE=3025, RI=3064, SE=19077)	Event-class depth scaling vs uniform kappa=10 (uniform R2=0.5931)	Class-scaled PERMANOVA R2	0.5995	Pairwise distance r vs uniform	0.9996
 SpliceManifold Dual-Modality kNN (GSE270928)	k_neighbors = 10	Mean cross-modality divergence Delta_kNN	0.9833	Median Donor LISI	1.471
 SpliceManifold Dual-Modality kNN (GSE270928)	k_neighbors = 12 [default]	Mean cross-modality divergence Delta_kNN	0.9748	Median Donor LISI	1.385
 SpliceManifold Dual-Modality kNN (GSE270928)	k_neighbors = 15	Mean cross-modality divergence Delta_kNN	0.9632	Median Donor LISI	1.471

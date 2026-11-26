@@ -34,7 +34,7 @@ def _write_mini_fasta(tmp_dir: Path) -> Path:
     rng = np.random.default_rng(17)
     seq = "".join(rng.choice(list("ACGT"), size=1000))
     fa = tmp_dir / "genome.fa"
-    fa.write_text(f">chr1\n{seq}\n", encoding="utf-8")
+    fa.write_text(f">chr1\n{seq}\n", encoding="utf-8", newline="\n")
     (tmp_dir / "genome.fa.fai").write_text("chr1\t1000\t6\t1000\t1001\n", encoding="utf-8")
     return fa
 

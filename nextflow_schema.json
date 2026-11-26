@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Katana Pipeline Parameters (1.0.1)",
+  "title": "Katana Pipeline Parameters (1.0.5)",
   "description": "End-to-end alternative splicing, isoform usage, co-splicing topology, and cis-regulatory RBP consequence pipeline.",
   "type": "object",
   "properties": {

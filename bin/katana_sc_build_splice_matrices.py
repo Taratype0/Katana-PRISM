@@ -26,8 +26,8 @@ def _open_text(path: Path):
     return path.open("r", encoding="utf-8", errors="replace")
 
 
-def build_events_from_gtf(gtf_path: Path) -> tuple[pd.DataFrame, dict[tuple[str, int, int], int]]:
-    """Extract canonical 0-based binary SE, A5SS, and A3SS events and unique splice junctions from GTF."""
+def build_events_from_gtf(gtf_path: Path) -> tuple[pd.DataFrame, dict[tuple[str, str, int, int], int]]:
+    """Extract canonical 0-based binary SE, A5SS, and A3SS events and strand-specific splice junctions from GTF."""
     tx_exons: dict[str, list[tuple[int, int]]] = defaultdict(list)
     tx_info: dict[str, tuple[str, str, str, str]] = {}
 
@@ -62,7 +62,7 @@ def build_events_from_gtf(gtf_path: Path) -> tuple[pd.DataFrame, dict[tuple[str,
             gene_txs[tx_info[tid]].append(exs_sorted)
 
     events: dict[str, dict] = {}
-    needed_juncs: set[tuple[str, int, int]] = set()
+    needed_juncs: set[tuple[str, str, int, int]] = set()
 
     for (gid, gsym, chrom, strand), tx_list in gene_txs.items():
         skip_introns: dict[tuple[int, int], tuple[int, int]] = {}
@@ -86,9 +86,9 @@ def build_events_from_gtf(gtf_path: Path) -> tuple[pd.DataFrame, dict[tuple[str,
             if key_skip in skip_introns:
                 eid = f"SE:{chrom}:{strand}:{c_ex[0]}:{c_ex[1]}:{u_ex[0]}:{u_ex[1]}:{d_ex[0]}:{d_ex[1]}"
                 if eid not in events:
-                    j_inc1 = (chrom, u_ex[1] + 1, c_ex[0])
-                    j_inc2 = (chrom, c_ex[1] + 1, d_ex[0])
-                    j_exc = (chrom, u_ex[1] + 1, d_ex[0])
+                    j_inc1 = (chrom, strand, u_ex[1] + 1, c_ex[0])
+                    j_inc2 = (chrom, strand, c_ex[1] + 1, d_ex[0])
+                    j_exc = (chrom, strand, u_ex[1] + 1, d_ex[0])
                     needed_juncs.update((j_inc1, j_inc2, j_exc))
                     events[eid] = {
                         "event_id": eid,
@@ -128,8 +128,8 @@ def build_events_from_gtf(gtf_path: Path) -> tuple[pd.DataFrame, dict[tuple[str,
                 etype = "A5SS" if strand == "+" else "A3SS"
                 eid = f"{etype}:{chrom}:{strand}:{ls0}:{long_e}:{ls0}:{short_e}:{right_s0}:{d_ref[1]}"
                 if eid not in events:
-                    j_long = (chrom, long_e + 1, right_s0)
-                    j_short = (chrom, short_e + 1, right_s0)
+                    j_long = (chrom, strand, long_e + 1, right_s0)
+                    j_short = (chrom, strand, short_e + 1, right_s0)
                     needed_juncs.update((j_long, j_short))
                     events[eid] = {
                         "event_id": eid,
@@ -168,8 +168,8 @@ def build_events_from_gtf(gtf_path: Path) -> tuple[pd.DataFrame, dict[tuple[str,
                 etype = "A3SS" if strand == "+" else "A5SS"
                 eid = f"{etype}:{chrom}:{strand}:{long_s0}:{le_end}:{short_s0}:{le_end}:{u_ref[0]}:{left_e}"
                 if eid not in events:
-                    j_long = (chrom, left_e + 1, long_s0)
-                    j_short = (chrom, left_e + 1, short_s0)
+                    j_long = (chrom, strand, left_e + 1, long_s0)
+                    j_short = (chrom, strand, left_e + 1, short_s0)
                     needed_juncs.update((j_long, j_short))
                     events[eid] = {
                         "event_id": eid,
@@ -210,10 +210,31 @@ def _norm_chrom(c: str, target_chroms: set[str]) -> str:
     return c
 
 
-def load_junction_counts(sj_specs: list[str], junc_to_idx: dict[tuple[str, int, int], int]) -> tuple[csr_matrix, list[str]]:
+def load_junction_counts(sj_specs: list[str], junc_to_idx: dict[tuple[str, ...], int]) -> tuple[csr_matrix, list[str]]:
     """Load sparse `junctions x cells` counts from STARsolo `SJ/raw` folders or per-cell `*.SJ.out.tab` folders."""
     target_chroms = {j[0] for j in junc_to_idx}
     n_j = len(junc_to_idx)
+    unstranded_map: dict[tuple[str, int, int], list[int]] = defaultdict(list)
+    for key_k, idx_k in junc_to_idx.items():
+        if len(key_k) == 4:
+            ch_k, _st_k, s1_k, e1_k = key_k
+        elif len(key_k) == 3:
+            ch_k, s1_k, e1_k = key_k
+        else:
+            raise ValueError(f"Invalid junction coordinate key tuple: {key_k!r}")
+        unstranded_map[(ch_k, s1_k, e1_k)].append(idx_k)
+
+    def _resolve_junc_dst(ch: str, strand_tok: str, s1: int, e1: int) -> int | None:
+        st_s = strand_tok.strip()
+        j_st = "+" if st_s == "1" else ("-" if st_s == "2" else None)
+        if j_st is not None:
+            hit = junc_to_idx.get((ch, j_st, s1, e1))
+            if hit is not None:
+                return hit
+            return junc_to_idx.get((ch, s1, e1))
+        cands = unstranded_map.get((ch, s1, e1), ())
+        return cands[0] if len(cands) == 1 else None
+
     blocks: list[csr_matrix] = []
     all_cells: list[str] = []
     seen_cells: dict[str, str] = {}
@@ -253,16 +274,22 @@ def load_junction_counts(sj_specs: list[str], junc_to_idx: dict[tuple[str, int, 
             _register_batch_cells(bcs, spec)
             row_map_src: list[int] = []
             row_map_dst: list[int] = []
+            n_feats = 0
             with _open_text(feat_f) as fh:
                 for r_i, ln in enumerate(fh):
+                    n_feats += 1
                     pts = ln.rstrip("\n").split("\t")
                     if len(pts) >= 3:
                         ch = _norm_chrom(pts[0], target_chroms)
-                        key = (ch, int(pts[1]), int(pts[2]))
-                        dst = junc_to_idx.get(key)
+                        st_tok = pts[3] if len(pts) >= 4 else "0"
+                        dst = _resolve_junc_dst(ch, st_tok, int(pts[1]), int(pts[2]))
                         if dst is not None:
                             row_map_src.append(r_i)
                             row_map_dst.append(dst)
+            if mat.shape[0] != n_feats or mat.shape[1] != len(bcs):
+                raise ValueError(
+                    f"STARsolo matrix shape {mat.shape} disagrees with features ({n_feats}) or barcodes ({len(bcs)}) in {solo_dir}."
+                )
             if row_map_src:
                 sub = mat[row_map_src, :].tocoo()
                 mapped_rows = np.asarray(row_map_dst, dtype=int)[sub.row]
@@ -291,7 +318,7 @@ def load_junction_counts(sj_specs: list[str], junc_to_idx: dict[tuple[str, int, 
                     pts = ln.rstrip("\n").split("\t")
                     if len(pts) >= 7:
                         ch = _norm_chrom(pts[0], target_chroms)
-                        dst = junc_to_idx.get((ch, int(pts[1]), int(pts[2])))
+                        dst = _resolve_junc_dst(ch, pts[3], int(pts[1]), int(pts[2]))
                         if dst is not None:
                             u_cnt = float(pts[6])
                             if u_cnt > 0:
@@ -338,7 +365,7 @@ def _sanitize_donor_values(series: pd.Series) -> pd.Series:
 def standardize_metadata(
     meta_path: Path,
     observed_cells: list[str],
-    group_col: str,
+    group_col: str | None,
     numerator: str | None,
     denominator: str | None,
     *,
@@ -423,6 +450,14 @@ def standardize_metadata(
                 "Pass --allow-single-donor only for single-donor exploratory analysis."
             )
 
+    raw_cols_l = {str(c).strip().lower(): str(c) for c in md.columns}
+    resolved_group_col: str | None = None
+    if group_col is not None and str(group_col).strip():
+        req_g = str(group_col).strip()
+        resolved_group_col = req_g if req_g in md.columns else raw_cols_l.get(req_g.lower())
+        if resolved_group_col is None:
+            raise ValueError(f"Group column {group_col!r} not found in metadata columns: {list(md.columns)}")
+
     if "cell_type" not in md.columns:
         ct_c = next((cols_l[k] for k in ("cell_type", "celltype", "cluster", "annotation", "lineage") if k in cols_l), None)
         md["cell_type"] = md[ct_c].astype(str) if ct_c else md.get("condition", "Cell")
@@ -431,16 +466,27 @@ def standardize_metadata(
         md["condition"] = md[cond_c].astype(str) if cond_c else md["cell_type"].astype(str)
 
     # If user requested contrast on `group_col` (e.g. comparing two cell_types!), expose that column as `condition` for downstream modules
-    if group_col in md.columns and group_col != "condition":
+    if resolved_group_col is not None and resolved_group_col != "condition":
         md["original_condition"] = md["condition"]
-        md["condition"] = md[group_col].astype(str)
-    elif numerator and denominator and "condition" in md.columns:
+        md["condition"] = md[resolved_group_col].astype(str)
+    elif resolved_group_col is None and numerator and denominator and "condition" in md.columns:
         cond_vals = set(md["condition"].astype(str))
         if not ({numerator, denominator} <= cond_vals) and "cell_type" in md.columns and ({numerator, denominator} <= set(md["cell_type"].astype(str))):
             md["original_condition"] = md["condition"]
             md["condition"] = md["cell_type"].astype(str)
 
-    if "qc_pass" not in md.columns:
+    if "qc_pass" in md.columns:
+        qc_true = {"true", "1", "yes", "t", "pass"}
+        qc_false = {"false", "0", "no", "f", "fail"}
+        qc_vals = md["qc_pass"].astype(str).str.strip().str.lower()
+        bad_toks = [v for v in qc_vals if v not in qc_true and v not in qc_false]
+        if bad_toks:
+            raise ValueError(f"Invalid qc_pass value(s) in metadata: {bad_toks[:5]}.")
+        md = md.loc[qc_vals.isin(qc_true)].copy()
+        if md.empty:
+            raise ValueError("Zero cells remain after excluding qc_pass=False cells.")
+        md["qc_pass"] = True
+    else:
         md["qc_pass"] = True
 
     md = md[md["cell_id"].isin(obs_set)].reset_index(drop=True)
@@ -457,12 +503,12 @@ def main() -> int:
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--donor-col", default=None, help="Explicit donor/animal column name (auto-detects donor_id/mouse_id/biological_sample_id if omitted).")
     ap.add_argument("--allow-single-donor", action="store_true", help="Allow single-donor fallback when metadata lacks a donor column.")
-    ap.add_argument("--group-col", default="condition", help="Metadata column for contrast (e.g., condition or cell_type).")
+    ap.add_argument("--group-col", default=None, help="Metadata column for contrast (defaults to condition).")
     ap.add_argument("--numerator", default=None)
     ap.add_argument("--denominator", default=None)
     ap.add_argument("--min-cells", type=int, default=10, help="Minimum cells with >= min-cell-support junction reads.")
     ap.add_argument("--min-cell-support", type=float, default=3.0, help="Minimum competing junction reads in a cell to call PSI.")
-    ap.add_argument("--pseudobulk-by", default=None, help="Optional comma-separated columns (e.g., donor_id,cell_type) to aggregate sparse droplet cells.")
+    ap.add_argument("--pseudobulk-by", default=None, help="Optional comma-separated columns (e.g., donor_id,cell_type,condition) to aggregate sparse droplet cells without mixing contrast arms.")
     args = ap.parse_args()
 
     ev_df, junc_to_idx = build_events_from_gtf(args.gtf)
@@ -484,23 +530,51 @@ def main() -> int:
     keep_cols = [cell_to_col[c] for c in md["cell_id"]]
     j_mat = j_mat[:, keep_cols].tocsr()
 
-    # Optional donor x cell_type pseudobulk aggregation for sparse 10x droplet libraries
-    if args.pseudobulk_by:
-        pb_cols = [c.strip() for c in args.pseudobulk_by.split(",") if c.strip() in md.columns]
-        if pb_cols:
-            grp_keys = md[pb_cols].astype(str).agg("__".join, axis=1)
-            uniq_k = grp_keys.unique().tolist()
-            pb_blocks = []
-            pb_meta = []
-            for uk in uniq_k:
-                mask = (grp_keys == uk).to_numpy()
-                pb_blocks.append(np.asarray(j_mat[:, mask].sum(axis=1)))
-                r0 = md.loc[mask].iloc[0].to_dict()
-                r0["cell_id"] = uk
-                r0["n_pooled_cells"] = int(mask.sum())
-                pb_meta.append(r0)
-            j_mat = csr_matrix(np.hstack(pb_blocks))
-            md = pd.DataFrame(pb_meta)
+    # Optional donor x cell_type x condition pseudobulk aggregation for sparse 10x droplet libraries
+    if args.pseudobulk_by is not None:
+        pb_cols = [c.strip() for c in str(args.pseudobulk_by).split(",") if c.strip()]
+        if not pb_cols:
+            raise ValueError("--pseudobulk-by requires at least one valid metadata column name.")
+        missing_pb = [c for c in pb_cols if c not in md.columns]
+        if missing_pb:
+            raise ValueError(
+                f"Unknown column(s) {missing_pb} in --pseudobulk-by={args.pseudobulk_by!r}; available metadata columns: {list(md.columns)}."
+            )
+        grp_keys = md[pb_cols].astype(str).agg("__".join, axis=1)
+        uniq_k = grp_keys.unique().tolist()
+        pb_blocks = []
+        pb_meta = []
+        for uk in uniq_k:
+            mask = (grp_keys == uk).to_numpy()
+            if "condition" in md.columns and md.loc[mask, "condition"].astype(str).nunique() > 1:
+                raise ValueError(
+                    f"Pseudobulk group {uk!r} mixes multiple contrast conditions "
+                    f"({sorted(md.loc[mask, 'condition'].astype(str).unique())}); include the contrast column "
+                    "(e.g., 'donor_id,cell_type,condition') in --pseudobulk-by."
+                )
+            if "donor_id" in md.columns and md.loc[mask, "donor_id"].astype(str).nunique() > 1:
+                raise ValueError(
+                    f"Pseudobulk group {uk!r} collapses multiple biological donors "
+                    f"({sorted(md.loc[mask, 'donor_id'].astype(str).unique())}); include 'donor_id' "
+                    "(e.g., 'donor_id,cell_type,condition') in --pseudobulk-by to preserve biological donor replication."
+                )
+            pb_blocks.append(np.asarray(j_mat[:, mask].sum(axis=1)))
+            r0 = md.loc[mask].iloc[0].to_dict()
+            r0["cell_id"] = uk
+            r0["n_pooled_cells"] = int(mask.sum())
+            pb_meta.append(r0)
+        j_mat = csr_matrix(np.hstack(pb_blocks))
+        md = pd.DataFrame(pb_meta)
+
+    if args.numerator is not None and args.denominator is not None:
+        m_num_chk = md["condition"].astype(str).eq(str(args.numerator)).to_numpy()
+        m_den_chk = md["condition"].astype(str).eq(str(args.denominator)).to_numpy()
+        if (not m_num_chk.any()) or (not m_den_chk.any()):
+            raise ValueError(
+                f"Contrast arm(s) missing in metadata condition values "
+                f"(numerator={args.numerator!r}: {int(m_num_chk.sum())}, denominator={args.denominator!r}: {int(m_den_chk.sum())}; "
+                f"available={sorted(md['condition'].astype(str).unique())})."
+            )
 
     n_ev = len(ev_df)
     n_cells = j_mat.shape[1]
@@ -523,13 +597,12 @@ def main() -> int:
     valid_mask = (tot_sup >= float(args.min_cell_support)) & (denom_eff > 0)
     psi_mat = np.where(valid_mask, inc_eff / np.maximum(denom_eff, 1e-9), np.nan)
 
-    # Filter to events observed in >= min_cells AND non-constant across cells
+    # Filter strictly to events observed in >= --min-cells AND non-constant across cells
     n_obs_per_ev = valid_mask.sum(axis=1)
-    min_c = min(int(args.min_cells), max(2, n_cells // 4))
-    mean_psi = np.nanmean(np.where(valid_mask, psi_mat, np.nan), axis=1)
+    min_c = max(1, int(args.min_cells))
+    with np.errstate(invalid="ignore"):
+        mean_psi = np.nanmean(np.where(valid_mask, psi_mat, np.nan), axis=1)
     keep_ev = (n_obs_per_ev >= min_c) & np.isfinite(mean_psi) & (mean_psi >= 0.01) & (mean_psi <= 0.99)
-    if int(keep_ev.sum()) == 0:
-        keep_ev = n_obs_per_ev >= max(1, min(3, n_cells // 2))
 
     ev_kept = ev_df.loc[keep_ev].drop(columns=["_inc_juncs", "_exc_juncs"]).reset_index(drop=True)
     psi_kept = psi_mat[keep_ev, :]

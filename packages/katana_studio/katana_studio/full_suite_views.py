@@ -10,6 +10,7 @@ Conforms strictly to `REPORT_FORMAT_LOCK.json`:
 from __future__ import annotations
 
 from collections import Counter
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -1686,6 +1687,59 @@ def render_ch7_splicetrace_suite(
     br_df_out = pd.DataFrame()
     if not st_dir.is_dir():
         return prot_df_out, conseq_df_out, br_df_out
+
+    # Read-side freshness & provenance verification against SpliceTrace / scSpliceTrace receipt
+    allowed_artifacts: dict[str, str] | None = None
+    for rec_name in ("run_receipt.json", "scsplicetrace_summary.json"):
+        rec_p = st_dir / rec_name
+        if not rec_p.is_file():
+            continue
+        try:
+            rec_obj = json.loads(rec_p.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise ValueError(f"Malformed receipt JSON in {rec_p}: {exc}") from exc
+        if not isinstance(rec_obj, dict):
+            continue
+        st_status = str(rec_obj.get("status") or "").strip().lower()
+        if st_status in {"insufficient_events_for_rescue", "failed", "error", "aborted"}:
+            return prot_df_out, conseq_df_out, br_df_out
+        rcid = str(rec_obj.get("contrast_id") or "").strip()
+        if not rcid:
+            ng = str(rec_obj.get("numerator_group") or rec_obj.get("numerator") or "").strip()
+            dg = str(rec_obj.get("denominator_group") or rec_obj.get("denominator") or "").strip()
+            if ng and dg:
+                rcid = f"{ng}_vs_{dg}"
+        if rcid.lower() not in {"", "rmats_contrast", "contrast", "sc_panel"}:
+            cid_tail = cid.split("__")[-1]
+            if rcid.lower() not in {cid.lower(), cid_tail.lower()}:
+                return prot_df_out, conseq_df_out, br_df_out
+        if isinstance(rec_obj.get("artifacts"), dict):
+            allowed_artifacts = {
+                str(k).replace("\\", "/").lstrip("./"): (
+                    str(v.get("sha256") or "") if isinstance(v, dict) else str(v or "")
+                ).lower()
+                for k, v in rec_obj["artifacts"].items()
+            }
+        break
+
+    def _is_verified_file(p: Path | None) -> bool:
+        if p is None or not p.is_file():
+            return False
+        if allowed_artifacts is None:
+            return True
+        try:
+            rel = p.relative_to(st_dir).as_posix()
+        except ValueError:
+            return False
+        exp_sha = allowed_artifacts.get(rel)
+        if not exp_sha:
+            return False
+        h = hashlib.sha256()
+        with p.open("rb") as fh:
+            for blk in iter(lambda: fh.read(1024 * 1024), b""):
+                h.update(blk)
+        return h.hexdigest().lower() == exp_sha
+
     st_out = outdir / "outputs/splicetrace" / _safe_slug(cid)
     st_out.mkdir(parents=True, exist_ok=True)
     fig_out = outdir / "figures/splicetrace"
@@ -1713,7 +1767,7 @@ def render_ch7_splicetrace_suite(
         pass
 
     # Pre-load RBP ranking table so both positional map and logo figures carry exact FWER, BH-FDR, and nominal P
-    rk_f = next((p for p in (st_dir / "rbp_ranking.tsv", st_dir / "scsplicetrace_rbp_ranking.tsv", *sorted(st_dir.glob("*ranking*.tsv"))) if p.is_file()), None)
+    rk_f = next((p for p in (st_dir / "rbp_ranking.tsv", st_dir / "scsplicetrace_rbp_ranking.tsv", *sorted(st_dir.glob("*ranking*.tsv"))) if _is_verified_file(p)), None)
     rk_df = _safe_read_csv(rk_f, sep="\t") if rk_f is not None else pd.DataFrame()
     fwer_by_rbp: dict[str, float] = {}
     fdr_by_rbp: dict[str, float] = {}
@@ -1737,7 +1791,7 @@ def render_ch7_splicetrace_suite(
                 nom_by_rbp[k_alias] = min(nom_by_rbp.get(k_alias, 1.0), float(nm_v))
 
     # 1. Positional Splicing-Map Activity Heatmap across Flanking Intronic/Exonic Channels
-    reg_f = next((p for p in (st_dir / "region_tests.tsv", st_dir / "scsplicetrace_region_tests.tsv", *sorted(st_dir.glob("*region_tests*.tsv"))) if p.is_file()), None)
+    reg_f = next((p for p in (st_dir / "region_tests.tsv", st_dir / "scsplicetrace_region_tests.tsv", *sorted(st_dir.glob("*region_tests*.tsv"))) if _is_verified_file(p)), None)
     if reg_f is not None:
         try:
             reg_df = _safe_read_csv(reg_f, sep="\t")
@@ -1985,7 +2039,7 @@ def render_ch7_splicetrace_suite(
             })
 
     # 2. Mature-mRNA Motif Gain/Loss Consequence Table (used by Chapter 07 & Chapter 08 4-Track GeneCard)
-    conseq_f = next((p for p in (st_dir / "motif_consequence_changes.tsv", st_dir / "scsplicetrace_mature_consequences.tsv", *sorted(st_dir.glob("*motif_consequence*.tsv")), *sorted(st_dir.glob("*mature_consequences*.tsv"))) if p.is_file()), None)
+    conseq_f = next((p for p in (st_dir / "motif_consequence_changes.tsv", st_dir / "scsplicetrace_mature_consequences.tsv", *sorted(st_dir.glob("*motif_consequence*.tsv")), *sorted(st_dir.glob("*mature_consequences*.tsv"))) if _is_verified_file(p)), None)
     if conseq_f is not None:
         try:
             cdf = _safe_read_csv(conseq_f, sep="\t")
@@ -2044,7 +2098,7 @@ def render_ch7_splicetrace_suite(
             pass
 
     # 3. Module-to-RBP Regulatory Bridge
-    br_f = next((p for p in (st_dir / "module_rbp_bridge.tsv", st_dir / "sc_module_rbp_bridge.tsv") if p.is_file()), None)
+    br_f = next((p for p in (st_dir / "module_rbp_bridge.tsv", st_dir / "sc_module_rbp_bridge.tsv") if _is_verified_file(p)), None)
     if br_f is not None:
         br_df = _safe_read_csv(br_f, sep="\t")
         if not br_df.empty:
@@ -2078,7 +2132,7 @@ def render_ch7_splicetrace_suite(
                 })
 
     # 4. 5-Style Mature-mRNA 50-nt EJC NMD & UniProt Proteome Figures (supports both Bulk `style1..5` & SC `sc_style1..5`)
-    prot_f = next((p for p in (st_dir / "protein_and_nmd_consequences.tsv", st_dir / "sc_protein_and_nmd_consequences.tsv", *sorted(st_dir.glob("*consequences*.tsv"))) if p.is_file() and "motif" not in p.name and "mature" not in p.name), None)
+    prot_f = next((p for p in (st_dir / "protein_and_nmd_consequences.tsv", st_dir / "sc_protein_and_nmd_consequences.tsv", *sorted(st_dir.glob("*consequences*.tsv"))) if _is_verified_file(p) and "motif" not in p.name and "mature" not in p.name), None)
     if prot_f is not None:
         prot_df = _safe_read_csv(prot_f, sep="\t")
         if not prot_df.empty:
@@ -2097,18 +2151,19 @@ def render_ch7_splicetrace_suite(
                 (("style5_causal_rbp_to_proteome_alluvial", "sc_style5_causal_alluvial"), f"RBP Motif → Splicing Shift → Proteome Consequence Flow | {cid}"),
             ]
             for stems, p_title in style_specs:
-                src_p = next((st_dir / "figures" / f"{s}.png" for s in stems if (st_dir / "figures" / f"{s}.png").is_file()), None)
+                src_p = next((st_dir / "figures" / f"{s}.png" for s in stems if _is_verified_file(st_dir / "figures" / f"{s}.png")), None)
                 if src_p is not None:
                     dst_p = fig_out / f"{_safe_slug(cid)}-{src_p.name}"
                     shutil.copy2(src_p, dst_p)
-                    if src_p.with_suffix(".svg").is_file():
+                    has_svg = _is_verified_file(src_p.with_suffix(".svg"))
+                    if has_svg:
                         shutil.copy2(src_p.with_suffix(".svg"), dst_p.with_suffix(".svg"))
                     panels.append({
                         "id": f"{_safe_slug(cid)}-{src_p.stem}", "chapter": 7, "contrast_id": cid,
                         "title": p_title,
                         "caption": "5'-to-3' mature transcript ORF reconstruction, 50-nt EJC premature termination NMD geometry, and UniProt domain mapping.",
                         "image": dst_p.relative_to(outdir).as_posix(),
-                        "svg": dst_p.with_suffix(".svg").relative_to(outdir).as_posix() if dst_p.with_suffix(".svg").is_file() else None,
+                        "svg": dst_p.with_suffix(".svg").relative_to(outdir).as_posix() if has_svg else None,
                         "data_links": [{"role": "plot_data", "label": "NMD & UniProt consequences (TSV)", "path": prot_tsv.relative_to(outdir).as_posix(), "unit": "splicing_event", "contrast_id": cid, "policy": None}],
                     })
 

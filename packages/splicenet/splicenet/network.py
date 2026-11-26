@@ -40,6 +40,12 @@ def compute_tukey_bicor_matrix(
     xw = diff * w
     nrm = np.linalg.norm(xw, axis=1, keepdims=True)
     z = np.divide(xw, nrm, out=np.zeros_like(xw), where=nrm > 1e-12)
+    zero_mad = mad[:, 0] <= 1e-12
+    if np.any(zero_mad):
+        # Match WGCNA::bicor(..., pearsonFallback="individual") when median absolute deviation vanishes
+        xc = X[zero_mad] - np.mean(X[zero_mad], axis=1, keepdims=True)
+        xc_nrm = np.linalg.norm(xc, axis=1, keepdims=True)
+        z[zero_mad] = np.divide(xc, xc_nrm, out=np.zeros_like(xc), where=xc_nrm > 1e-12)
     bc = np.clip(z @ z.T, -1.0, 1.0)
     np.fill_diagonal(bc, 1.0)
     return bc

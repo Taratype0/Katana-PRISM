@@ -272,7 +272,11 @@ workflow KATANA_SINGLE_CELL_FROM_FASTQ {
             ch_meta_list = ch_rows.map { list -> list.collect { it.meta } }
             ch_r1_list   = ch_rows.map { list -> list.collect { it.r1 } }
             ch_r2_list   = ch_rows.map { list ->
-                list.every { it.r2 != null } ? list.collect { it.r2 } : file('NO_R2')
+                def n_r2 = list.count { it.r2 != null }
+                if (n_r2 > 0 && n_r2 < list.size()) {
+                    error("Mixed paired-end and single-end records in --sc_fastq_manifest (${n_r2}/${list.size()} provide fastq_2); supply uniformly paired-end or uniformly single-end FASTQ inputs.")
+                }
+                n_r2 == list.size() ? list.collect { it.r2 } : file('NO_R2')
             }
 
             SC_STARSOLO_SMARTSEQ(

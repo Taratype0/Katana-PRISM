@@ -1,6 +1,6 @@
 case	role	knockdown_RBP	evaluated_events	independent_genes	events_per_gene_ratio	Full13ch_GeneBlock_sig	Full13ch_GeneBlock_exact_P_FWER	Full13ch_GeneBlock_exact_rank	Full13ch_GeneBlock_maxAbsZ	DropMature12ch_GeneBlock_sig	DropMature12ch_GeneBlock_exact_P_FWER	DropMature12ch_GeneBlock_exact_rank	EventLevelPerm_NoGeneBlock_sig	EventLevelPerm_NoGeneBlock_exact_P_FWER	EventLevelPerm_NoGeneBlock_exact_rank	EventLevelPerm_NoGeneBlock_maxAbsZ	FWL_continuous_max_VIF_centered	FWL_standardized_design_cond_number
 PTBP1	high_block_positive	PTBP1	10029	5947	1.69	20	0.0005	1.0	9.181	21	0.0005	1.0	58	0.0005	1.0	11.259	1.95	2.39
-GSE206660_PTBP2	high_block_positive	PTBP2	51936	12086	4.3	75	0.0005	3	14.027	77	0.0005	3	142	0.0005	3	22.213	2.0	2.42
+GSE206660_PTBP2	high_block_positive	PTBP2	51941	12031	4.32	73	0.0005	4	9.933	71	0.0005	4	125	0.0005	3	19.045	2.01	2.42
 SRSF1	high_block_positive	SRSF1	11912	6528	1.82	52	0.0015	35.0	11.594	50	0.0015	30.0	98	0.0005	15.0	16.886	1.93	2.37
 HNRNPA1	high_block_positive	HNRNPA1	8123	5138	1.58	4	0.975	45.0	5.188	3	0.97	42.0	6	1.0	114.0	5.303	1.85	2.31
 HNRNPF	high_block_positive	HNRNPF	8713	5392	1.62	15	0.0015	8.0	13.823	6	1.0	89.0	18	0.0005	12.0	16.72	1.94	2.39

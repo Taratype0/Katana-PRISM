@@ -17,6 +17,19 @@ SUPPORTED_CONTRAST_COLUMNS = frozenset(CONTRAST_COLUMNS + ["paired", "blocking",
 SAFE_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 SAFE_CONDITION = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 REMOTE_URI = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+BIO_UNIT_ALIASES = (
+    "subject",
+    "biological_sample_id",
+    "donor_id",
+    "donor",
+    "subject_id",
+    "patient_id",
+    "patient",
+    "individual",
+    "individual_id",
+    "animal_id",
+)
+BLANK_BIO_TOKENS = frozenset({"", "nan", "none", "na", "null", "n/a"})
 
 
 class InputError(ValueError):
@@ -134,6 +147,22 @@ def validate_samples(rows: list[dict[str, str]], base: Path, *, check: bool, rea
                 observed_paths[row[field]] = sample
         for field in ("subject", "batch"):
             row.setdefault(field, "")
+        row_lower = {str(k).strip().lower(): str(k) for k in row}
+        populated_bio: list[tuple[str, str]] = []
+        for alias in BIO_UNIT_ALIASES:
+            orig_k = row_lower.get(alias)
+            if orig_k is None:
+                continue
+            raw_bio = (row.get(orig_k) or "").strip()
+            if raw_bio.lower() not in BLANK_BIO_TOKENS:
+                populated_bio.append((orig_k, raw_bio))
+        if len({val for _, val in populated_bio}) > 1:
+            desc = ", ".join(f"{col}={val!r}" for col, val in populated_bio)
+            raise InputError(f"{sample}: conflicting biological unit identifiers across alias columns ({desc})")
+        canonical_subject = populated_bio[0][1] if populated_bio else ""
+        if canonical_subject.lower() in BLANK_BIO_TOKENS:
+            canonical_subject = ""
+        row["subject"] = canonical_subject
         # This field is generated here; users supply one CSV row per lane.
         row["fastq_lanes"] = ""
         result.append(row)

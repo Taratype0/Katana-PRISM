@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import platform
@@ -13,7 +14,7 @@ from splicetrace.fast_accel import configure_server_threads, fast_score_mean_log
 from splicetrace.matching import match_events
 from splicetrace.module_bridge import annotate_rbp_expression_disambiguation, bridge_splicenet_modules_to_rbps
 from splicetrace.protein_consequences import trace_protein_and_nmd_consequences
-from splicetrace.rmats_io import load_rmats_measurable_events
+from splicetrace.rmats_io import _find_enclosing_bundle, load_rmats_measurable_events, verify_bundle_reference_sha
 from splicetrace.rna_forms import IndexedFasta, compute_flank_gc_fast, extract_event_rna, trace_motif_instances
 from splicetrace.scanner import run_splicetrace_scan
 
@@ -113,6 +114,42 @@ def _read_table(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, sep="\t")
 
 
+def _purge_stale_outputs(out_dir: Path) -> None:
+    """Remove prior-run result artifacts so reused output directories cannot leak stale evidence."""
+    for fname in (
+        "protein_and_nmd_consequences.tsv",
+        "motif_consequence_changes.tsv",
+        "module_rbp_bridge.tsv",
+        "matched_events.tsv",
+        "motif_clusters.tsv",
+        "rbp_ranking.tsv",
+        "region_tests.tsv",
+        "evaluated_events.tsv",
+    ):
+        (out_dir / fname).unlink(missing_ok=True)
+    fig_dir = out_dir / "figures"
+    if fig_dir.is_dir():
+        for fp in fig_dir.glob("style*.*"):
+            if fp.is_file() and fp.suffix.lower() in {".png", ".svg"}:
+                fp.unlink(missing_ok=True)
+
+
+def _build_artifacts_ledger(out_dir: Path, files: list[Path]) -> dict[str, dict[str, object]]:
+    ledger: dict[str, dict[str, object]] = {}
+    for fp in files:
+        if not fp.is_file():
+            continue
+        h = hashlib.sha256()
+        with fp.open("rb") as fh:
+            for blk in iter(lambda: fh.read(1024 * 1024), b""):
+                h.update(blk)
+        ledger[fp.relative_to(out_dir).as_posix()] = {
+            "sha256": h.hexdigest(),
+            "bytes": int(fp.stat().st_size),
+        }
+    return ledger
+
+
 def _run_gtf_and_5plots(
     ev_df: pd.DataFrame,
     conseq_df: pd.DataFrame,
@@ -121,11 +158,15 @@ def _run_gtf_and_5plots(
     out_dir: Path,
     species: str,
     contrast_label: str = "contrast",
+    written_files: list[Path] | None = None,
 ) -> dict:
     prot_df = trace_protein_and_nmd_consequences(
         ev_df.head(500), gtf_path, fasta_path, indexed_fasta_cls=IndexedFasta, species=species
     )
-    prot_df.to_csv(out_dir / "protein_and_nmd_consequences.tsv", sep="\t", index=False)
+    prot_p = out_dir / "protein_and_nmd_consequences.tsv"
+    prot_df.to_csv(prot_p, sep="\t", index=False)
+    if written_files is not None:
+        written_files.append(prot_p)
     info = {
         "protein_consequences_evaluated": int(len(prot_df)),
         "nmd_switch_events": int(prot_df["nmd_switch_class"].isin(["inclusion_triggers_NMD_poison_exon", "skipping_triggers_NMD_decay"]).sum()) if not prot_df.empty else 0,
@@ -146,11 +187,24 @@ def _run_gtf_and_5plots(
             if not conseq_df.empty and "event_id" in conseq_df.columns:
                 for eid_m, grp_m in conseq_df.groupby("event_id"):
                     m_map[str(eid_m)] = ", ".join(list(dict.fromkeys(f"{_clean_rbp_label(r.RBP)}({r.hit_RNA})" for r in grp_m.itertuples()))[:3])
-            plot_consequence_landscape({contrast_label: prot_df}, contrast_label, fig_dir / "style1_proteome_consequence_landscape")
-            plot_dual_track_nmd_architecture(prot_df, m_map, fig_dir / "style2_nmd_dual_track_architecture", contrast_label)
-            plot_side_by_side_inframe_domains(prot_df, fig_dir / "style3_inframe_domain_remodeling", contrast_label)
-            plot_lollipop_protein_splicing_map(prot_df, fig_dir / "style4_lollipop_protein_map", contrast_label)
-            plot_causal_alluvial_flow(prot_df, conseq_df, fig_dir / "style5_causal_rbp_to_proteome_alluvial", contrast_label)
+            stems = [
+                "style1_proteome_consequence_landscape",
+                "style2_nmd_dual_track_architecture",
+                "style3_inframe_domain_remodeling",
+                "style4_lollipop_protein_map",
+                "style5_causal_rbp_to_proteome_alluvial",
+            ]
+            plot_consequence_landscape({contrast_label: prot_df}, contrast_label, fig_dir / stems[0])
+            plot_dual_track_nmd_architecture(prot_df, m_map, fig_dir / stems[1], contrast_label)
+            plot_side_by_side_inframe_domains(prot_df, fig_dir / stems[2], contrast_label)
+            plot_lollipop_protein_splicing_map(prot_df, fig_dir / stems[3], contrast_label)
+            plot_causal_alluvial_flow(prot_df, conseq_df, fig_dir / stems[4], contrast_label)
+            if written_files is not None:
+                for st in stems:
+                    for ext in (".png", ".svg"):
+                        fp = fig_dir / f"{st}{ext}"
+                        if fp.is_file():
+                            written_files.append(fp)
     except Exception:
         pass
     return info
@@ -171,6 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--events", type=Path, default=None, help="Standalone event coordinate table for --gtf or --splicenet-modules runs")
     parser.add_argument("--fasta", type=Path, required=False, help="Indexed reference genome FASTA (.fa with .fa.fai)")
     parser.add_argument("--gtf", type=Path, default=None, help="Optional annotation GTF (.gtf[.gz]) for ORF, frameshift, 50-nt EJC NMD & UniProt consequences + 5 plots")
+    parser.add_argument("--allow-reference-reannotation", action="store_true", help="Allow running with FASTA/GTF differing from the bundle reference audit SHA256 and record re-annotation in receipt")
     parser.add_argument("--splicenet-modules", type=Path, default=None, help="Optional SpliceNet module_assignments.tsv for Cross-Module RBP motif bridge")
     parser.add_argument("--splicenet-scores", type=Path, default=None, help="Optional SpliceNet module_scores.tsv for eigengene x RBP expression correlation")
     parser.add_argument("--rbp-expression", type=Path, default=None, help="Optional cohort gene expression table/matrix for paralog expression disambiguation")
@@ -211,7 +266,19 @@ def main(argv: list[str] | None = None) -> int:
     t0 = time.monotonic()
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    _purge_stale_outputs(out_dir)
+    written_files: list[Path] = []
+    eff_contrast_id = str(args.contrast_id or "")
     bridge_pool_df: pd.DataFrame | None = None
+    ref_audit_info: dict[str, object] = {}
+    bdir_check = args.bundle if args.bundle is not None else (_find_enclosing_bundle(args.rmats) if args.rmats is not None and args.rmats.exists() else None)
+    if bdir_check is not None:
+        ref_audit_info = verify_bundle_reference_sha(
+            bdir_check,
+            fasta_path=args.fasta,
+            gtf_path=args.gtf,
+            allow_reference_reannotation=args.allow_reference_reannotation,
+        )
     rbp_expr_df = _read_table(args.rbp_expression) if args.rbp_expression is not None else None
     mod_scores_df = _read_table(args.splicenet_scores) if args.splicenet_scores is not None else None
 
@@ -225,14 +292,37 @@ def main(argv: list[str] | None = None) -> int:
             reverse_direction=True if args.reverse_direction else None,
             bundle_dir=args.bundle,
             contrast_id=args.contrast_id,
+            allow_reference_reannotation=args.allow_reference_reannotation,
         )
         bridge_pool_df = meas_df
+        if not eff_contrast_id and "comparison_id" in meas_df.columns and not meas_df.empty:
+            cid0 = str(meas_df["comparison_id"].iloc[0]).strip()
+            if cid0 and cid0 != "rmats_contrast":
+                eff_contrast_id = cid0
         dir_inv = bool(meas_df["reverse_direction"].iloc[0]) if ("reverse_direction" in meas_df.columns and not meas_df.empty) else bool(args.reverse_direction)
         if len(meas_df) < 10:
-            pd.DataFrame(columns=["RBP", "best_channel", "stat_Z", "rbp_P_FWER"]).to_csv(out_dir / "rbp_ranking.tsv", sep="\t", index=False)
-            pd.DataFrame(columns=["RBP", "region", "stat_Z", "P_FWER"]).to_csv(out_dir / "region_tests.tsv", sep="\t", index=False)
-            meas_df.to_csv(out_dir / "evaluated_events.tsv", sep="\t", index=False)
-            receipt = {"version": __version__, "library": lib.name, "status": "insufficient_events_for_rescue", "evaluated_events": int(len(meas_df)), "rmats_mode": args.rmats_mode, "direction_inverted": dir_inv, "active_threads": int(active_threads), "elapsed_seconds": round(time.monotonic() - t0, 2)}
+            rk_p = out_dir / "rbp_ranking.tsv"
+            rg_p = out_dir / "region_tests.tsv"
+            ev_p = out_dir / "evaluated_events.tsv"
+            pd.DataFrame(columns=["RBP", "best_channel", "stat_Z", "rbp_P_FWER"]).to_csv(rk_p, sep="\t", index=False)
+            pd.DataFrame(columns=["RBP", "region", "stat_Z", "P_FWER"]).to_csv(rg_p, sep="\t", index=False)
+            meas_df.to_csv(ev_p, sep="\t", index=False)
+            written_files.extend([rk_p, rg_p, ev_p])
+            receipt = {
+                "version": __version__,
+                "library": lib.name,
+                "status": "insufficient_events_for_rescue",
+                "contrast_id": eff_contrast_id,
+                "evaluated_events": int(len(meas_df)),
+                "rmats_mode": args.rmats_mode,
+                "direction_inverted": dir_inv,
+                "active_threads": int(active_threads),
+                "artifacts": _build_artifacts_ledger(out_dir, written_files),
+                "elapsed_seconds": round(time.monotonic() - t0, 2),
+            }
+            if ref_audit_info.get("reference_audit_path"):
+                receipt["reference_reannotation"] = bool(ref_audit_info.get("reannotated", False))
+                receipt["reference_audit_sha256"] = ref_audit_info.get("actual", {})
             (out_dir / "run_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
             if args.emit_versions_yml is not None:
                 write_nfcore_versions_yml(args.emit_versions_yml, args.process_name)
@@ -250,16 +340,23 @@ def main(argv: list[str] | None = None) -> int:
             seed=args.seed,
             threads=active_threads,
         )
-        rescue_res.rbp_ranking.to_csv(out_dir / "rbp_ranking.tsv", sep="\t", index=False)
-        rescue_res.region_tests.to_csv(out_dir / "region_tests.tsv", sep="\t", index=False)
-        rescue_res.event_contrasts.to_csv(out_dir / "evaluated_events.tsv", sep="\t", index=False)
+        for fn, df_w in (
+            ("rbp_ranking.tsv", rescue_res.rbp_ranking),
+            ("region_tests.tsv", rescue_res.region_tests),
+            ("evaluated_events.tsv", rescue_res.event_contrasts),
+        ):
+            p_w = out_dir / fn
+            df_w.to_csv(p_w, sep="\t", index=False)
+            written_files.append(p_w)
         if not rescue_res.mature_consequences.empty:
-            rescue_res.mature_consequences.to_csv(out_dir / "motif_consequence_changes.tsv", sep="\t", index=False)
-        receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "n_models": lib.n_models, "mode": "continuous_rescue", "rmats_mode": args.rmats_mode, "direction_inverted": dir_inv, "active_threads": int(active_threads), **rescue_res.diagnostics}
+            mc_p = out_dir / "motif_consequence_changes.tsv"
+            rescue_res.mature_consequences.to_csv(mc_p, sep="\t", index=False)
+            written_files.append(mc_p)
+        receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "n_models": lib.n_models, "mode": "continuous_rescue", "status": "complete", "contrast_id": eff_contrast_id, "rmats_mode": args.rmats_mode, "direction_inverted": dir_inv, "active_threads": int(active_threads), **rescue_res.diagnostics}
         if args.gtf is not None:
             fg_prot_ev = rescue_res.event_contrasts[rescue_res.event_contrasts["_is_fg"]]
             c_lbl = str(args.contrast_id or out_dir.name or "contrast")
-            receipt.update(_run_gtf_and_5plots(fg_prot_ev, rescue_res.mature_consequences, args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl))
+            receipt.update(_run_gtf_and_5plots(fg_prot_ev, rescue_res.mature_consequences, args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl, written_files=written_files))
 
     elif args.foreground is not None and args.background is not None:
         fg = _read_table(args.foreground).copy()
@@ -290,12 +387,17 @@ def main(argv: list[str] | None = None) -> int:
                 seed=args.seed,
                 threads=active_threads,
             )
-            rescue_res.rbp_ranking.to_csv(out_dir / "rbp_ranking.tsv", sep="\t", index=False)
-            rescue_res.region_tests.to_csv(out_dir / "region_tests.tsv", sep="\t", index=False)
+            rk_p = out_dir / "rbp_ranking.tsv"
+            rg_p = out_dir / "region_tests.tsv"
+            rescue_res.rbp_ranking.to_csv(rk_p, sep="\t", index=False)
+            rescue_res.region_tests.to_csv(rg_p, sep="\t", index=False)
+            written_files.extend([rk_p, rg_p])
             conseq_fg = rescue_res.mature_consequences
-            receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "mode": "auto_small_sample_rescue", "active_threads": int(active_threads), **rescue_res.diagnostics}
+            receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "mode": "auto_small_sample_rescue", "status": "complete", "contrast_id": eff_contrast_id, "active_threads": int(active_threads), **rescue_res.diagnostics}
         else:
-            matched.to_csv(out_dir / "matched_events.tsv", sep="\t", index=False)
+            me_p = out_dir / "matched_events.tsv"
+            matched.to_csv(me_p, sep="\t", index=False)
+            written_files.append(me_p)
             needed = set(m_ok["foreground_event"].astype(str)) | set(m_ok["background_event"].astype(str))
             comb_ev = pd.concat([fg[fg["event_id"].isin(needed)], bg[bg["event_id"].isin(needed)]], ignore_index=True)
             rna_df = extract_event_rna(
@@ -306,8 +408,11 @@ def main(argv: list[str] | None = None) -> int:
                 acceptor_core_nt=args.acceptor_core_nt,
             )
             res = run_splicetrace_scan(matched, rna_df, lib, permutations=args.permutations, seed=args.seed)
-            res["whole_regions"].to_csv(out_dir / "region_tests.tsv", sep="\t", index=False)
-            res["clusters"].to_csv(out_dir / "motif_clusters.tsv", sep="\t", index=False)
+            rg_p = out_dir / "region_tests.tsv"
+            mc_p = out_dir / "motif_clusters.tsv"
+            res["whole_regions"].to_csv(rg_p, sep="\t", index=False)
+            res["clusters"].to_csv(mc_p, sep="\t", index=False)
+            written_files.extend([rg_p, mc_p])
             rank_all = res["rbp_ranking_all"]
             if rbp_expr_df is not None and not rank_all.empty:
                 z_col_disc = "rbp_pivotal_Z" if "rbp_pivotal_Z" in rank_all.columns else rank_all.columns[1]
@@ -318,23 +423,25 @@ def main(argv: list[str] | None = None) -> int:
                     z_col=z_col_disc,
                     min_rbp_expr=args.min_rbp_expr,
                 )
-            rank_all.to_csv(out_dir / "rbp_ranking.tsv", sep="\t", index=False)
-            receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "mode": "discrete_matched", "active_threads": int(active_threads), "matched_events": int(len(m_ok)), "significant_rbps_fwer05": int((rank_all["rbp_P_FWER"] <= 0.05).sum())}
+            rk_p = out_dir / "rbp_ranking.tsv"
+            rank_all.to_csv(rk_p, sep="\t", index=False)
+            written_files.append(rk_p)
+            receipt = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "mode": "discrete_matched", "status": "complete", "contrast_id": eff_contrast_id, "active_threads": int(active_threads), "matched_events": int(len(m_ok)), "significant_rbps_fwer05": int((rank_all["rbp_P_FWER"] <= 0.05).sum())}
         if args.gtf is not None:
             if "dpsi" not in fg.columns:
                 fg["dpsi"] = 0.0
             c_lbl = str(args.contrast_id or out_dir.name or "contrast")
-            receipt.update(_run_gtf_and_5plots(fg, conseq_fg, args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl))
+            receipt.update(_run_gtf_and_5plots(fg, conseq_fg, args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl, written_files=written_files))
 
     elif args.events is not None and (args.gtf is not None or args.splicenet_modules is not None):
         ev_only = _read_table(args.events).copy()
         if "dpsi" not in ev_only.columns:
             ev_only["dpsi"] = 0.0
         bridge_pool_df = ev_only
-        receipt = {"version": __version__, "library": lib.name, "mode": "consequences_or_bridge_only", "active_threads": int(active_threads)}
+        receipt = {"version": __version__, "library": lib.name, "mode": "consequences_or_bridge_only", "status": "complete", "contrast_id": eff_contrast_id, "active_threads": int(active_threads)}
         if args.gtf is not None:
             c_lbl = str(args.contrast_id or out_dir.name or "contrast")
-            receipt.update(_run_gtf_and_5plots(ev_only, pd.DataFrame(), args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl))
+            receipt.update(_run_gtf_and_5plots(ev_only, pd.DataFrame(), args.gtf, args.fasta, out_dir, args.species, contrast_label=c_lbl, written_files=written_files))
     else:
         parser.error("Provide --rmats, --foreground/--background, --events (with --gtf or --splicenet-modules), or a library flag (--list-rbps).")
 
@@ -351,9 +458,15 @@ def main(argv: list[str] | None = None) -> int:
                 min_rbp_expr=args.min_rbp_expr,
                 n_permutations=args.permutations, seed=args.seed,
             )
-            br_df.to_csv(out_dir / "module_rbp_bridge.tsv", sep="\t", index=False)
+            br_p = out_dir / "module_rbp_bridge.tsv"
+            br_df.to_csv(br_p, sep="\t", index=False)
+            written_files.append(br_p)
             receipt["bridged_module_rbp_rows"] = int(len(br_df))
 
+    if ref_audit_info.get("reference_audit_path"):
+        receipt["reference_reannotation"] = bool(ref_audit_info.get("reannotated", False))
+        receipt["reference_audit_sha256"] = ref_audit_info.get("actual", {})
+    receipt["artifacts"] = _build_artifacts_ledger(out_dir, written_files)
     receipt["elapsed_seconds"] = round(time.monotonic() - t0, 2)
     (out_dir / "run_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
     if args.emit_versions_yml is not None:

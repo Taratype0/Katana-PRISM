@@ -1,6 +1,6 @@
 case	role	knockdown_RBP	FWL_default_omitExonGC_sig	FWL_default_omitExonGC_exact_P_FWER	FWL_default_omitExonGC_exact_rank	FWL_includeExonGC_sig	FWL_includeExonGC_exact_P_FWER	FWL_includeExonGC_exact_rank	FWL_includeExonGC_exact_Z	NoFWL_SameMaxT_sig	NoFWL_SameMaxT_exact_P_FWER	NoFWL_SameMaxT_exact_rank
 PTBP1	high_block_positive	PTBP1	20	0.0005	1.0	20	0.0005	1.0	9.191	94	0.0005	1.0
-GSE206660_PTBP2	high_block_positive	PTBP2	75	0.0005	3	59	0.0005	3	-10.845	106	0.0005	3
+GSE206660_PTBP2	high_block_positive	PTBP2	73	0.0005	4	48	0.0005	3	7.486	107	0.0005	3
 SRSF1	high_block_positive	SRSF1	52	0.0015	35.0	37	0.001	19.0	-5.253	60	0.0005	7.0
 HNRNPA1	high_block_positive	HNRNPA1	4	0.975	45.0	5	0.978	45.0	3.051	22	1.0	113.0
 HNRNPF	high_block_positive	HNRNPF	15	0.0015	8.0	7	0.1055	9.0	4.031	19	0.2365	32.0

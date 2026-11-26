@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import gzip
+import hashlib
 import json
 from pathlib import Path
 import platform
@@ -164,6 +167,21 @@ def main(argv: list[str] | None = None) -> int:
     t0 = time.monotonic()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    for stale_name in (
+        "sc_protein_and_nmd_consequences.tsv",
+        "scsplicetrace_mature_consequences.tsv",
+        "sc_module_rbp_bridge.tsv",
+        "scsplicetrace_rbp_ranking.tsv",
+        "scsplicetrace_region_tests.tsv",
+        "scsplicetrace_event_contrasts.tsv",
+    ):
+        (out / stale_name).unlink(missing_ok=True)
+    fig_dir_clean = out / "figures"
+    if fig_dir_clean.is_dir():
+        for fp in fig_dir_clean.glob("sc_style*.*"):
+            if fp.is_file() and fp.suffix.lower() in {".png", ".svg"}:
+                fp.unlink(missing_ok=True)
+    written_files: list[Path] = []
     events_df = pd.read_csv(args.events, sep="\t", dtype={"event_id": str, "gene_id": str, "gene_symbol": str})
     events_df["event_id"] = events_df["event_id"].astype(str)
     if "gene_id" in events_df.columns:
@@ -186,24 +204,42 @@ def main(argv: list[str] | None = None) -> int:
     def _read_id_matrix(path: Path) -> pd.DataFrame:
         nm = path.name.lower()
         sep = "," if nm.endswith((".csv", ".csv.gz")) else "\t"
-        df_m = pd.read_csv(path, sep=sep, dtype={0: str})
+        opener = gzip.open if nm.endswith(".gz") else open
+        with opener(path, "rt", encoding="utf-8", errors="replace", newline="") as fh:
+            hdr_raw = next(csv.reader(fh, delimiter=sep), None)
+        if hdr_raw:
+            seen_cols: set[str] = set()
+            dup_hdrs = [c for c in (str(x).strip() for x in hdr_raw[1:]) if c in seen_cols or seen_cols.add(c)]
+            if dup_hdrs:
+                raise ValueError(f"Duplicate event/column identifiers in {path.name}: {sorted(set(dup_hdrs))[:10]}")
+        df_m = pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False)
         if df_m.shape[1] > 0:
-            df_m[df_m.columns[0]] = df_m[df_m.columns[0]].astype(str).str.strip()
-            df_m = df_m.set_index(df_m.columns[0])
+            idx_c = df_m.columns[0]
+            df_m[idx_c] = df_m[idx_c].astype(str).str.strip()
+            df_m = df_m.set_index(idx_c)
         df_m.index = df_m.index.astype(str)
         df_m.columns = df_m.columns.astype(str)
-        return df_m
+        if df_m.index.duplicated().any():
+            dup_r = df_m.index[df_m.index.duplicated()].unique().tolist()[:10]
+            raise ValueError(f"Duplicate row identifiers in {path.name}: {dup_r}")
+        if df_m.columns.duplicated().any():
+            dup_c = df_m.columns[df_m.columns.duplicated()].unique().tolist()[:10]
+            raise ValueError(f"Duplicate column identifiers in {path.name}: {dup_c}")
+        return df_m.apply(pd.to_numeric, errors="coerce")
 
     rbp_expr_df = _read_tbl(args.expression) if args.expression is not None else None
 
-    summary: dict = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "n_models": lib.n_models, "active_threads": int(active_threads), "status": "complete"}
+    eff_cid_sum = f"{args.numerator}_vs_{args.denominator}" if (args.numerator and args.denominator) else ""
+    summary: dict = {"version": __version__, "library": lib.name, "n_rbps": lib.n_rbps, "n_models": lib.n_models, "active_threads": int(active_threads), "contrast_id": eff_cid_sum, "status": "complete"}
     contrast_df = None
     conseq_df = pd.DataFrame()
 
     if args.query_rbp is not None:
         resolved_q = lib.resolve_rbp_symbol(args.query_rbp) or args.query_rbp
         t_df = rank_rbp_target_events(resolved_q, ev_ids, events_df["gene_id"].astype(str).to_numpy(), rbp_tensor, rbps, region_names)
-        t_df.to_csv(out / f"scsplicetrace_targets_{resolved_q}.tsv", sep="\t", index=False)
+        t_out = out / f"scsplicetrace_targets_{resolved_q}.tsv"
+        t_df.to_csv(t_out, sep="\t", index=False)
+        written_files.append(t_out)
         summary["ranked_targets_for"] = resolved_q
 
     if args.psi is not None and args.metadata is not None and args.numerator is not None and args.denominator is not None:
@@ -243,10 +279,15 @@ def main(argv: list[str] | None = None) -> int:
                 z_col="stat_Z",
                 min_rbp_expr=args.min_rbp_expr,
             )
-        rank_out.to_csv(out / "scsplicetrace_rbp_ranking.tsv", sep="\t", index=False)
-        res.region_tests.to_csv(out / "scsplicetrace_region_tests.tsv", sep="\t", index=False)
-        res.event_contrasts.to_csv(out / "scsplicetrace_event_contrasts.tsv", sep="\t", index=False)
-        res.mature_consequences.to_csv(out / "scsplicetrace_mature_consequences.tsv", sep="\t", index=False)
+        for fn, df_w in (
+            ("scsplicetrace_rbp_ranking.tsv", rank_out),
+            ("scsplicetrace_region_tests.tsv", res.region_tests),
+            ("scsplicetrace_event_contrasts.tsv", res.event_contrasts),
+            ("scsplicetrace_mature_consequences.tsv", res.mature_consequences),
+        ):
+            p_w = out / fn
+            df_w.to_csv(p_w, sep="\t", index=False)
+            written_files.append(p_w)
         summary.update({**c_info, **res.diagnostics})
 
     if args.splicenet_modules is not None:
@@ -259,7 +300,9 @@ def main(argv: list[str] | None = None) -> int:
             min_rbp_expr=args.min_rbp_expr,
             n_permutations=min(args.permutations, 3999), seed=args.seed,
         )
-        br_df.to_csv(out / "sc_module_rbp_bridge.tsv", sep="\t", index=False)
+        br_p = out / "sc_module_rbp_bridge.tsv"
+        br_df.to_csv(br_p, sep="\t", index=False)
+        written_files.append(br_p)
         summary["bridged_module_rbp_rows"] = int(len(br_df))
 
     if args.gtf is not None:
@@ -284,7 +327,9 @@ def main(argv: list[str] | None = None) -> int:
         p_df = trace_protein_and_nmd_consequences(
             ev_for_prot, args.gtf, args.fasta, indexed_fasta_cls=IndexedFasta, species=args.species
         )
-        p_df.to_csv(out / "sc_protein_and_nmd_consequences.tsv", sep="\t", index=False)
+        prot_p = out / "sc_protein_and_nmd_consequences.tsv"
+        p_df.to_csv(prot_p, sep="\t", index=False)
+        written_files.append(prot_p)
         summary["protein_consequences_evaluated"] = int(len(p_df))
         summary["nmd_switch_events"] = int(p_df["nmd_switch_class"].isin(["inclusion_triggers_NMD_poison_exon", "skipping_triggers_NMD_decay"]).sum()) if not p_df.empty else 0
 
@@ -304,14 +349,35 @@ def main(argv: list[str] | None = None) -> int:
                     from scsplicetrace.protein_viz import _clean_rbp_label
                     for eid_m, grp_m in conseq_df.groupby("event_id"):
                         m_map[str(eid_m)] = ", ".join(list(dict.fromkeys(f"{_clean_rbp_label(r.RBP)}({r.hit_RNA})" for r in grp_m.itertuples()))[:3])
-                plot_consequence_landscape({cid_lbl: p_df}, cid_lbl, fig_dir / "sc_style1_proteome_landscape", dataset_title="Single-Cell Smart-seq3")
-                plot_dual_track_nmd_architecture(p_df, m_map, fig_dir / "sc_style2_dual_track_nmd", cid_lbl)
-                plot_side_by_side_inframe_domains(p_df, fig_dir / "sc_style3_inframe_domains", cid_lbl)
-                plot_lollipop_protein_splicing_map(p_df, fig_dir / "sc_style4_lollipop_protein_map", cid_lbl)
-                plot_causal_alluvial_flow(p_df, conseq_df, fig_dir / "sc_style5_causal_alluvial", cid_lbl)
+                stems = [
+                    "sc_style1_proteome_landscape",
+                    "sc_style2_dual_track_nmd",
+                    "sc_style3_inframe_domains",
+                    "sc_style4_lollipop_protein_map",
+                    "sc_style5_causal_alluvial",
+                ]
+                plot_consequence_landscape({cid_lbl: p_df}, cid_lbl, fig_dir / stems[0], dataset_title="Single-Cell Smart-seq3")
+                plot_dual_track_nmd_architecture(p_df, m_map, fig_dir / stems[1], cid_lbl)
+                plot_side_by_side_inframe_domains(p_df, fig_dir / stems[2], cid_lbl)
+                plot_lollipop_protein_splicing_map(p_df, fig_dir / stems[3], cid_lbl)
+                plot_causal_alluvial_flow(p_df, conseq_df, fig_dir / stems[4], cid_lbl)
+                for st in stems:
+                    for ext in (".png", ".svg"):
+                        fp = fig_dir / f"{st}{ext}"
+                        if fp.is_file():
+                            written_files.append(fp)
         except Exception:
             pass
 
+    artifacts: dict[str, dict[str, object]] = {}
+    for fp in written_files:
+        if fp.is_file():
+            h = hashlib.sha256()
+            with fp.open("rb") as fh:
+                for blk in iter(lambda: fh.read(1024 * 1024), b""):
+                    h.update(blk)
+            artifacts[fp.relative_to(out).as_posix()] = {"sha256": h.hexdigest(), "bytes": int(fp.stat().st_size)}
+    summary["artifacts"] = artifacts
     summary["elapsed_seconds"] = round(time.monotonic() - t0, 2)
     (out / "scsplicetrace_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     if args.emit_versions_yml is not None:

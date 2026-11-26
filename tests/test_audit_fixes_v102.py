@@ -349,7 +349,7 @@ def test_splicetrace_cli_calibration_option(tmp_path: Path) -> None:
     # Minimal 1-chrom FASTA + <250 matched events triggers auto small-sample rescue with calibration!
     fasta_p = tmp_path / "mini.fa"
     seq = "ACGTACGTGGCCAAATTTCCCGGG" * 100
-    fasta_p.write_text(f">chr1\n{seq}\n", encoding="utf-8")
+    fasta_p.write_text(f">chr1\n{seq}\n", encoding="utf-8", newline="\n")
     (tmp_path / "mini.fa.fai").write_text(f"chr1\t{len(seq)}\t6\t{len(seq)}\t{len(seq) + 1}\n", encoding="utf-8")
     ev_rows = []
     for i in range(40):

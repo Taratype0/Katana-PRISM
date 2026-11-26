@@ -187,14 +187,22 @@ def compute_sc_splicing_contrast(
 
     u_df = usage.copy()
     u_df.index = u_df.index.astype(str).str.strip()
+    u_df.columns = u_df.columns.astype(str)
     if u_df.index.has_duplicates:
         raise ValueError("Duplicate cell_id rows in usage matrix")
+    if u_df.columns.duplicated().any():
+        dup_u_cols = u_df.columns[u_df.columns.duplicated()].unique().tolist()[:5]
+        raise ValueError(f"Duplicate event columns in usage matrix: {dup_u_cols}")
     valid_cells = set(u_df.index)
     if support is not None:
         s_df = support.copy()
         s_df.index = s_df.index.astype(str).str.strip()
+        s_df.columns = s_df.columns.astype(str)
         if s_df.index.has_duplicates:
             raise ValueError("Duplicate cell_id rows in support matrix")
+        if s_df.columns.duplicated().any():
+            dup_s_cols = s_df.columns[s_df.columns.duplicated()].unique().tolist()[:5]
+            raise ValueError(f"Duplicate event columns in support matrix: {dup_s_cols}")
         valid_cells &= set(s_df.index)
     else:
         s_df = None
@@ -204,8 +212,13 @@ def compute_sc_splicing_contrast(
 
     u = u_df.loc[md["cell_id"]].to_numpy(dtype=float)
     finite = np.isfinite(u)
+    if np.any(finite & ((u < 0.0) | (u > 1.0))):
+        raise ValueError("Usage PSI matrix contains finite values outside [0, 1].")
     if s_df is not None:
-        t = np.where(finite, np.maximum(s_df.loc[md["cell_id"], u_df.columns].to_numpy(dtype=float), 0.0), 0.0)
+        raw_t = s_df.loc[md["cell_id"], u_df.columns].to_numpy(dtype=float)
+        if np.any(np.isfinite(raw_t) & (raw_t < 0.0)):
+            raise ValueError("Support matrix contains negative finite read counts.")
+        t = np.where(finite, np.maximum(raw_t, 0.0), 0.0)
     else:
         t = finite.astype(float)
 
@@ -213,6 +226,13 @@ def compute_sc_splicing_contrast(
     d_vec = md[canonical_donor_col].astype(str).to_numpy()
     is_num = g_vec == str(numerator_group)
     is_den = g_vec == str(denominator_group)
+    if "n_pooled_cells" in md.columns:
+        pooled_c_raw = pd.to_numeric(md["n_pooled_cells"], errors="coerce").to_numpy(dtype=float)
+        if np.any(np.isfinite(pooled_c_raw) & (pooled_c_raw < 1.0)):
+            raise ValueError("Metadata column 'n_pooled_cells' must contain values >= 1.")
+        row_cell_counts = np.where(np.isfinite(pooled_c_raw), pooled_c_raw, 1.0)
+    else:
+        row_cell_counts = np.ones(len(md), dtype=float)
 
     def _pooled_stats(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         f_sub = finite[mask]
@@ -222,7 +242,7 @@ def compute_sc_splicing_contrast(
         w_tot = w_sub.sum(axis=0)
         w_sq = (w_sub * w_sub).sum(axis=0)
         t_tot = t_sub.sum(axis=0)
-        n_c = f_sub.sum(axis=0)
+        n_c = np.where(f_sub, row_cell_counts[mask][:, None], 0.0).sum(axis=0)
         psi_hat = np.divide((w_sub * u_sub).sum(axis=0), w_tot, out=np.full(u.shape[1], np.nan), where=w_tot > 0)
         # Exact weighted binomial variance + Kish ESS biological dispersion floor
         p_clip = np.clip(np.nan_to_num(psi_hat, nan=0.5), 0.02, 0.98)
@@ -791,19 +811,35 @@ def discover_sc_rbp_programs(
         inference_mode = "paired_donor_moderated_maxT"
         d_sub = donor_delta_df.reindex(columns=contrast_df.loc[elig, "event_id"].astype(str)).to_numpy(dtype=float)  # D x n_elig
         n_donors = d_sub.shape[0]
-        # Compute nuisance-adjusted slope per donor x (region, RBP)
-        d_filled = np.where(np.isfinite(d_sub), d_sub, 0.0)
-        d_res = _weighted_fwl_residuals(d_filled.T, X_nuis, ev_weights).T  # D x n_elig
+        # Compute nuisance-adjusted slope STRICTLY over each donor's observed events so non-random coverage missingness
+        # cannot introduce bias via zero-imputation while preserving exact donor sign-flip equivariance.
+        d_res = np.zeros_like(d_sub, dtype=float)
+        rhs_d = np.zeros((n_donors, n_reg * n_rbp), dtype=float)
+        for d_i in range(n_donors):
+            obs_d = np.isfinite(d_sub[d_i])
+            if int(obs_d.sum()) <= X_nuis.shape[1]:
+                continue
+            w_raw = ev_weights[obs_d]
+            w_sum = float(w_raw.sum())
+            if w_sum <= 1e-12:
+                continue
+            w_d = w_raw / w_sum
+            d_res_obs = _weighted_fwl_residuals(d_sub[d_i, obs_d], X_nuis[obs_d], w_d)
+            if float(np.max(np.abs(d_res_obs))) <= 1e-12:
+                continue
+            d_res[d_i, obs_d] = d_res_obs
+            rhs_d[d_i, :] = (d_res_obs * w_d) @ F_std[obs_d]
 
         if deconfound_correlated_motifs and n_reg * n_rbp > 1:
             # Ridge-decorrelated donor slopes suppress collinear bystander spillover while preserving sign symmetry!
             G_cov = (F_std.T * ev_weights) @ F_std
             ridge_lam = 0.35 * float(np.median(np.diag(G_cov)[valid_col])) if np.any(valid_col) else 0.35
-            rhs_d = (d_res * ev_weights[None, :]) @ F_std  # D x C
             B_donor = np.linalg.solve(G_cov + max(ridge_lam, 0.05) * np.eye(G_cov.shape[0]), rhs_d.T).T
             B_donor[:, ~valid_col] = 0.0
         else:
-            B_donor = (d_res * ev_weights[None, :]) @ F_std
+            B_donor = rhs_d
+            B_donor[:, ~valid_col] = 0.0
+        B_donor = np.where(np.abs(B_donor) <= 1e-12, 0.0, B_donor)
 
         if n_donors <= 14:
             signs = np.array(list(product([-1.0, 1.0], repeat=n_donors)), dtype=float)
@@ -815,11 +851,12 @@ def discover_sc_rbp_programs(
         # Variance-moderated donor t-denominator (invariant to donor sign flips b_d -> +-b_d!)
         # Note: sum_d b_d^2 IS strictly invariant under arbitrary sign flips s_d in {-1, +1}!
         ss_b = np.sum(B_donor * B_donor, axis=0)
-        pos_ss = ss_b[valid_col & (ss_b > 0)]
-        s0_sq = float(np.quantile(pos_ss, 0.25)) * 0.15 if len(pos_ss) else 1e-8
+        active_col = valid_col & (ss_b > 1e-20)
+        pos_ss = ss_b[active_col]
+        s0_sq = max(float(np.quantile(pos_ss, 0.25)) * 0.15, 1e-12) if len(pos_ss) else 1e-8
         mod_denom = np.sqrt(ss_b + s0_sq)
-        Z_obs = np.divide(B_donor.sum(axis=0), mod_denom, out=np.zeros(n_reg * n_rbp), where=valid_col & (mod_denom > 0))
-        null_Z = np.divide(signs @ B_donor, mod_denom[None, :], out=np.zeros((len(signs), n_reg * n_rbp)), where=valid_col[None, :] & (mod_denom[None, :] > 0))
+        Z_obs = np.divide(B_donor.sum(axis=0), mod_denom, out=np.zeros(n_reg * n_rbp), where=active_col & (mod_denom > 0))
+        null_Z = np.divide(signs @ B_donor, mod_denom[None, :], out=np.zeros((len(signs), n_reg * n_rbp)), where=active_col[None, :] & (mod_denom[None, :] > 0))
 
         # Per-RBP max(|Z|) across its regions for exact subset-compatible familywise calibration
         Z_obs_2d = Z_obs.reshape(n_reg, n_rbp)

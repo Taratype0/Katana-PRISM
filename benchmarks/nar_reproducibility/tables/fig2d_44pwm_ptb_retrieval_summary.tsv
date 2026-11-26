@@ -1,0 +1,17 @@
+case	design_role	method	display_label	algorithm_generation	common_models	target_models	PTB_mean_rank_percentile	PTB_best_rank	PTB_model_ranks	PTB_models_FWER_le_05
+PTBP1	known PTB-targeting perturbation	SpliceTrace_13ch_FWL	"SpliceTrace
+(13-ch FWL)"	Current released SpliceTrace (13-channel FWL + gene-block maxT, one pseudoRBP/PWM)	44	4	0.8023255813953488	1.0	1|2|4|31	3
+NegA	non-targeting control contrast	SpliceTrace_13ch_FWL	"SpliceTrace
+(13-ch FWL)"	Current released SpliceTrace (13-channel FWL + gene-block maxT, one pseudoRBP/PWM)	44	4	0.32558139534883723	26.0	26|27|33|34	0
+PTBP1	known PTB-targeting perturbation	MotifTrace_EventGraph	"MotifTrace
+(EventGraph pred.)"	Historical EventGraph 50-nt sliding-window predecessor (fig2_44pwm)	44	4	0.8023255813953488	2.0	6|3|27|2	NA
+PTBP1	known PTB-targeting perturbation	MAPP_native	"MAPP
+(native)"	Native external MAPP motif activity fit on 44 shared PWMs	44	4	0.7093023255813953	1.0	4|1|28|21	NA
+PTBP1	known PTB-targeting perturbation	tappAS_native	"tappAS
+(native)"	Native external tappAS DFI effect magnitudes on 44 shared PWMs	44	4	0.5813953488372093	11.0	14|21|11|30	NA
+NegA	non-targeting control contrast	MotifTrace_EventGraph	"MotifTrace
+(EventGraph pred.)"	Historical EventGraph 50-nt sliding-window predecessor (fig2_44pwm)	44	4	0.191860465116279	30.0	38|39|36|30	NA
+NegA	non-targeting control contrast	MAPP_native	"MAPP
+(native)"	Native external MAPP motif activity fit on 44 shared PWMs	44	4	0.4476744186046512	16.0	34|16|17|32	NA
+NegA	non-targeting control contrast	tappAS_native	"tappAS
+(native)"	Native external tappAS DFI effect magnitudes on 44 shared PWMs	44	4	0.4767441860465116	17.0	17|23|30|24	NA
