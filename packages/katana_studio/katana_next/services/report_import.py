@@ -73,7 +73,11 @@ def import_report(report_path, output_root, projects=None):
         tables.append((entry, path, digest, bool(expected)))
     if not tables:
         raise ValueError('No complete machine-readable result tables in this report')
-    contrasts = [{**c, 'label': c.get('label', c['contrast_id'])} for c in display.get('contrasts', [])]
+    _allowed_c_keys = {'contrast_id', 'label', 'numerator', 'denominator', 'paired', 'paired_subjects', 'design'}
+    contrasts = [
+        {**{k: v for k, v in c.items() if k in _allowed_c_keys}, 'label': c.get('label', c['contrast_id'])}
+        for c in display.get('contrasts', [])
+    ]
     samples = [{k: v for k, v in s.items() if k in {'sample_id','biological_sample_id','condition','batch','attributes'}}
                for s in display.get('samples', [])]
     cond_by_sid = {

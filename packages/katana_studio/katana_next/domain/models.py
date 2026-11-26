@@ -55,6 +55,9 @@ class Contrast(FrozenModel):
     label: str
     numerator: ContrastArm
     denominator: ContrastArm
+    paired: bool = False
+    paired_subjects: int = 0
+    design: str | None = None
 
     @model_validator(mode="after")
     def require_disjoint_arms(self) -> "Contrast":
